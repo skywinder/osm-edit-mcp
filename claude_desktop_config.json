@@ -6,7 +6,6 @@
       "env": {
         "PYTHONPATH": "/Users/pk/repo/_mine/osm-edit-mcp",
         "OSM_API_BASE_URL": "https://api06.dev.openstreetmap.org/api/0.6",
-        "OSM_USE_DEV_API": "true",
         "LOG_LEVEL": "INFO"
       }
     }
