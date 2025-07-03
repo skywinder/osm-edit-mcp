@@ -1,0 +1,105 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+# OSM Edit MCP Server - Safety and Development Rules
+
+## ⚠️ CRITICAL: Ask Before Irreversible Operations
+
+**ALWAYS ask the user before performing these irreversible operations:**
+
+### OpenStreetMap Operations
+- Creating or closing changesets via OSM API
+- Uploading nodes, ways, or relations to OSM
+- Modifying existing OSM map data
+- Deleting OSM elements
+- Making any calls to `api.openstreetmap.org` endpoints that modify data
+- Testing with real OSM data (suggest using dev.openstreetmap.org instead)
+
+### Authentication & Credentials
+- Revoking or modifying OAuth tokens
+- Changing OAuth application settings
+- Exposing credentials in code or commits
+- Modifying [.env](mdc:.env) file with real credentials
+
+### Repository Operations
+- Force pushing to git repository
+- Deleting git history or branches
+- Publishing package to PyPI
+- Creating GitHub releases
+
+## Project Structure
+
+### Core Files
+- [main.py](mdc:main.py) - Entry point for MCP server
+- [src/osm_edit_mcp/server.py](mdc:src/osm_edit_mcp/server.py) - Main server implementation with FastMCP
+- [pyproject.toml](mdc:pyproject.toml) - Package configuration and dependencies
+- [requirements.txt](mdc:requirements.txt) - Legacy pip dependencies
+
+### Configuration
+- [.env](mdc:.env) - **NEVER commit** - Contains real OAuth credentials
+- [.env.example](mdc:.env.example) - Template for environment variables
+- [.gitignore](mdc:.gitignore) - Protects sensitive files from git
+
+### Documentation
+- [README.md](mdc:README.md) - Comprehensive setup and usage guide
+
+## Development Safety Guidelines
+
+### 1. Testing Environment
+- **ALWAYS** use `dev.openstreetmap.org` for testing, not production API
+- Set `OSM_API_BASE_URL=https://api06.dev.openstreetmap.org` in development
+- Verify API base URL before any write operations
+
+### 2. OAuth Security
+- Keep client secrets in [.env](mdc:.env) file only
+- Use keyring for persistent token storage
+- Implement proper token refresh logic
+- Never log full OAuth tokens
+
+### 3. Error Handling
+- Implement comprehensive error handling for OSM API responses
+- Validate all input data before sending to OSM
+- Handle rate limiting (max 10,000 API calls per hour)
+- Gracefully handle network failures
+
+### 4. Data Validation
+- Validate coordinates are within valid ranges (lat: -90 to 90, lon: -180 to 180)
+- Check required tags before creating OSM elements
+- Verify changeset exists before adding elements
+- Validate way node references exist
+
+## MCP Server Implementation
+
+### Tools Pattern
+Each MCP tool in [server.py](mdc:src/osm_edit_mcp/server.py) should:
+- Validate input parameters
+- Check authentication status
+- Log operation details
+- Handle OSM API errors gracefully
+- Return structured responses
+
+### FastMCP Usage
+- Use `@app.tool()` decorator for MCP tools
+- Implement proper type hints with Pydantic models
+- Handle async operations correctly
+- Provide clear tool descriptions
+
+## Security Reminders
+
+1. **Never commit real credentials** to git history
+2. **Always verify OSM API endpoint** before write operations
+3. **Ask user confirmation** for any data modification
+4. **Use development server** for testing
+5. **Implement proper error handling** for all API calls
+
+## Testing Strategy
+
+- Unit tests for data validation
+- Integration tests with dev.openstreetmap.org
+- Mock tests for OAuth flows
+- End-to-end MCP client testing
+- **Never use production OSM data for testing**
+
+Remember: OpenStreetMap is a collaborative project used by millions. Any modifications to the live database should be done with extreme care and proper validation.

@@ -1,0 +1,179 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+# MCP Development Patterns and Best Practices
+
+## Model Context Protocol (MCP) Implementation
+
+### Server Architecture
+The MCP server in [src/osm_edit_mcp/server.py](mdc:src/osm_edit_mcp/server.py) follows FastMCP patterns:
+
+```python
+from mcp.server.fastmcp import FastMCP
+app = FastMCP("osm-edit-mcp")
+
+@app.tool()
+async def tool_name(param: str) -> str:
+    """Tool description for AI assistant."""
+    # Implementation
+```
+
+### Tool Design Principles
+
+#### 1. Clear Tool Descriptions
+- Write descriptions from AI assistant's perspective
+- Include parameter explanations and expected outputs
+- Mention any prerequisites (authentication, changesets, etc.)
+
+#### 2. Type Safety
+- Use Pydantic models for complex parameters
+- Implement proper type hints for all parameters
+- Validate input data before processing
+
+#### 3. Error Handling Pattern
+```python
+try:
+    # OSM API operation
+    result = await osm_client.operation()
+    return {"success": True, "data": result}
+except OSMAPIError as e:
+    return {"success": False, "error": str(e)}
+```
+
+## Authentication Flow
+
+### OAuth 2.0 Implementation
+Based on [.env.example](mdc:.env.example) configuration:
+
+1. **Initial Setup**: User configures OAuth credentials
+2. **Token Request**: Server requests authorization URL
+3. **User Authorization**: User approves application
+4. **Token Exchange**: Server exchanges code for access token
+5. **Token Storage**: Securely store in keyring
+6. **Token Refresh**: Automatic refresh when expired
+
+### Authentication State Management
+- Check token validity before each API operation
+- Implement graceful degradation for unauthenticated requests
+- Provide clear error messages for authentication failures
+
+## OSM API Integration
+
+### Base URL Configuration
+```python
+# Development (safe for testing)
+OSM_API_BASE_URL = "https://api06.dev.openstreetmap.org"
+
+# Production (requires extreme caution)
+OSM_API_BASE_URL = "https://api.openstreetmap.org"
+```
+
+### Request Patterns
+1. **Read Operations**: Safe, no confirmation needed
+   - Get node/way/relation by ID
+   - Search within bounding box
+   - Get changeset information
+
+2. **Write Operations**: ⚠️ REQUIRE USER CONFIRMATION
+   - Create/update/delete elements
+   - Open/close changesets
+   - Upload GPS traces
+
+### Rate Limiting
+- Maximum 10,000 API calls per hour per IP
+- Implement exponential backoff for rate limit errors
+- Cache read responses when appropriate
+
+## Configuration Management
+
+### Environment Variables ([.env](mdc:.env))
+```bash
+OSM_CLIENT_ID=your_oauth_client_id
+OSM_CLIENT_SECRET=your_oauth_client_secret
+OSM_REDIRECT_URI=https://localhost:8080/callback
+OSM_API_BASE_URL=https://api06.dev.openstreetmap.org
+LOG_LEVEL=INFO
+```
+
+### Dependencies ([requirements.txt](mdc:requirements.txt))
+Key packages:
+- `mcp>=1.2.0` - MCP server framework
+- `httpx` - Async HTTP client
+- `authlib` - OAuth 2.0 implementation
+- `keyring` - Secure credential storage
+- `pydantic` - Data validation
+
+## Development Workflow
+
+### 1. Setup Development Environment
+```bash
+# Install with uv (recommended)
+uv pip install -e .
+
+# Or with pip
+pip install -r requirements.txt -e .
+```
+
+### 2. Configuration
+- Copy [.env.example](mdc:.env.example) to `.env`
+- Set up OAuth application on OSM
+- Configure development API endpoint
+
+### 3. Testing Strategy
+- Unit tests for data validation
+- Integration tests with dev.openstreetmap.org
+- Mock OSM API responses for offline testing
+- Test authentication flows
+
+### 4. MCP Client Testing
+```bash
+# Run MCP server
+python main.py
+
+# Connect with MCP client
+# Test tool discovery and execution
+```
+
+## Logging and Debugging
+
+### Structured Logging
+```python
+import logging
+
+logger = logging.getLogger(__name__)
+
+@app.tool()
+async def create_node(lat: float, lon: float, tags: dict):
+    logger.info("Creating node", extra={
+        "lat": lat, "lon": lon, "tags": tags
+    })
+    # Implementation
+```
+
+### Debug Information
+- Log all OSM API requests (excluding auth tokens)
+- Include changeset IDs in operation logs
+- Track tool usage and performance metrics
+
+## Best Practices Summary
+
+1. **Safety First**: Always confirm destructive operations
+2. **Use Dev Environment**: Test with dev.openstreetmap.org
+3. **Validate Input**: Check coordinates, tags, and references
+4. **Handle Errors**: Graceful degradation and clear error messages
+5. **Document Tools**: Clear descriptions for AI assistant usage
+6. **Secure Credentials**: Use keyring, never commit secrets
+7. **Rate Limiting**: Respect OSM API limits
+8. **Test Thoroughly**: Unit, integration, and end-to-end testing
+
+## Common Pitfalls to Avoid
+
+- Never test write operations on production OSM without explicit user consent
+- Don't store OAuth tokens in plaintext files
+- Avoid creating changesets without proper metadata
+- Don't upload incomplete or invalid geometric data
+- Never ignore OSM API error responses
+- Don't bypass coordinate validation
+- Avoid hardcoding API endpoints in tool implementations
