@@ -1,18 +1,51 @@
 # OSM Edit MCP Server
 
-A comprehensive Model Context Protocol (MCP) server for editing OpenStreetMap (OSM) data. This server provides AI assistants with the ability to safely create, read, update, and manage OSM data through a secure, well-designed interface.
+A comprehensive Model Context Protocol (MCP) server for editing OpenStreetMap (OSM) data with **Natural Language Processing**. This server provides AI assistants with the ability to safely create, read, update, and manage OSM data through an intuitive, natural language interface.
 
 **🔗 GitHub Repository**: https://github.com/skywinder/osm-edit-mcp
 
+## ⭐ New: Natural Language Support
+
+**Edit OpenStreetMap using plain English!** No need to learn complex tagging syntax:
+
+```
+✅ "Add a coffee shop with WiFi and outdoor seating"
+✅ "Italian restaurant with takeaway and wheelchair access"
+✅ "Residential street with bike lanes"
+✅ "Bus stop with shelter and bench"
+```
+
+The server automatically converts natural language descriptions into proper OSM tags and handles the technical details for you.
+
 ## 🎯 Features
 
+### 🗣️ Natural Language Processing
+- **Intuitive Descriptions**: Describe features in plain English
+- **Automatic Tag Conversion**: Natural language → proper OSM tags
+- **Smart Suggestions**: Context-aware tag recommendations
+- **Tag Validation**: Real-time validation against OSM standards
+- **Tag Discovery**: Find related and complementary tags
+- **Human-Readable Explanations**: Understand what existing tags mean
+
+### 🛠️ Comprehensive OSM Operations
 - **Full OSM CRUD Operations**: Create, read, update, and delete OSM nodes, ways, and relations
+- **Advanced Tag Management**: Add, modify, merge, and validate tags with conflict resolution
 - **Changeset Management**: Automatic changeset creation and management
+- **Batch Operations**: Efficiently handle multiple tag operations
+- **Element Relationships**: Manage complex relations between OSM elements
+
+### 🔐 Security & Safety
 - **OAuth 2.0 Authentication**: Secure authentication with OSM using OAuth 2.0
 - **Safety First**: Built-in validation, user consent, and error handling
 - **Development & Production APIs**: Support for both live OSM and development server
 - **Rate Limiting**: Respects OSM API rate limits and best practices
 - **FastMCP Implementation**: Uses the latest FastMCP framework for optimal performance
+
+### 📚 Documentation & Discovery
+- **Built-in Tag Documentation**: Access OSM wiki and tag documentation
+- **Usage Statistics**: Real-time tag usage data from Taginfo
+- **Best Practices**: Guidance on proper OSM tagging conventions
+- **Interactive Help**: Context-sensitive help and examples
 
 ## 🚀 Quick Start
 
@@ -139,6 +172,137 @@ The server provides the following MCP tools:
 
 #### Query Operations
 - `query_elements`: Search for OSM elements by various criteria
+
+#### Natural Language Processing Tools
+- `parse_natural_language_tags`: Convert natural language descriptions to OSM tags
+- `suggest_tags`: Get intelligent tag suggestions based on context
+- `explain_tags`: Convert OSM tags back to human-readable explanations
+- `validate_tags`: Validate tag combinations against OSM standards
+- `get_tag_documentation`: Access OSM wiki documentation for tags
+- `discover_related_tags`: Find complementary and related tags
+
+#### Advanced Tag Operations
+- `add_tags_to_element`: Add tags to existing OSM elements
+- `modify_element_tags`: Modify existing tags with natural language
+- `merge_tags`: Merge tag sets with conflict resolution
+- `batch_tag_operations`: Perform multiple tag operations efficiently
+- `create_feature_with_natural_language`: Create complete features from descriptions
+
+## 🗣️ Natural Language Usage Examples
+
+### Converting Descriptions to Tags
+
+```python
+# Convert natural language to OSM tags
+{
+  "tool": "parse_natural_language_tags",
+  "arguments": {
+    "description": "coffee shop with WiFi and outdoor seating",
+    "element_type": "node"
+  }
+}
+# Returns: {"amenity": "cafe", "internet_access": "wlan", "outdoor_seating": "yes"}
+
+# More complex example
+{
+  "tool": "parse_natural_language_tags",
+  "arguments": {
+    "description": "Italian restaurant with takeaway, wheelchair access, and accepts credit cards",
+    "location_context": "downtown area"
+  }
+}
+# Returns: {
+#   "amenity": "restaurant",
+#   "cuisine": "italian",
+#   "takeaway": "yes",
+#   "wheelchair": "yes",
+#   "payment:credit_cards": "yes"
+# }
+```
+
+### Creating Features with Natural Language
+
+```python
+# Create a complete feature from description
+{
+  "tool": "create_feature_with_natural_language",
+  "arguments": {
+    "description": "small grocery store with parking and late opening hours",
+    "lat": 40.7128,
+    "lon": -74.0060,
+    "changeset_comment": "Added local grocery store"
+  }
+}
+# Automatically creates node with proper tags and changeset
+```
+
+### Tag Suggestions and Validation
+
+```python
+# Get smart suggestions based on context
+{
+  "tool": "suggest_tags",
+  "arguments": {
+    "existing_tags": {"amenity": "restaurant"},
+    "location_context": "near university campus",
+    "element_type": "node"
+  }
+}
+# Returns suggestions like: cuisine=*, opening_hours=*, student_discount=yes
+
+# Validate your tags
+{
+  "tool": "validate_tags",
+  "arguments": {
+    "tags": {"amenity": "resturant", "cusine": "italian"}  # Contains typos
+  }
+}
+# Returns: {"valid": false, "errors": ["'resturant' should be 'restaurant'", "'cusine' should be 'cuisine'"]}
+```
+
+### Understanding Existing Tags
+
+```python
+# Explain tags in human language
+{
+  "tool": "explain_tags",
+  "arguments": {
+    "tags": {
+      "highway": "trunk",
+      "lanes": "4",
+      "maxspeed": "80",
+      "surface": "asphalt"
+    }
+  }
+}
+# Returns: "This is a major road (trunk road) with 4 lanes, speed limit of 80 km/h, and asphalt surface."
+```
+
+### Common Natural Language Patterns
+
+#### Food & Dining
+- **"coffee shop"** → `amenity=cafe`
+- **"fast food restaurant"** → `amenity=fast_food`
+- **"pizza place with delivery"** → `amenity=restaurant, cuisine=pizza, delivery=yes`
+- **"food truck"** → `amenity=fast_food, mobile=yes`
+
+#### Shopping
+- **"grocery store"** → `shop=supermarket`
+- **"small convenience store"** → `shop=convenience`
+- **"bakery"** → `shop=bakery`
+- **"clothing store"** → `shop=clothes`
+
+#### Transport & Infrastructure
+- **"bus stop with shelter"** → `public_transport=platform, shelter=yes, bus=yes`
+- **"residential street"** → `highway=residential`
+- **"bike path"** → `highway=cycleway`
+- **"parking lot"** → `amenity=parking`
+
+#### Services
+- **"bank with ATM"** → `amenity=bank, atm=yes`
+- **"post office"** → `amenity=post_office`
+- **"hospital"** → `amenity=hospital`
+- **"school"** → `amenity=school`
 
 ### MCP Resources
 
