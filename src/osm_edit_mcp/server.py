@@ -18,8 +18,14 @@ from enum import Enum
 import json
 from datetime import datetime
 
+# Import the new tag management system
+from .osm_tags import OSMTagManager, initialize_tag_manager
+
 # Initialize FastMCP server
 mcp = FastMCP("osm-edit-mcp")
+
+# Initialize tag manager
+tag_manager = OSMTagManager()
 
 # Setup logging
 logger = structlog.get_logger(__name__)
@@ -117,178 +123,21 @@ class TagConflictResolution(BaseModel):
     keep_both: bool = False
     priority_reason: str
 
-# Advanced Tagging Services
-class OSMTagStandards:
-    """OSM tagging standards and validation"""
+# Advanced Tagging Services - Now using external tag management
+# The OSMTagStandards class has been replaced with the external tag manager
+# All tag operations are now handled by the tag_manager instance
 
-    # Common tag patterns and their validation rules
-    STANDARD_TAGS = {
-        # Basic tags
-        "amenity": {
-            "values": ["restaurant", "cafe", "pub", "bar", "fast_food", "food_court",
-                      "biergarten", "school", "university", "library", "hospital",
-                      "pharmacy", "bank", "atm", "post_office", "police", "fire_station",
-                      "place_of_worship", "fuel", "parking", "toilet", "bench"],
-            "description": "Amenities and facilities",
-            "wiki": "https://wiki.openstreetmap.org/wiki/Key:amenity"
-        },
-        "shop": {
-            "values": ["supermarket", "convenience", "bakery", "butcher", "clothes",
-                      "shoes", "electronics", "books", "gift", "jewelry", "bicycle",
-                      "car", "hairdresser", "beauty", "pharmacy", "optician"],
-            "description": "Shops and retail establishments",
-            "wiki": "https://wiki.openstreetmap.org/wiki/Key:shop"
-        },
-        "tourism": {
-            "values": ["hotel", "motel", "hostel", "guest_house", "museum", "attraction",
-                      "viewpoint", "information", "picnic_site", "camp_site"],
-            "description": "Tourism and leisure facilities",
-            "wiki": "https://wiki.openstreetmap.org/wiki/Key:tourism"
-        },
-        "highway": {
-            "values": ["motorway", "trunk", "primary", "secondary", "tertiary", "residential",
-                      "service", "footway", "cycleway", "path", "track", "steps"],
-            "description": "Roads and transportation routes",
-            "wiki": "https://wiki.openstreetmap.org/wiki/Key:highway"
-        },
-        "building": {
-            "values": ["yes", "house", "apartment", "commercial", "industrial", "retail",
-                      "office", "public", "school", "hospital", "church", "garage"],
-            "description": "Buildings and structures",
-            "wiki": "https://wiki.openstreetmap.org/wiki/Key:building"
-        }
-    }
 
-    # Natural language to tag mappings
-    NATURAL_LANGUAGE_MAPPINGS = {
-        # Food and dining
-        "restaurant": {"amenity": "restaurant"},
-        "cafe": {"amenity": "cafe"},
-        "coffee shop": {"amenity": "cafe", "cuisine": "coffee"},
-        "fast food": {"amenity": "fast_food"},
-        "pub": {"amenity": "pub"},
-        "bar": {"amenity": "bar"},
-        "bakery": {"shop": "bakery"},
-
-        # Shopping
-        "supermarket": {"shop": "supermarket"},
-        "grocery store": {"shop": "supermarket"},
-        "convenience store": {"shop": "convenience"},
-        "bookstore": {"shop": "books"},
-        "clothing store": {"shop": "clothes"},
-        "electronics store": {"shop": "electronics"},
-
-        # Services
-        "bank": {"amenity": "bank"},
-        "hospital": {"amenity": "hospital"},
-        "school": {"amenity": "school"},
-        "library": {"amenity": "library"},
-        "post office": {"amenity": "post_office"},
-        "pharmacy": {"amenity": "pharmacy"},
-        "gas station": {"amenity": "fuel"},
-        "parking": {"amenity": "parking"},
-
-        # Tourism
-        "hotel": {"tourism": "hotel"},
-        "museum": {"tourism": "museum"},
-        "tourist attraction": {"tourism": "attraction"},
-
-        # Buildings
-        "house": {"building": "house"},
-        "apartment": {"building": "apartment"},
-        "office building": {"building": "office"},
-        "commercial building": {"building": "commercial"}
-    }
-
-    @classmethod
-    def validate_tag(cls, key: str, value: str) -> TagValidationResult:
-        """Validate a single tag"""
-        if key in cls.STANDARD_TAGS:
-            standard = cls.STANDARD_TAGS[key]
-            if value in standard["values"]:
-                return TagValidationResult(
-                    tag_key=key,
-                    tag_value=value,
-                    level=TagValidationLevel.VALID,
-                    message=f"Valid {key} value",
-                    documentation_url=standard.get("wiki")
-                )
-            else:
-                suggestions = [v for v in standard["values"] if value.lower() in v.lower()][:3]
-                return TagValidationResult(
-                    tag_key=key,
-                    tag_value=value,
-                    level=TagValidationLevel.WARNING,
-                    message=f"Uncommon {key} value. Consider using a standard value.",
-                    suggestions=suggestions,
-                    documentation_url=standard.get("wiki")
-                )
-        else:
-            return TagValidationResult(
-                tag_key=key,
-                tag_value=value,
-                level=TagValidationLevel.INFO,
-                message=f"Tag {key} is not in common standards but may be valid"
-            )
-
-    @classmethod
-    def suggest_tags_from_description(cls, description: str) -> List[TagSuggestion]:
-        """Suggest tags based on natural language description"""
-        suggestions = []
-        description_lower = description.lower()
-
-        for phrase, tags in cls.NATURAL_LANGUAGE_MAPPINGS.items():
-            if phrase in description_lower:
-                for key, value in tags.items():
-                    suggestions.append(TagSuggestion(
-                        key=key,
-                        value=value,
-                        confidence=0.9,
-                        reason=f"Matched phrase: '{phrase}'",
-                        category="primary",
-                        examples=[f"{key}={value}"]
-                    ))
-
-        # Additional contextual suggestions
-        if any(word in description_lower for word in ["outdoor", "terrace", "patio"]):
-            suggestions.append(TagSuggestion(
-                key="outdoor_seating",
-                value="yes",
-                confidence=0.8,
-                reason="Description mentions outdoor area",
-                category="amenity",
-                examples=["outdoor_seating=yes"]
-            ))
-
-        if any(word in description_lower for word in ["wifi", "internet"]):
-            suggestions.append(TagSuggestion(
-                key="internet_access",
-                value="wlan",
-                confidence=0.8,
-                reason="Description mentions wifi/internet",
-                category="amenity",
-                examples=["internet_access=wlan", "internet_access=yes"]
-            ))
-
-        if any(word in description_lower for word in ["wheelchair", "accessible"]):
-            suggestions.append(TagSuggestion(
-                key="wheelchair",
-                value="yes",
-                confidence=0.8,
-                reason="Description mentions accessibility",
-                category="accessibility",
-                examples=["wheelchair=yes", "wheelchair=limited"]
-            ))
-
-        return suggestions
 
 class TagProcessor:
     """Advanced tag processing and management"""
 
-    @staticmethod
-    def parse_natural_language(request: NaturalLanguageTagRequest) -> Dict[str, Any]:
+    def __init__(self, tag_manager: OSMTagManager):
+        self.tag_manager = tag_manager
+
+    def parse_natural_language(self, request: NaturalLanguageTagRequest) -> Dict[str, Any]:
         """Parse natural language into OSM tags"""
-        suggestions = OSMTagStandards.suggest_tags_from_description(request.description)
+        suggestions = self.tag_manager.suggest_tags_from_description(request.description)
 
         # Merge with existing tags
         merged_tags = request.existing_tags.copy()
@@ -313,12 +162,23 @@ class TagProcessor:
             "suggestions": suggestions,
             "conflicts": conflicts,
             "validation_results": [
-                OSMTagStandards.validate_tag(k, v) for k, v in merged_tags.items()
+                self.tag_manager.validate_tag(k, v) for k, v in merged_tags.items()
             ]
         }
 
-    @staticmethod
-    def merge_tags(existing_tags: Dict[str, str], new_tags: Dict[str, str]) -> Dict[str, Any]:
+    def simple_parse_natural_language(self, description: str) -> Dict[str, Any]:
+        """Simple natural language parsing for tools that don't need full request object"""
+        suggestions = self.tag_manager.suggest_tags_from_description(description)
+
+        return {
+            "suggested_tags": {s.key: s.value for s in suggestions},
+            "suggestions": suggestions,
+            "validation_results": [
+                self.tag_manager.validate_tag(s.key, s.value) for s in suggestions
+            ]
+        }
+
+    def merge_tags(self, existing_tags: Dict[str, str], new_tags: Dict[str, str]) -> Dict[str, Any]:
         """Merge tag sets with conflict detection"""
         merged = existing_tags.copy()
         conflicts = []
@@ -347,6 +207,9 @@ class TagProcessor:
             "updated_tags": updated,
             "summary": f"Added {len(added)} tags, updated {len(updated)} tags, {len(conflicts)} conflicts"
         }
+
+# Initialize tag processor
+tag_processor = TagProcessor(tag_manager)
 
 # Data models
 class OSMNode(BaseModel):
@@ -869,7 +732,7 @@ async def validate_tags(
         validation_results = []
 
         for key, value in tags.items():
-            result = OSMTagStandards.validate_tag(key, value)
+            result = tag_manager.validate_tag(key, value)
             validation_results.append(result)
 
         # Summary statistics
@@ -908,7 +771,7 @@ async def suggest_tags(
     Provides ranked suggestions with explanations and examples of proper usage.
     """
     try:
-        suggestions = OSMTagStandards.suggest_tags_from_description(description)
+        suggestions = tag_manager.suggest_tags_from_description(description)
 
         # Filter and limit suggestions
         filtered_suggestions = []
@@ -994,7 +857,7 @@ async def add_tags_to_element(
         # First validate the new tags
         validation_results = []
         for key, value in new_tags.items():
-            result = OSMTagStandards.validate_tag(key, value)
+            result = tag_manager.validate_tag(key, value)
             validation_results.append(result)
 
         # Check for validation errors
@@ -1046,7 +909,7 @@ async def modify_element_tags(
         # Validate updated tags
         validation_results = []
         for key, value in tag_updates.items():
-            result = OSMTagStandards.validate_tag(key, value)
+            result = tag_manager.validate_tag(key, value)
             validation_results.append(result)
 
         # Check for validation errors
@@ -1094,8 +957,8 @@ async def get_tag_documentation(
     Provides wiki links, descriptions, common values, and usage examples.
     """
     try:
-        if tag_key in OSMTagStandards.STANDARD_TAGS:
-            standard = OSMTagStandards.STANDARD_TAGS[tag_key]
+        if tag_key in tag_manager.tag_standards["primary_tags"]:
+            standard = tag_manager.tag_standards["primary_tags"][tag_key]
 
             result = {
                 "success": True,
@@ -1261,24 +1124,24 @@ async def explain_tags(
         if "amenity" in tags:
             value = tags["amenity"]
             feature_description = f"This is a {value}"
-            explanations.append(f"amenity={value}: {OSMTagStandards.get_tag_description('amenity', value)}")
+            explanations.append(f"amenity={value}: {tag_manager.get_tag_description('amenity', value)}")
         elif "shop" in tags:
             value = tags["shop"]
             feature_description = f"This is a {value} shop"
-            explanations.append(f"shop={value}: {OSMTagStandards.get_tag_description('shop', value)}")
+            explanations.append(f"shop={value}: {tag_manager.get_tag_description('shop', value)}")
         elif "highway" in tags:
             value = tags["highway"]
             feature_description = f"This is a {value} road/path"
-            explanations.append(f"highway={value}: {OSMTagStandards.get_tag_description('highway', value)}")
+            explanations.append(f"highway={value}: {tag_manager.get_tag_description('highway', value)}")
         elif "building" in tags:
             value = tags["building"]
             feature_description = f"This is a {value} building"
-            explanations.append(f"building={value}: {OSMTagStandards.get_tag_description('building', value)}")
+            explanations.append(f"building={value}: {tag_manager.get_tag_description('building', value)}")
 
         # Additional tag explanations
         for key, value in tags.items():
             if key not in ["amenity", "shop", "highway", "building"]:
-                description = OSMTagStandards.get_tag_description(key, value)
+                description = tag_manager.get_tag_description(key, value)
                 explanations.append(f"{key}={value}: {description}")
 
         # Build natural language summary
@@ -1458,7 +1321,7 @@ async def batch_tag_operations(
                     # Validate tags
                     validation_results = []
                     for key, value in tags.items():
-                        result = OSMTagStandards.validate_tag(key, value)
+                        result = tag_manager.validate_tag(key, value)
                         validation_results.append(result)
 
                     errors = [r for r in validation_results if r.level == TagValidationLevel.ERROR]
@@ -1491,7 +1354,7 @@ async def batch_tag_operations(
                     # Validate updated tags
                     validation_results = []
                     for key, value in tag_updates.items():
-                        result = OSMTagStandards.validate_tag(key, value)
+                        result = tag_manager.validate_tag(key, value)
                         validation_results.append(result)
 
                     errors = [r for r in validation_results if r.level == TagValidationLevel.ERROR]
