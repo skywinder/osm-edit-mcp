@@ -187,10 +187,16 @@ class OSMTestSuite:
         result = await self.run_test("get_changeset", get_changeset, 1)
         self.results.append(result)
 
-        # Test 18: Create OSM node (will fail without changeset but validates input)
+        # Test 18: Create OSM node (Belgrade location with unique name)
+        # First create a changeset for this test
+        changeset_result = await create_changeset("Test node creation", {"test": "true"})
+        changeset_id = changeset_result.get("data", {}).get("changeset_id", 1) if changeset_result.get("success") else 1
+
+        import random
+        test_name = f"Test Node {random.randint(1000, 9999)}"
         result = await self.run_test("create_osm_node", create_osm_node,
-                                   51.5074, -0.1278,
-                                   {"name": "Test Node", "amenity": "restaurant"}, 1)
+                                   44.80366197537814, 20.486398637294773,
+                                   {"name": test_name, "amenity": "restaurant"}, changeset_id)
         self.results.append(result)
 
         # Test 19: Create OSM way (will fail without changeset but validates input)
@@ -240,10 +246,12 @@ class OSMTestSuite:
         """Test natural language processing operations"""
         self.logger.info("=== Testing Natural Language Operations ===")
 
-        # Test 28: Create place from description
+        # Test 28: Create place from description (Belgrade location)
+        import random
+        cafe_name = f"Bean There {random.randint(1000, 9999)}"
         result = await self.run_test("create_place_from_description",
                                    create_place_from_description,
-                                   "Add a coffee shop called 'Bean There' at 51.5074, -0.1278")
+                                   f"Add a coffee shop called '{cafe_name}' at 44.80366197537814, 20.486398637294773")
         self.results.append(result)
 
         # Test 29: Find and update place
@@ -252,24 +260,27 @@ class OSMTestSuite:
                                    "Update the restaurant at Trafalgar Square to be open until 11pm")
         self.results.append(result)
 
-        # Test 30: Delete place from description
+        # Test 30: Delete place from description (Belgrade location)
         result = await self.run_test("delete_place_from_description",
                                    delete_place_from_description,
-                                   "Remove the temporary marker at 51.5074, -0.1278")
+                                   "Remove the temporary marker at 44.80366197537814, 20.486398637294773")
         self.results.append(result)
 
-        # Test 31: Bulk create places
+        # Test 31: Bulk create places (Belgrade area with unique names)
+        import random
+        restaurant_name = f"Test Restaurant {random.randint(1000, 9999)}"
+        cafe_name = f"Test Cafe {random.randint(1000, 9999)}"
         places_data = [
             {
-                "name": "Test Restaurant 1",
-                "lat": 51.5074,
-                "lon": -0.1278,
+                "name": restaurant_name,
+                "lat": 44.80366197537814,
+                "lon": 20.486398637294773,
                 "tags": {"amenity": "restaurant", "cuisine": "italian"}
             },
             {
-                "name": "Test Cafe 1",
-                "lat": 51.5075,
-                "lon": -0.1279,
+                "name": cafe_name,
+                "lat": 44.80376197537814,  # Slightly offset
+                "lon": 20.486498637294773,
                 "tags": {"amenity": "cafe"}
             }
         ]
