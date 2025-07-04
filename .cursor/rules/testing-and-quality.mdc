@@ -1,0 +1,225 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# Testing and Quality Assurance Guide
+
+## Comprehensive Testing Framework
+
+### Automated Testing with test_comprehensive.py
+The [test_comprehensive.py](mcp:test_comprehensive.py) provides systematic testing of all 31 MCP tools:
+
+```bash
+# Run full test suite
+python test_comprehensive.py
+
+# Expected output: JSON report, logs, and console summary
+```
+
+#### Test Categories
+1. **Read Operations (Tests 1-15)**: Safe operations that should mostly pass
+2. **Write Operations (Tests 16-27)**: OAuth-protected, expected to fail without auth
+3. **Natural Language (Tests 28-31)**: Input validation and processing
+
+### Manual Testing with TESTING_CHECKLIST.md
+Follow [TESTING_CHECKLIST.md](mcp:TESTING_CHECKLIST.md) for systematic manual validation:
+
+#### Testing Phases
+1. **Pre-test Setup**: Configuration verification
+2. **Automated Testing**: Run comprehensive test suite
+3. **Manual Testing**: Phase-by-phase validation
+4. **Configuration Testing**: Dev/prod switching
+5. **Error Handling**: Edge cases and failures
+6. **Performance Testing**: Response times and memory
+7. **Security Testing**: Credential handling and validation
+
+### Test Results Analysis
+Review [TEST_RESULTS_SUMMARY.md](mcp:TEST_RESULTS_SUMMARY.md) for:
+- ✅ **Working tools** (ready for use)
+- ❌ **Expected failures** (OAuth-dependent, normal)
+- 🔧 **Issues to debug** (actual problems requiring fixes)
+
+## Quality Standards
+
+### Test Success Criteria
+- **Read operations**: ≥80% success rate
+- **Write operations**: Expected 401/auth failures
+- **Validation tools**: 100% success rate
+- **Error handling**: Graceful failures with informative messages
+
+### Configuration Testing
+Test dev/prod switching in [.env](mcp:.env):
+```bash
+# Test development mode
+OSM_USE_DEV_API=true
+python -c "from src.osm_edit_mcp.server import config; print(config.current_api_base_url)"
+
+# Test production mode (careful!)
+OSM_USE_DEV_API=false
+python -c "from src.osm_edit_mcp.server import config; print(config.current_api_base_url)"
+```
+
+### Logging Level Testing
+Verify log levels in [.env](mcp:.env):
+```bash
+LOG_LEVEL=DEBUG   # Should show detailed debug info
+LOG_LEVEL=INFO    # Should show operation info
+LOG_LEVEL=WARNING # Should show only warnings/errors
+LOG_LEVEL=ERROR   # Should show only errors
+```
+
+## Test Data Management
+
+### Valid Test Data for Dev Server
+Use known good IDs that exist on `api06.dev.openstreetmap.org`:
+- **Node**: 150537 (working in tests)
+- **Way**: Need to find valid dev server way ID
+- **Relation**: Need to find valid dev server relation ID
+
+### Test Coordinates
+Use valid, safe test coordinates:
+- **London**: 51.5074, -0.1278 (working)
+- **New York**: 40.7580, -73.9855 (working)
+- **Paris**: 48.8566, 2.3522 (alternative)
+
+### Bounding Box Testing
+Test with appropriately sized bounding boxes:
+```bash
+# Small area (working for some operations)
+"-0.1279,-0.1278,51.5074,51.5075"
+
+# Larger area (may work better for dev server)
+"-0.13,-0.12,51.50,51.51"
+```
+
+## Error Handling Quality
+
+### Expected Error Patterns
+Tools should handle these error types gracefully:
+
+#### HTTP Errors
+- **401 Unauthorized**: OAuth required (expected for write operations)
+- **404 Not Found**: Element doesn't exist (handle gracefully)
+- **400 Bad Request**: Invalid parameters (informative error)
+- **429 Rate Limited**: Too many requests (retry logic)
+
+#### Input Validation Errors
+- Invalid coordinates (lat/lon out of range)
+- Missing required parameters
+- Malformed data structures
+- Invalid OSM element references
+
+### Error Response Quality
+All errors should return structured responses:
+```python
+{
+    "success": False,
+    "error": "Technical error details for debugging",
+    "message": "Human-readable explanation for users"
+}
+```
+
+## Performance Standards
+
+### Response Time Expectations
+- **Simple operations**: < 1 second
+- **Complex searches**: < 5 seconds
+- **Large data exports**: < 30 seconds
+- **Authentication**: < 2 seconds
+
+### Memory Usage
+- **Base server**: < 100MB
+- **During testing**: < 500MB
+- **Large operations**: < 1GB
+
+### API Rate Limiting
+Respect OSM API limits configured in [.env](mcp:.env):
+- `RATE_LIMIT_PER_MINUTE=60`
+- `MAX_CHANGESET_SIZE=50`
+- Handle 429 responses gracefully
+
+## Security Testing
+
+### Credential Security
+- Never log OAuth tokens or secrets
+- Verify [.env](mcp:.env) is not committed to version control
+- Test with invalid credentials (should fail gracefully)
+- Verify keyring usage when `USE_KEYRING=true`
+
+### Input Sanitization
+- Test with malicious coordinate values
+- Test with oversized input data
+- Test with special characters in tags
+- Verify SQL injection protection
+
+### API Security
+- Test parameter tampering
+- Verify HTTPS usage for all API calls
+- Check that sensitive data isn't logged
+- Test with malformed API responses
+
+## Continuous Quality Assurance
+
+### Before Code Changes
+1. Run [test_comprehensive.py](mcp:test_comprehensive.py)
+2. Document baseline success rate
+3. Note any failing tests
+
+### After Code Changes
+1. Re-run [test_comprehensive.py](mcp:test_comprehensive.py)
+2. Compare results with baseline
+3. Investigate any new failures
+4. Update test expectations if needed
+
+### Before Deployment
+1. Complete [TESTING_CHECKLIST.md](mcp:TESTING_CHECKLIST.md)
+2. Test dev/prod configuration switching
+3. Verify all safety features enabled
+4. Test OAuth flow if configured
+5. Performance test with realistic data
+
+## Test Result Documentation
+
+### Generated Test Reports
+- **test_report.json**: Detailed JSON with all test results
+- **test_results.log**: Comprehensive execution logs
+- **Console output**: Summary with pass/fail status
+
+### Tracking Test Health
+Monitor these metrics over time:
+- Overall success rate (target: maintain or improve)
+- Response times (target: stable or decreasing)
+- Error rates by category
+- New tool test coverage
+
+### Issue Tracking
+For failed tests, document:
+- Error type and frequency
+- Steps to reproduce
+- Potential fixes
+- Workarounds available
+- Impact on functionality
+
+## Development Testing Workflow
+
+### Feature Development
+1. **Start**: Run baseline tests
+2. **Develop**: Implement new feature following patterns in [server.py](mcp:src/osm_edit_mcp/server.py)
+3. **Test**: Add test case to [test_comprehensive.py](mcp:test_comprehensive.py)
+4. **Validate**: Run full test suite
+5. **Document**: Update [README.md](mcp:README.md) if needed
+
+### Bug Fixes
+1. **Reproduce**: Use tests to confirm bug
+2. **Fix**: Implement solution
+3. **Verify**: Confirm fix with tests
+4. **Regression**: Run full test suite
+5. **Document**: Update test expectations
+
+### Configuration Changes
+1. **Test current**: Baseline with existing config
+2. **Change**: Update [.env](mcp:.env) or [server.py](mcp:src/osm_edit_mcp/server.py)
+3. **Validate**: Test new configuration
+4. **Document**: Update [README.md](mcp:README.md) with new options
+5. **Compatibility**: Ensure backward compatibility

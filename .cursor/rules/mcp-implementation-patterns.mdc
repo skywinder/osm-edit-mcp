@@ -1,0 +1,257 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# MCP Implementation Patterns for OSM Server
+
+## FastMCP Server Structure
+
+The [server.py](mdc:mcp:src/osm_edit_mcp/server.py) uses FastMCP framework with this pattern:
+
+```python
+from mcp.server.fastmcp import FastMCP
+
+# Initialize server
+mcp = FastMCP("osm-edit-mcp")
+
+# Define tools with decorator
+@mcp.tool()
+async def tool_name(param: type) -> Dict[str, Any]:
+    """Tool description for AI assistant."""
+    # Implementation
+```
+
+## MCP Tool Categories
+
+### 1. Read Operations (Safe)
+Tools that only retrieve data from OSM:
+- `get_osm_node`, `get_osm_way`, `get_osm_relation`
+- `get_osm_elements_in_area`, `get_changeset_history`
+- `find_nearby_amenities`, `search_osm_elements`
+
+### 2. Validation and Utility Tools
+Non-destructive operations for data validation:
+- `validate_coordinates`, `validate_osm_data`
+- `get_place_info`, `smart_geocode`
+- `get_server_info`, `export_osm_data`
+
+### 3. Write Operations (OAuth Required)
+Tools that modify OSM data:
+- `create_osm_node`, `update_osm_node`, `delete_osm_node`
+- `create_osm_way`, `update_osm_way`, `delete_osm_way`
+- `create_osm_relation`, `update_osm_relation`, `delete_osm_relation`
+- `create_changeset`, `close_changeset`
+
+### 4. Natural Language Processing
+Advanced tools for natural language interaction:
+- `parse_natural_language_osm_request`
+- `create_place_from_description`
+- `find_and_update_place`, `delete_place_from_description`
+- `bulk_create_places`
+
+## Tool Implementation Pattern
+
+### Standard Tool Structure
+```python
+@mcp.tool()
+async def tool_name(param1: type, param2: Optional[type] = None) -> Dict[str, Any]:
+    """Clear description of what the tool does.
+
+    Args:
+        param1: Description of required parameter
+        param2: Description of optional parameter
+
+    Returns:
+        Dictionary containing result data and status
+    """
+    try:
+        # Log the operation
+        logger.debug(f"Operation description with params")
+
+        # Validate inputs
+        if not validate_input(param1):
+            return {
+                "success": False,
+                "error": "Validation error message",
+                "message": "Human-readable error"
+            }
+
+        # Build API URL using configuration
+        url = f"{config.current_api_base_url}/endpoint"
+
+        # Make API call
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url)
+            response.raise_for_status()
+
+        # Process response
+        result_data = process_response(response)
+
+        return {
+            "success": True,
+            "data": result_data,
+            "message": "Success message"
+        }
+
+    except Exception as e:
+        logger.error(f"Tool failed: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e),
+            "message": f"Failed to perform operation"
+        }
+```
+
+### Configuration Usage
+Always use the configuration from [server.py](mdc:mcp:src/osm_edit_mcp/server.py):
+
+```python
+# Use current API base URL (dev/prod switching)
+url = f"{config.current_api_base_url}/endpoint"
+
+# Check development mode
+if config.is_development:
+    logger.info("Running in development mode")
+
+# Access other configuration
+rate_limit = config.rate_limit_per_minute
+max_size = config.max_changeset_size
+```
+
+## Error Handling Standards
+
+### Structured Response Format
+All tools must return this consistent structure:
+```python
+# Success response
+{
+    "success": True,
+    "data": {...},          # Actual result data
+    "message": "Description of what happened"
+}
+
+# Error response
+{
+    "success": False,
+    "error": "Technical error details",
+    "message": "Human-readable error explanation"
+}
+```
+
+### Exception Handling
+```python
+try:
+    # Main operation
+    result = await perform_operation()
+
+except httpx.HTTPStatusError as e:
+    # Handle HTTP errors specifically
+    return {
+        "success": False,
+        "error": f"HTTP {e.response.status_code}: {e.response.text}",
+        "message": f"API request failed"
+    }
+
+except Exception as e:
+    # Handle all other errors
+    logger.error(f"Unexpected error in {tool_name}: {str(e)}")
+    return {
+        "success": False,
+        "error": str(e),
+        "message": f"Operation failed unexpectedly"
+    }
+```
+
+## Authentication Patterns
+
+### OAuth-Protected Operations
+For tools that require authentication:
+
+```python
+@mcp.tool()
+async def write_operation(params) -> Dict[str, Any]:
+    """Tool that requires OAuth authentication."""
+
+    # Check if OAuth client is available
+    if not osm_client:
+        return {
+            "success": False,
+            "error": "Authentication required",
+            "message": "OAuth client not configured"
+        }
+
+    # Proceed with authenticated operation
+    try:
+        # Use authenticated client
+        response = await osm_client.request(...)
+    except Exception as e:
+        # Handle auth errors
+        if "401" in str(e) or "unauthorized" in str(e).lower():
+            return {
+                "success": False,
+                "error": "Authentication failed",
+                "message": "OAuth token invalid or expired"
+            }
+```
+
+## Logging Patterns
+
+### Use Structured Logging
+```python
+# Import logger from server configuration
+from osm_edit_mcp.server import logger
+
+# Log at appropriate levels
+logger.debug(f"Detailed operation info: {params}")
+logger.info(f"Important operation: {operation_type}")
+logger.warning(f"Potential issue: {issue_description}")
+logger.error(f"Operation failed: {error_details}")
+```
+
+### Log Security Considerations
+- Never log OAuth tokens or credentials
+- Log API endpoints being called (for debugging)
+- Log operation parameters (but sanitize sensitive data)
+- Log performance metrics (response times, etc.)
+
+## Testing Integration
+
+### Tool Testing in test_comprehensive.py
+Each tool should be testable in [test_comprehensive.py](mdc:mcp:test_comprehensive.py):
+
+```python
+# Test pattern for read operations
+result = await self.run_test("tool_name", tool_function, param1, param2)
+self.results.append(result)
+
+# Expected behavior:
+# - Read operations: Should pass
+# - Write operations: Should fail with auth error (expected)
+# - Validation tools: Should pass with valid input
+```
+
+### Test Data Considerations
+- Use valid test data that exists on dev server
+- Handle 404 errors gracefully for missing test data
+- Test both success and failure cases
+- Validate error message quality
+
+## Adding New Tools
+
+### Checklist for New MCP Tools
+1. **Implementation**: Follow standard pattern in [server.py](mdc:mcp:src/osm_edit_mcp/server.py)
+2. **Documentation**: Add clear docstring with parameter descriptions
+3. **Configuration**: Use `config.current_api_base_url` for API calls
+4. **Error Handling**: Return structured responses with success/error format
+5. **Logging**: Add appropriate debug/info logging
+6. **Testing**: Add test case to [test_comprehensive.py](mdc:mcp:test_comprehensive.py)
+7. **Safety**: Mark write operations clearly, use dev API for testing
+8. **Documentation**: Update [README.md](mdc:mcp:README.md) if needed
+
+### Tool Naming Conventions
+- **Read operations**: `get_osm_*`, `find_*`, `search_*`
+- **Write operations**: `create_osm_*`, `update_osm_*`, `delete_osm_*`
+- **Validation**: `validate_*`
+- **Utility**: `*_info`, `*_statistics`
+- **Natural Language**: `*_from_description`, `parse_*`

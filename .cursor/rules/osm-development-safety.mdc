@@ -1,0 +1,136 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+# OSM Development Safety and Best Practices
+
+## ⚠️ CRITICAL: Always Ask Before Irreversible Operations
+
+**NEVER perform these operations without explicit user confirmation:**
+
+### OpenStreetMap Write Operations
+- Creating or closing changesets via OSM API
+- Uploading nodes, ways, or relations to OSM
+- Modifying existing OSM map data
+- Deleting OSM elements
+- Any calls to production `api.openstreetmap.org` endpoints
+
+### Configuration Safety
+- Always use development API for testing: `OSM_USE_DEV_API=true` in [.env](mdc:.env)
+- Production API requires extreme caution: `OSM_USE_DEV_API=false`
+- Never commit real OAuth credentials to version control
+
+## Development API Configuration
+
+### Safe Development Setup
+```bash
+# In .env file - ALWAYS use for development
+OSM_USE_DEV_API=true
+OSM_DEV_API_BASE=https://api06.dev.openstreetmap.org/api/0.6
+```
+
+### Production API (Use with Extreme Caution)
+```bash
+# Only for production deployments
+OSM_USE_DEV_API=false
+OSM_API_BASE=https://api.openstreetmap.org/api/0.6
+```
+
+The [server.py](mdc:src/osm_edit_mcp/server.py) `OSMConfig` class automatically selects the correct API based on `OSM_USE_DEV_API` setting.
+
+## Testing Guidelines
+
+### Automated Testing
+- Run [test_comprehensive.py](mdc:test_comprehensive.py) before any changes
+- Expected results documented in [TEST_RESULTS_SUMMARY.md](mdc:TEST_RESULTS_SUMMARY.md)
+- Write operations will fail without OAuth (this is expected and safe)
+
+### Manual Testing Process
+1. Follow [TESTING_CHECKLIST.md](mdc:TESTING_CHECKLIST.md) systematically
+2. Start with read operations (safe)
+3. Test configuration switching (dev/prod)
+4. Validate error handling
+5. Never test write operations on production without user consent
+
+## MCP Tool Implementation Patterns
+
+### Read Operations (Safe)
+All tools in [server.py](mdc:src/osm_edit_mcp/server.py) that only retrieve data:
+- `get_osm_node`, `get_osm_way`, `get_osm_relation`
+- `find_nearby_amenities`, `validate_coordinates`
+- `get_place_info`, `search_osm_elements`
+
+### Write Operations (Require OAuth + Confirmation)
+Tools that modify OSM data:
+- `create_osm_node`, `update_osm_node`, `delete_osm_node`
+- `create_osm_way`, `update_osm_way`, `delete_osm_way`
+- `create_changeset`, `close_changeset`
+
+### Error Handling Pattern
+All tools should return structured responses:
+```python
+{
+    "success": True/False,
+    "data": {...},          # On success
+    "error": "...",         # On failure
+    "message": "..."        # Human-readable message
+}
+```
+
+## Rate Limiting and API Etiquette
+
+### OSM API Limits
+- Maximum 10,000 API calls per hour per IP
+- Configured in [.env](mdc:.env): `RATE_LIMIT_PER_MINUTE=60`
+- Respect changeset size limits: `MAX_CHANGESET_SIZE=50`
+
+### Best Practices
+- Always validate coordinates before API calls
+- Cache read responses when appropriate
+- Handle 429 rate limit responses gracefully
+- Log all API operations (excluding auth tokens)
+
+## Logging and Debugging
+
+### Log Levels (configured in [.env](mdc:.env))
+- `LOG_LEVEL=DEBUG` - Full debugging for development
+- `LOG_LEVEL=INFO` - Standard operation
+- `LOG_LEVEL=WARNING` - Important events only
+- `LOG_LEVEL=ERROR` - Errors only
+
+### Security Considerations
+- Never log OAuth tokens or credentials
+- Store credentials in [.env](mdc:.env) only (not committed)
+- Use system keyring when `USE_KEYRING=true`
+- Validate all input data before processing
+
+## Authentication Flow
+
+### OAuth 2.0 Setup
+1. Register application at https://www.openstreetmap.org/oauth2/applications
+2. Configure scopes: `read_prefs`, `write_prefs`, `write_api`, `write_changeset_comments`
+3. Store credentials in [.env](mdc:.env)
+4. Never commit credentials to version control
+
+### Development Without OAuth
+- Read operations work without authentication
+- Write operations will return 401 Unauthorized (expected)
+- Use [test_comprehensive.py](mdc:test_comprehensive.py) to validate this behavior
+
+## Data Validation Requirements
+
+### Coordinate Validation
+- Latitude: -90 to 90 degrees
+- Longitude: -180 to 180 degrees
+- Always validate before API calls
+
+### Tag Validation
+- Check required tags for element types
+- Validate tag key/value formats
+- Follow OSM tagging conventions
+
+### Changeset Management
+- Always include meaningful changeset comments
+- Add source and created_by tags
+- Close changesets when editing is complete

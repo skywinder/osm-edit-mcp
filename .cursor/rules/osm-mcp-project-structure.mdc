@@ -1,0 +1,57 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+# OSM Edit MCP Server - Project Structure Guide
+
+## Core Project Files
+
+### Main Server Implementation
+- **[src/osm_edit_mcp/server.py](mdc:src/osm_edit_mcp/server.py)** - Primary MCP server with 31 tools for OSM operations
+- **[main.py](mdc:main.py)** - Server entry point and startup script
+
+### Configuration Files
+- **[.env](mdc:.env)** - Environment configuration (never commit with real credentials)
+- **[.env.example](mdc:.env.example)** - Configuration template with all available options
+- **[pyproject.toml](mdc:pyproject.toml)** - Python package configuration and dependencies
+
+### Testing Framework
+- **[test_comprehensive.py](mdc:test_comprehensive.py)** - Complete test suite for all 31 MCP tools
+- **[TESTING_CHECKLIST.md](mdc:TESTING_CHECKLIST.md)** - Systematic manual testing guide
+- **[TEST_RESULTS_SUMMARY.md](mdc:TEST_RESULTS_SUMMARY.md)** - Analysis of test results and debugging guide
+
+### Documentation
+- **[README.md](mdc:README.md)** - Complete setup, configuration, and usage guide
+- **[POLISH_SUMMARY.md](mdc:POLISH_SUMMARY.md)** - Summary of all enhancements made
+
+## Architecture Overview
+
+### Server Structure
+The [server.py](mdc:src/osm_edit_mcp/server.py) contains:
+- `OSMConfig` class with comprehensive configuration management
+- 31 MCP tools organized in categories:
+  - **Read Operations**: get_osm_node, get_osm_way, get_osm_relation, etc.
+  - **Write Operations**: create_osm_node, update_osm_node, delete_osm_node, etc.
+  - **Search Operations**: find_nearby_amenities, search_osm_elements, etc.
+  - **Natural Language**: parse_natural_language_osm_request, create_place_from_description, etc.
+  - **Utility Operations**: validate_coordinates, validate_osm_data, etc.
+
+### Configuration System
+Uses Pydantic BaseSettings for type-safe configuration with:
+- Dev/prod API switching via `OSM_USE_DEV_API`
+- Configurable logging levels
+- Safety and rate limiting settings
+- OAuth credentials management
+
+### Testing Architecture
+- **Automated Testing**: [test_comprehensive.py](mdc:test_comprehensive.py) runs all tools systematically
+- **Manual Testing**: [TESTING_CHECKLIST.md](mdc:TESTING_CHECKLIST.md) provides step-by-step validation
+- **Results Analysis**: Generated reports help identify and debug issues
+
+## Development Workflow
+
+1. **Configuration**: Copy [.env.example](mdc:.env.example) to [.env](mdc:.env) and customize
+2. **Testing**: Run [test_comprehensive.py](mdc:test_comprehensive.py) for validation
+3. **Development**: Use development API (`OSM_USE_DEV_API=true`) for safe testing
+4. **Documentation**: Update [README.md](mdc:README.md) for any new features

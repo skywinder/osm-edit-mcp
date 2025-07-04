@@ -1,0 +1,228 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# Configuration Management System
+
+## Environment Configuration Files
+
+### Primary Configuration Files
+- **[.env](mcp:.env)** - Active environment configuration (never commit with real credentials)
+- **[.env.example](mcp:.env.example)** - Configuration template with all options documented
+
+### Configuration Class in server.py
+The `OSMConfig` class in [server.py](mcp:src/osm_edit_mcp/server.py) uses Pydantic BaseSettings for type-safe configuration management.
+
+## Core Configuration Sections
+
+### API Configuration (Dev/Prod Switching)
+```bash
+# Safe development testing (default)
+OSM_USE_DEV_API=true
+OSM_DEV_API_BASE=https://api06.dev.openstreetmap.org/api/0.6
+
+# Production use (requires extreme caution)
+OSM_USE_DEV_API=false
+OSM_API_BASE=https://api.openstreetmap.org/api/0.6
+
+# Legacy support (will be deprecated)
+OSM_API_BASE_URL=https://api06.dev.openstreetmap.org/api/0.6
+```
+
+### OAuth 2.0 Credentials
+```bash
+OSM_CLIENT_ID=your_oauth_client_id
+OSM_CLIENT_SECRET=your_oauth_client_secret
+OSM_REDIRECT_URI=https://localhost:8080/callback
+```
+
+### Logging Configuration
+```bash
+LOG_LEVEL=INFO                    # DEBUG, INFO, WARNING, ERROR
+DEBUG=false                       # Enable debug mode
+DEVELOPMENT_MODE=false            # Enable development features
+```
+
+### Safety and Rate Limiting
+```bash
+REQUIRE_USER_CONFIRMATION=true    # Require confirmation for destructive ops
+RATE_LIMIT_PER_MINUTE=60         # API calls per minute
+MAX_CHANGESET_SIZE=50            # Maximum operations per changeset
+```
+
+### Cache Configuration
+```bash
+ENABLE_CACHE=true                # Enable response caching
+CACHE_TTL_SECONDS=300           # Cache expiration time
+```
+
+### Security Settings
+```bash
+USE_KEYRING=true                 # Use system keyring for credentials
+```
+
+## Configuration Usage Patterns
+
+### Accessing Configuration in Code
+```python
+from osm_edit_mcp.server import config
+
+# Use current API base URL (automatically selects dev/prod)
+url = f"{config.current_api_base_url}/endpoint"
+
+# Check if running in development mode
+if config.is_development:
+    logger.info("Running in development mode")
+
+# Access safety settings
+if config.require_user_confirmation:
+    # Ask for user confirmation
+    pass
+
+# Access rate limiting
+rate_limit = config.rate_limit_per_minute
+max_size = config.max_changeset_size
+```
+
+### Configuration Properties
+The `OSMConfig` class provides computed properties:
+
+#### `current_api_base_url`
+Automatically selects the appropriate API URL:
+- Returns `osm_dev_api_base` when `osm_use_dev_api=true`
+- Returns `osm_api_base` when `osm_use_dev_api=false`
+- Falls back to legacy `osm_api_base_url` for backward compatibility
+
+#### `is_development`
+Returns `True` if any development mode is enabled:
+- `osm_use_dev_api=true`
+- `development_mode=true`
+- `debug=true`
+
+## Configuration Validation
+
+### Startup Validation
+The server automatically validates configuration on startup and logs:
+- Server version and name
+- API mode (Development/Production)
+- Current API base URL
+- Log level
+
+### Environment Variable Handling
+Uses Pydantic BaseSettings features:
+- **Type validation**: Ensures correct types for all settings
+- **Field aliases**: Support for legacy variable names
+- **Default values**: Sensible defaults for all options
+- **Case insensitive**: Handles various case formats
+
+### Configuration Security
+- Never log OAuth tokens or secrets
+- Store sensitive data in [.env](mcp:.env) only
+- Use field aliases for backward compatibility
+- Support system keyring for credential storage
+
+## Development vs Production Configuration
+
+### Development Setup (Safe)
+```bash
+# Copy template and customize
+cp .env.example .env
+
+# Edit .env for development
+OSM_USE_DEV_API=true
+LOG_LEVEL=DEBUG
+DEVELOPMENT_MODE=true
+REQUIRE_USER_CONFIRMATION=true
+```
+
+### Production Setup (Careful)
+```bash
+# Production configuration
+OSM_USE_DEV_API=false
+LOG_LEVEL=INFO
+DEVELOPMENT_MODE=false
+REQUIRE_USER_CONFIRMATION=true
+RATE_LIMIT_PER_MINUTE=60
+MAX_CHANGESET_SIZE=50
+```
+
+### Configuration Testing
+Test configuration changes:
+```bash
+# Verify current configuration
+python -c "from src.osm_edit_mcp.server import config; print(f'API: {config.current_api_base_url}'); print(f'Dev Mode: {config.is_development}')"
+
+# Test dev mode
+OSM_USE_DEV_API=true python -c "from src.osm_edit_mcp.server import config; print(config.current_api_base_url)"
+
+# Test prod mode (careful!)
+OSM_USE_DEV_API=false python -c "from src.osm_edit_mcp.server import config; print(config.current_api_base_url)"
+```
+
+## Logging Configuration
+
+### Log Level Hierarchy
+1. **DEBUG**: Detailed debugging information, API calls, parameter values
+2. **INFO**: General operational information, important events
+3. **WARNING**: Important events that need attention
+4. **ERROR**: Error conditions that need immediate attention
+
+### Logging Setup
+The `setup_logging()` function in [server.py](mcp:src/osm_edit_mcp/server.py):
+- Configures root logger with specified level
+- Sets up console output with timestamps
+- Logs startup configuration information
+- Returns configured logger instance
+
+### Log Security
+- Never log OAuth tokens or credentials
+- Sanitize sensitive data before logging
+- Log API endpoints but not full URLs with credentials
+- Use appropriate log levels for different types of information
+
+## Configuration Migration and Compatibility
+
+### Backward Compatibility
+The configuration system maintains backward compatibility:
+- Legacy `OSM_API_BASE_URL` still works
+- Old variable names supported via aliases
+- Gradual migration path for existing setups
+
+### Deprecated Settings
+- `OSM_API_BASE_URL`: Use `OSM_DEV_API_BASE` or `OSM_API_BASE` instead
+- Direct API URL configuration: Use `OSM_USE_DEV_API` switching
+
+### Future Configuration Additions
+When adding new configuration options:
+1. Add to `OSMConfig` class in [server.py](mcp:src/osm_edit_mcp/server.py)
+2. Update [.env.example](mcp:.env.example) with documentation
+3. Update [README.md](mcp:README.md) configuration section
+4. Add tests to [test_comprehensive.py](mcp:test_comprehensive.py)
+5. Maintain backward compatibility where possible
+
+## Configuration Best Practices
+
+### Security
+- Never commit [.env](mcp:.env) with real credentials
+- Use strong, unique OAuth credentials
+- Enable keyring storage when available
+- Regularly rotate credentials
+
+### Development
+- Always use development API for testing
+- Use DEBUG log level for troubleshooting
+- Enable all safety features during development
+- Test configuration changes thoroughly
+
+### Production
+- Use production API only after thorough testing
+- Set appropriate log levels (INFO or WARNING)
+- Enable all safety and rate limiting features
+- Monitor configuration for security issues
+
+### Documentation
+- Document all new configuration options
+- Provide clear examples in [.env.example](mcp:.env.example)
+- Update [README.md](mcp:README.md) configuration section
+- Include configuration in test documentation
