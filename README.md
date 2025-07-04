@@ -21,36 +21,161 @@ A comprehensive **Model Context Protocol (MCP)** server for interacting with Ope
 - **Error Handling**: Comprehensive error handling with informative messages
 - **Rate Limiting**: Respects OSM API rate limits
 
-## 🛠️ Installation
+## 🛠️ Complete Setup Guide
 
 ### Prerequisites
 - Python 3.8+
-- OpenStreetMap OAuth application credentials
+- OpenStreetMap account for development server
+- System with browser access (for OAuth setup)
 
-### Quick Setup
+### 📋 Step-by-Step Setup
 
-1. **Clone and Install**:
+#### 1. **Install Dependencies**
+```bash
+git clone <repository-url>
+cd osm-edit-mcp
+pip install -r requirements.txt
+```
+
+#### 2. **Create Development Account**
+First, create an account on the OpenStreetMap development server:
+- Go to: https://api06.dev.openstreetmap.org/
+- Click "Sign Up" and create an account
+- **Note**: This is separate from main OSM - safe for testing!
+
+#### 3. **Configure Environment**
+Copy the environment template:
+```bash
+cp .env.example .env
+```
+
+Edit `.env` to ensure development mode:
+```bash
+# ========================================
+# API Configuration (KEEP AS DEV FOR TESTING)
+# ========================================
+OSM_USE_DEV_API=true
+OSM_DEV_API_BASE=https://api06.dev.openstreetmap.org/api/0.6
+
+# ========================================
+# OAuth Credentials (will be filled automatically)
+# ========================================
+OSM_DEV_CLIENT_ID=
+OSM_DEV_CLIENT_SECRET=
+OSM_DEV_REDIRECT_URI=https://localhost:8080/callback
+```
+
+#### 4. **OAuth Setup**
+Register an OAuth application on the development server:
+
+1. **Login** to https://api06.dev.openstreetmap.org/
+2. **Go to Account Settings** → OAuth 2 Applications
+3. **Click "Register new application"**
+4. **Fill the form**:
+   - **Name**: `OSM Edit MCP Server - Dev`
+   - **Redirect URI**: `https://localhost:8080/callback`
+   - **Permissions**: ✅ read_prefs, ✅ write_prefs, ✅ write_api, ✅ write_changeset_comments
+5. **Copy credentials** to your `.env` file:
    ```bash
-   git clone <repository-url>
-   cd osm-edit-mcp
-   pip install -r requirements.txt
+   OSM_DEV_CLIENT_ID=your_client_id
+   OSM_DEV_CLIENT_SECRET=your_client_secret
    ```
 
-2. **Configure OAuth**:
-   ```bash
-   cp .env.example .env
-   # Edit .env with your OAuth credentials
-   ```
+#### 5. **Authenticate with Your Account**
+Run the authentication script:
+```bash
+python oauth_auth.py
+```
+This will:
+- Open your browser to the OAuth login page
+- Ask you to login with your dev account
+- Save the access token securely
+- ✅ You're now authenticated!
 
-3. **Test the Server**:
-   ```bash
-   python test_server.py
-   ```
+#### 6. **Test Everything Works**
+Run comprehensive tests:
+```bash
+python test_comprehensive.py
+```
 
-4. **Run the Server**:
+Expected results:
+- ✅ **Read operations**: Working without auth
+- ✅ **Write operations**: Working with auth (creates test changeset)
+- ✅ **OAuth flow**: Token saved and working
+
+#### 7. **Start the MCP Server**
+```bash
+python main.py
+```
+
+You should see:
+```
+OSM Edit MCP Server v0.1.0
+API Mode: Development
+API Base URL: https://api06.dev.openstreetmap.org/api/0.6
+Log Level: INFO
+Starting OSM Edit MCP Server...
+```
+
+### 🧪 Testing Your Setup
+
+#### **Quick Test**
+```bash
+python quick_test.py
+```
+
+#### **Comprehensive Test**
+```bash
+python test_comprehensive.py
+```
+
+#### **Verify Your Changes on OSM Dev**
+After running tests, check your changesets:
+1. Go to: https://api06.dev.openstreetmap.org/user/[your-username]/history
+2. Look for test changesets created by "osm-edit-mcp/0.1.0"
+3. ✅ If you see them, everything is working!
+
+### 🔧 Production Setup (Advanced)
+
+**⚠️ ONLY for production deployments - requires extreme caution**
+
+1. **Create production OAuth app** at https://www.openstreetmap.org/oauth2/applications
+2. **Update .env**:
    ```bash
-   python main.py
+   OSM_USE_DEV_API=false
+   OSM_PROD_CLIENT_ID=your_prod_client_id
+   OSM_PROD_CLIENT_SECRET=your_prod_client_secret
    ```
+3. **Re-authenticate** for production: `python oauth_auth.py`
+
+### 🚨 Troubleshooting
+
+#### **"401 Unauthorized" errors**
+- Run `python oauth_auth.py` to re-authenticate
+- Check your OAuth credentials in `.env`
+- Verify you're using the correct API (dev vs prod)
+
+#### **"Client authentication failed"**
+- OAuth app not registered correctly
+- Wrong client ID/secret in `.env`
+- Try re-registering the OAuth application
+
+#### **Can't see changesets on OSM**
+- Check the correct URL: `https://api06.dev.openstreetmap.org/user/[username]/history`
+- Remove URL filters like `?before=` that might hide recent changesets
+- Look for changesets with `created_by=osm-edit-mcp/0.1.0`
+
+#### **Import errors**
+- Install missing dependencies: `pip install -r requirements.txt`
+
+### ✅ Quick Status Check
+
+Verify your complete setup:
+```bash
+python status_check.py
+```
+
+This will check your configuration, OAuth credentials, and authentication status.
 
 ## 🔧 Configuration
 
@@ -72,11 +197,18 @@ OSM_API_BASE=https://api.openstreetmap.org/api/0.6
 OSM_DEV_API_BASE=https://api06.dev.openstreetmap.org/api/0.6
 
 # ========================================
-# OAuth 2.0 Credentials
+# OAuth 2.0 Credentials - Production
 # ========================================
-OSM_CLIENT_ID=your_oauth_client_id
-OSM_CLIENT_SECRET=your_oauth_client_secret
-OSM_REDIRECT_URI=https://localhost:8080/callback
+OSM_PROD_CLIENT_ID=your_prod_client_id
+OSM_PROD_CLIENT_SECRET=your_prod_client_secret
+OSM_PROD_REDIRECT_URI=https://localhost:8080/callback
+
+# ========================================
+# OAuth 2.0 Credentials - Development
+# ========================================
+OSM_DEV_CLIENT_ID=your_dev_client_id
+OSM_DEV_CLIENT_SECRET=your_dev_client_secret
+OSM_DEV_REDIRECT_URI=https://localhost:8080/callback
 
 # ========================================
 # Logging Configuration
@@ -123,12 +255,13 @@ The server automatically:
 - Warns when using production API
 
 ### OAuth Setup
+For development, follow step 4 in the setup guide above. For production:
 1. Visit [OpenStreetMap OAuth Applications](https://www.openstreetmap.org/oauth2/applications)
 2. Create a new application with these settings:
    - **Name**: Your application name
    - **Redirect URI**: `https://localhost:8080/callback`
    - **Scopes**: `read_prefs`, `write_prefs`, `write_api`, `write_changeset_comments`
-3. Copy the Client ID and Client Secret to your `.env` file
+3. Copy the Client ID and Client Secret to your `.env` file as `OSM_PROD_CLIENT_ID` and `OSM_PROD_CLIENT_SECRET`
 
 ### Log Level Configuration
 

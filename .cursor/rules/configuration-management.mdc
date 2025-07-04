@@ -8,11 +8,11 @@ alwaysApply: false
 ## Environment Configuration Files
 
 ### Primary Configuration Files
-- **[.env](mcp:.env)** - Active environment configuration (never commit with real credentials)
-- **[.env.example](mcp:.env.example)** - Configuration template with all options documented
+- **[.env](mdc:mcp:.env)** - Active environment configuration (never commit with real credentials)
+- **[.env.example](mdc:mcp:.env.example)** - Configuration template with all options documented
 
 ### Configuration Class in server.py
-The `OSMConfig` class in [server.py](mcp:src/osm_edit_mcp/server.py) uses Pydantic BaseSettings for type-safe configuration management.
+The `OSMConfig` class in [server.py](mdc:mcp:src/osm_edit_mcp/server.py) uses Pydantic BaseSettings for type-safe configuration management.
 
 ## Core Configuration Sections
 
@@ -118,7 +118,7 @@ Uses Pydantic BaseSettings features:
 
 ### Configuration Security
 - Never log OAuth tokens or secrets
-- Store sensitive data in [.env](mcp:.env) only
+- Store sensitive data in [.env](mdc:mcp:.env) only
 - Use field aliases for backward compatibility
 - Support system keyring for credential storage
 
@@ -169,7 +169,7 @@ OSM_USE_DEV_API=false python -c "from src.osm_edit_mcp.server import config; pri
 4. **ERROR**: Error conditions that need immediate attention
 
 ### Logging Setup
-The `setup_logging()` function in [server.py](mcp:src/osm_edit_mcp/server.py):
+The `setup_logging()` function in [server.py](mdc:mcp:src/osm_edit_mcp/server.py):
 - Configures root logger with specified level
 - Sets up console output with timestamps
 - Logs startup configuration information
@@ -195,16 +195,16 @@ The configuration system maintains backward compatibility:
 
 ### Future Configuration Additions
 When adding new configuration options:
-1. Add to `OSMConfig` class in [server.py](mcp:src/osm_edit_mcp/server.py)
-2. Update [.env.example](mcp:.env.example) with documentation
-3. Update [README.md](mcp:README.md) configuration section
-4. Add tests to [test_comprehensive.py](mcp:test_comprehensive.py)
+1. Add to `OSMConfig` class in [server.py](mdc:mcp:src/osm_edit_mcp/server.py)
+2. Update [.env.example](mdc:mcp:.env.example) with documentation
+3. Update [README.md](mdc:mcp:README.md) configuration section
+4. Add tests to [test_comprehensive.py](mdc:mcp:test_comprehensive.py)
 5. Maintain backward compatibility where possible
 
 ## Configuration Best Practices
 
 ### Security
-- Never commit [.env](mcp:.env) with real credentials
+- Never commit [.env](mdc:mcp:.env) with real credentials
 - Use strong, unique OAuth credentials
 - Enable keyring storage when available
 - Regularly rotate credentials
@@ -223,6 +223,6 @@ When adding new configuration options:
 
 ### Documentation
 - Document all new configuration options
-- Provide clear examples in [.env.example](mcp:.env.example)
-- Update [README.md](mcp:README.md) configuration section
+- Provide clear examples in [.env.example](mdc:mcp:.env.example)
+- Update [README.md](mdc:mcp:README.md) configuration section
 - Include configuration in test documentation

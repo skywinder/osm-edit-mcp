@@ -30,7 +30,17 @@ class OSMConfig(BaseSettings):
     osm_api_base: str = Field(default="https://api.openstreetmap.org/api/0.6", description="Production API base URL")
     osm_dev_api_base: str = Field(default="https://api06.dev.openstreetmap.org/api/0.6", description="Development API base URL")
 
-    # OAuth Configuration
+    # OAuth Configuration - Production
+    osm_prod_client_id: str = Field(default="", description="Production OAuth client ID")
+    osm_prod_client_secret: str = Field(default="", description="Production OAuth client secret")
+    osm_prod_redirect_uri: str = Field(default="https://localhost:8080/callback", description="Production OAuth redirect URI")
+
+    # OAuth Configuration - Development
+    osm_dev_client_id: str = Field(default="", description="Development OAuth client ID")
+    osm_dev_client_secret: str = Field(default="", description="Development OAuth client secret")
+    osm_dev_redirect_uri: str = Field(default="https://localhost:8080/callback", description="Development OAuth redirect URI")
+
+    # Legacy OAuth Configuration (for backward compatibility)
     osm_oauth_client_id: str = Field(default="", alias="osm_client_id")
     osm_oauth_client_secret: str = Field(default="", alias="osm_client_secret")
     osm_oauth_redirect_uri: str = Field(default="http://localhost:8080/callback", alias="osm_redirect_uri")
@@ -75,6 +85,27 @@ class OSMConfig(BaseSettings):
         if self.osm_api_base_url:  # Backward compatibility
             return self.osm_api_base_url
         return self.osm_dev_api_base if self.osm_use_dev_api else self.osm_api_base
+
+    @property
+    def current_client_id(self) -> str:
+        """Get the current OAuth client ID based on dev/prod setting"""
+        if self.osm_oauth_client_id:  # Backward compatibility
+            return self.osm_oauth_client_id
+        return self.osm_dev_client_id if self.osm_use_dev_api else self.osm_prod_client_id
+
+    @property
+    def current_client_secret(self) -> str:
+        """Get the current OAuth client secret based on dev/prod setting"""
+        if self.osm_oauth_client_secret:  # Backward compatibility
+            return self.osm_oauth_client_secret
+        return self.osm_dev_client_secret if self.osm_use_dev_api else self.osm_prod_client_secret
+
+    @property
+    def current_redirect_uri(self) -> str:
+        """Get the current OAuth redirect URI based on dev/prod setting"""
+        if self.osm_oauth_redirect_uri:  # Backward compatibility
+            return self.osm_oauth_redirect_uri
+        return self.osm_dev_redirect_uri if self.osm_use_dev_api else self.osm_prod_redirect_uri
 
     @property
     def is_development(self) -> bool:

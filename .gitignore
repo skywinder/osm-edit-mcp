@@ -170,3 +170,4 @@ temp/
 # Testing output
 test-results/
 .coverage.*
+.osm_token_dev.json
