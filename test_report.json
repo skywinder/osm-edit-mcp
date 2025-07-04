@@ -1,0 +1,264 @@
+{
+  "timestamp": "2025-07-04T04:35:27.823293",
+  "configuration": {
+    "is_development": true,
+    "api_base_url": "https://api06.dev.openstreetmap.org/api/0.6",
+    "log_level": "INFO"
+  },
+  "summary": {
+    "total_tests": 31,
+    "passed": 8,
+    "failed": 23,
+    "success_rate": 25.806451612903224
+  },
+  "results": [
+    {
+      "tool_name": "get_server_info",
+      "success": false,
+      "message": "Test failed: Unknown error",
+      "duration": 6.450002547353506e-05,
+      "error": "Unknown error",
+      "timestamp": "2025-07-04T04:35:13.969292"
+    },
+    {
+      "tool_name": "validate_coordinates",
+      "success": true,
+      "message": "Test passed",
+      "duration": 0.4364409999689087,
+      "error": null,
+      "timestamp": "2025-07-04T04:35:14.405920"
+    },
+    {
+      "tool_name": "get_osm_node",
+      "success": true,
+      "message": "Test passed",
+      "duration": 0.13265600008890033,
+      "error": null,
+      "timestamp": "2025-07-04T04:35:14.538599"
+    },
+    {
+      "tool_name": "get_osm_way",
+      "success": false,
+      "message": "Test failed: Client error '404 Not Found' for url 'https://api06.dev.openstreetmap.org/api/0.6/way/4082988'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404",
+      "duration": 0.11651654192246497,
+      "error": "Client error '404 Not Found' for url 'https://api06.dev.openstreetmap.org/api/0.6/way/4082988'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404",
+      "timestamp": "2025-07-04T04:35:14.655132"
+    },
+    {
+      "tool_name": "get_osm_relation",
+      "success": false,
+      "message": "Test failed: Client error '404 Not Found' for url 'https://api06.dev.openstreetmap.org/api/0.6/relation/1306'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404",
+      "duration": 0.12844170804601163,
+      "error": "Client error '404 Not Found' for url 'https://api06.dev.openstreetmap.org/api/0.6/relation/1306'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404",
+      "timestamp": "2025-07-04T04:35:14.783586"
+    },
+    {
+      "tool_name": "get_osm_elements_in_area",
+      "success": false,
+      "message": "Test failed: Client error '400 Bad Request' for url 'https://api06.dev.openstreetmap.org/api/0.6/map?bbox=-0.1279,-0.1278,51.5074,51.5075'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400",
+      "duration": 0.18389975000172853,
+      "error": "Client error '400 Bad Request' for url 'https://api06.dev.openstreetmap.org/api/0.6/map?bbox=-0.1279,-0.1278,51.5074,51.5075'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400",
+      "timestamp": "2025-07-04T04:35:14.967503"
+    },
+    {
+      "tool_name": "find_nearby_amenities",
+      "success": true,
+      "message": "Test passed",
+      "duration": 0.5870104170171544,
+      "error": null,
+      "timestamp": "2025-07-04T04:35:15.554537"
+    },
+    {
+      "tool_name": "get_place_info",
+      "success": true,
+      "message": "Test passed",
+      "duration": 0.24825020809657872,
+      "error": null,
+      "timestamp": "2025-07-04T04:35:15.802856"
+    },
+    {
+      "tool_name": "search_osm_elements",
+      "success": false,
+      "message": "Test failed: ",
+      "duration": 5.253109125071205,
+      "error": "",
+      "timestamp": "2025-07-04T04:35:21.056011"
+    },
+    {
+      "tool_name": "smart_geocode",
+      "success": false,
+      "message": "Test failed: slice(None, 3, None)",
+      "duration": 0.40349133301060647,
+      "error": "slice(None, 3, None)",
+      "timestamp": "2025-07-04T04:35:21.460715"
+    },
+    {
+      "tool_name": "parse_natural_language_osm_request",
+      "success": true,
+      "message": "Test passed",
+      "duration": 0.002722708974033594,
+      "error": null,
+      "timestamp": "2025-07-04T04:35:21.463492"
+    },
+    {
+      "tool_name": "export_osm_data",
+      "success": false,
+      "message": "Test failed: Client error '400 Bad Request' for url 'https://api06.dev.openstreetmap.org/api/0.6/map?bbox=-0.1279,-0.1278,51.5074,51.5075'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400",
+      "duration": 0.126533041941002,
+      "error": "Client error '400 Bad Request' for url 'https://api06.dev.openstreetmap.org/api/0.6/map?bbox=-0.1279,-0.1278,51.5074,51.5075'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400",
+      "timestamp": "2025-07-04T04:35:21.590047"
+    },
+    {
+      "tool_name": "get_osm_statistics",
+      "success": false,
+      "message": "Test failed: Client error '400 Bad Request' for url 'https://api06.dev.openstreetmap.org/api/0.6/map?bbox=-0.1279,-0.1278,51.5074,51.5075'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400",
+      "duration": 0.1908840830437839,
+      "error": "Client error '400 Bad Request' for url 'https://api06.dev.openstreetmap.org/api/0.6/map?bbox=-0.1279,-0.1278,51.5074,51.5075'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400",
+      "timestamp": "2025-07-04T04:35:21.780944"
+    },
+    {
+      "tool_name": "get_changeset_history",
+      "success": true,
+      "message": "Test passed",
+      "duration": 0.160451874951832,
+      "error": null,
+      "timestamp": "2025-07-04T04:35:21.941615"
+    },
+    {
+      "tool_name": "validate_osm_data",
+      "success": true,
+      "message": "Test passed",
+      "duration": 7.800001185387373e-05,
+      "error": null,
+      "timestamp": "2025-07-04T04:35:21.941713"
+    },
+    {
+      "tool_name": "create_changeset",
+      "success": false,
+      "message": "Test failed: Client error '401 Unauthorized' for url 'https://api06.dev.openstreetmap.org/api/0.6/changeset/create'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/401",
+      "duration": 0.13648741703946143,
+      "error": "Client error '401 Unauthorized' for url 'https://api06.dev.openstreetmap.org/api/0.6/changeset/create'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/401",
+      "timestamp": "2025-07-04T04:35:22.078226"
+    },
+    {
+      "tool_name": "get_changeset",
+      "success": true,
+      "message": "Test passed",
+      "duration": 0.22672512498684227,
+      "error": null,
+      "timestamp": "2025-07-04T04:35:22.304967"
+    },
+    {
+      "tool_name": "create_osm_node",
+      "success": false,
+      "message": "Test failed: Authentication required",
+      "duration": 6.754195783287287e-05,
+      "error": "Authentication required",
+      "timestamp": "2025-07-04T04:35:22.305054"
+    },
+    {
+      "tool_name": "create_osm_way",
+      "success": false,
+      "message": "Test failed: Authentication required",
+      "duration": 2.920802216976881e-05,
+      "error": "Authentication required",
+      "timestamp": "2025-07-04T04:35:22.305090"
+    },
+    {
+      "tool_name": "create_osm_relation",
+      "success": false,
+      "message": "Test failed: Authentication required",
+      "duration": 0.0001115420600399375,
+      "error": "Authentication required",
+      "timestamp": "2025-07-04T04:35:22.305207"
+    },
+    {
+      "tool_name": "update_osm_node",
+      "success": false,
+      "message": "Test failed: Authentication required",
+      "duration": 2.970895729959011e-05,
+      "error": "Authentication required",
+      "timestamp": "2025-07-04T04:35:22.305244"
+    },
+    {
+      "tool_name": "update_osm_way",
+      "success": false,
+      "message": "Test failed: Authentication required",
+      "duration": 1.3416982255876064e-05,
+      "error": "Authentication required",
+      "timestamp": "2025-07-04T04:35:22.305261"
+    },
+    {
+      "tool_name": "update_osm_relation",
+      "success": false,
+      "message": "Test failed: Authentication required",
+      "duration": 9.207986295223236e-06,
+      "error": "Authentication required",
+      "timestamp": "2025-07-04T04:35:22.305273"
+    },
+    {
+      "tool_name": "delete_osm_node",
+      "success": false,
+      "message": "Test failed: Authentication required",
+      "duration": 1.1749914847314358e-05,
+      "error": "Authentication required",
+      "timestamp": "2025-07-04T04:35:22.305287"
+    },
+    {
+      "tool_name": "delete_osm_way",
+      "success": false,
+      "message": "Test failed: Authentication required",
+      "duration": 7.582944817841053e-06,
+      "error": "Authentication required",
+      "timestamp": "2025-07-04T04:35:22.305297"
+    },
+    {
+      "tool_name": "delete_osm_relation",
+      "success": false,
+      "message": "Test failed: Authentication required",
+      "duration": 7.1249669417738914e-06,
+      "error": "Authentication required",
+      "timestamp": "2025-07-04T04:35:22.305306"
+    },
+    {
+      "tool_name": "close_changeset",
+      "success": false,
+      "message": "Test failed: Client error '401 Unauthorized' for url 'https://api06.dev.openstreetmap.org/api/0.6/changeset/1/close'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/401",
+      "duration": 0.14745624992065132,
+      "error": "Client error '401 Unauthorized' for url 'https://api06.dev.openstreetmap.org/api/0.6/changeset/1/close'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/401",
+      "timestamp": "2025-07-04T04:35:22.452777"
+    },
+    {
+      "tool_name": "create_place_from_description",
+      "success": false,
+      "message": "Test failed: Client error '401 Unauthorized' for url 'https://api06.dev.openstreetmap.org/api/0.6/changeset/create'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/401",
+      "duration": 0.14872887497767806,
+      "error": "Client error '401 Unauthorized' for url 'https://api06.dev.openstreetmap.org/api/0.6/changeset/create'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/401",
+      "timestamp": "2025-07-04T04:35:22.602283"
+    },
+    {
+      "tool_name": "find_and_update_place",
+      "success": false,
+      "message": "Test failed: Invalid action",
+      "duration": 0.0009427079930901527,
+      "error": "Invalid action",
+      "timestamp": "2025-07-04T04:35:22.603243"
+    },
+    {
+      "tool_name": "delete_place_from_description",
+      "success": false,
+      "message": "Test failed: No places found",
+      "duration": 5.0821869999635965,
+      "error": "No places found",
+      "timestamp": "2025-07-04T04:35:27.685591"
+    },
+    {
+      "tool_name": "bulk_create_places",
+      "success": false,
+      "message": "Test failed: Client error '401 Unauthorized' for url 'https://api06.dev.openstreetmap.org/api/0.6/changeset/create'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/401",
+      "duration": 0.13353200000710785,
+      "error": "Client error '401 Unauthorized' for url 'https://api06.dev.openstreetmap.org/api/0.6/changeset/create'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/401",
+      "timestamp": "2025-07-04T04:35:27.819146"
+    }
+  ]
+}

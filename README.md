@@ -55,21 +55,98 @@ A comprehensive **Model Context Protocol (MCP)** server for interacting with Ope
 ## 🔧 Configuration
 
 ### Environment Variables (.env)
+
+The server supports comprehensive configuration through environment variables. Copy `.env.example` to `.env` and customize:
+
 ```bash
-# OSM API Configuration
-OSM_API_BASE_URL=https://api06.dev.openstreetmap.org/api/0.6
+# ========================================
+# API Configuration (Dev/Prod Switching)
+# ========================================
+# Set to true to use development API (safe for testing)
+OSM_USE_DEV_API=true
+
+# Production API (⚠️ requires extreme caution)
+OSM_API_BASE=https://api.openstreetmap.org/api/0.6
+
+# Development API (safe for testing)
+OSM_DEV_API_BASE=https://api06.dev.openstreetmap.org/api/0.6
+
+# ========================================
+# OAuth 2.0 Credentials
+# ========================================
 OSM_CLIENT_ID=your_oauth_client_id
 OSM_CLIENT_SECRET=your_oauth_client_secret
 OSM_REDIRECT_URI=https://localhost:8080/callback
 
-# Server Configuration
-LOG_LEVEL=INFO
+# ========================================
+# Logging Configuration
+# ========================================
+LOG_LEVEL=INFO                    # DEBUG, INFO, WARNING, ERROR
+DEBUG=false                       # Enable debug mode
+DEVELOPMENT_MODE=false            # Enable development features
+
+# ========================================
+# Safety and Rate Limiting
+# ========================================
+REQUIRE_USER_CONFIRMATION=true    # Require confirmation for destructive ops
+RATE_LIMIT_PER_MINUTE=60         # API calls per minute
+MAX_CHANGESET_SIZE=50            # Maximum operations per changeset
+
+# ========================================
+# Cache Configuration
+# ========================================
+ENABLE_CACHE=true                # Enable response caching
+CACHE_TTL_SECONDS=300           # Cache expiration time
+
+# ========================================
+# Security Settings
+# ========================================
+USE_KEYRING=true                 # Use system keyring for credentials
 ```
+
+### Dev/Prod API Switching
+
+**🔄 Easy switching between development and production APIs:**
+
+```bash
+# For safe testing (recommended)
+OSM_USE_DEV_API=true
+
+# For production use (⚠️ requires extreme caution)
+OSM_USE_DEV_API=false
+```
+
+The server automatically:
+- Uses appropriate API endpoints
+- Shows current mode in logs
+- Validates configuration on startup
+- Warns when using production API
 
 ### OAuth Setup
 1. Visit [OpenStreetMap OAuth Applications](https://www.openstreetmap.org/oauth2/applications)
-2. Create a new application
-3. Use the credentials in your `.env` file
+2. Create a new application with these settings:
+   - **Name**: Your application name
+   - **Redirect URI**: `https://localhost:8080/callback`
+   - **Scopes**: `read_prefs`, `write_prefs`, `write_api`, `write_changeset_comments`
+3. Copy the Client ID and Client Secret to your `.env` file
+
+### Log Level Configuration
+
+Configure logging detail level:
+
+```bash
+# Show all messages (development)
+LOG_LEVEL=DEBUG
+
+# Show important messages only (production)
+LOG_LEVEL=INFO
+
+# Show only warnings and errors
+LOG_LEVEL=WARNING
+
+# Show only errors
+LOG_LEVEL=ERROR
+```
 
 ## 📚 Available Tools
 
@@ -292,38 +369,91 @@ All tools return structured responses:
 
 ## 🧪 Testing
 
-### Run Tests
+### Comprehensive Test Suite
+
+The server includes a comprehensive test suite that validates all 31 MCP tools:
+
 ```bash
-# Test server functionality
-python test_server.py
-
-# Test specific tools
-python -c "
-import asyncio
-from src.osm_edit_mcp.server import validate_coordinates
-
-async def test():
-    result = await validate_coordinates(40.7580, -73.9855)
-    print(result)
-
-asyncio.run(test())
-"
+# Run full test suite (tests all 31 tools)
+python test_comprehensive.py
 ```
 
-### Test with Real Data
+This will:
+- Test all read operations (safe)
+- Test write operations in simulation mode
+- Test natural language processing
+- Generate detailed reports (`test_report.json`)
+- Create test logs (`test_results.log`)
+
+### Manual Testing Checklist
+
+Follow the systematic testing checklist:
+
 ```bash
+# Use the comprehensive testing checklist
+open TESTING_CHECKLIST.md
+```
+
+The checklist includes:
+- ✅ Pre-test configuration verification
+- ✅ Automated testing with the test suite
+- ✅ Manual testing of all tool categories
+- ✅ Configuration testing (dev/prod switching)
+- ✅ Error handling validation
+- ✅ Performance and security testing
+
+### Quick Tests
+
+```bash
+# Test configuration
+python -c "from src.osm_edit_mcp.server import config; print(f'Dev Mode: {config.is_development}'); print(f'API: {config.current_api_base_url}')"
+
+# Test server info
+python -c "from src.osm_edit_mcp.server import get_server_info; import asyncio; print(asyncio.run(get_server_info()))"
+
+# Test coordinate validation
+python -c "from src.osm_edit_mcp.server import validate_coordinates; import asyncio; print(asyncio.run(validate_coordinates(51.5074, -0.1278)))"
+
 # Test place search
-python -c "
-import asyncio
-from src.osm_edit_mcp.server import get_place_info
-
-async def test():
-    result = await get_place_info('Statue of Liberty')
-    print(result)
-
-asyncio.run(test())
-"
+python -c "from src.osm_edit_mcp.server import get_place_info; import asyncio; print(asyncio.run(get_place_info('Statue of Liberty')))"
 ```
+
+### Test Results
+
+The test suite generates:
+- **Console output**: Real-time test results with pass/fail status
+- **test_report.json**: Detailed JSON report with metrics
+- **test_results.log**: Comprehensive logs for debugging
+
+Example test output:
+```
+================================================================================
+OSM EDIT MCP SERVER - COMPREHENSIVE TEST REPORT
+================================================================================
+Test Suite Started: 2024-01-15 14:30:00
+Configuration: Development
+API Base URL: https://api06.dev.openstreetmap.org/api/0.6
+Total Duration: 45.23 seconds
+Total Tests: 31
+Passed: 28
+Failed: 3
+Success Rate: 90.3%
+```
+
+### Expected Test Results
+
+- **Read Operations (Tests 1-15)**: Should mostly pass
+- **Write Operations (Tests 16-27)**: Expected to fail without OAuth (normal)
+- **Natural Language (Tests 28-31)**: Should pass (input validation)
+
+### Debugging Failed Tests
+
+If tests fail unexpectedly:
+
+1. **Check configuration**: Verify `.env` file is correctly set up
+2. **Check network**: Ensure internet connectivity to OSM API
+3. **Check logs**: Review `test_results.log` for detailed error messages
+4. **Test individually**: Use quick test commands to isolate issues
 
 ## 🛣️ Common Use Cases
 

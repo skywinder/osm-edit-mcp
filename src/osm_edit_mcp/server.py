@@ -7,6 +7,7 @@ Supports reading, fetching, and updating OSM data with changeset management.
 
 import os
 import asyncio
+import logging
 from typing import Any, Dict, List, Optional, Union
 import httpx
 from mcp.server.fastmcp import FastMCP
@@ -22,17 +23,93 @@ mcp = FastMCP("osm-edit-mcp")
 
 # Configuration
 class OSMConfig(BaseSettings):
-    """OSM API configuration"""
-    osm_api_base_url: str = Field(default="https://api06.dev.openstreetmap.org/api/0.6")
-    osm_client_id: str = Field(default="")
-    osm_client_secret: str = Field(default="")
-    osm_redirect_uri: str = Field(default="http://localhost:8080/callback")
-    log_level: str = Field(default="INFO")
+    """Comprehensive OSM API configuration with dev/prod switching"""
+
+    # API Configuration
+    osm_use_dev_api: bool = Field(default=True, description="Use development API for testing")
+    osm_api_base: str = Field(default="https://api.openstreetmap.org/api/0.6", description="Production API base URL")
+    osm_dev_api_base: str = Field(default="https://api06.dev.openstreetmap.org/api/0.6", description="Development API base URL")
+
+    # OAuth Configuration
+    osm_oauth_client_id: str = Field(default="", alias="osm_client_id")
+    osm_oauth_client_secret: str = Field(default="", alias="osm_client_secret")
+    osm_oauth_redirect_uri: str = Field(default="http://localhost:8080/callback", alias="osm_redirect_uri")
+
+    # MCP Server Configuration
+    mcp_server_name: str = Field(default="osm-edit-mcp")
+    mcp_server_version: str = Field(default="0.1.0")
+
+    # Logging Configuration
+    log_level: str = Field(default="INFO", description="Log level (DEBUG, INFO, WARNING, ERROR)")
+    debug: bool = Field(default=False)
+    development_mode: bool = Field(default=False)
+
+    # Safety and Rate Limiting
+    require_user_confirmation: bool = Field(default=True)
+    rate_limit_per_minute: int = Field(default=60)
+    max_changeset_size: int = Field(default=50)
+
+    # Cache Configuration
+    enable_cache: bool = Field(default=True)
+    cache_ttl_seconds: int = Field(default=300)
+
+    # Default Changeset Information
+    default_changeset_comment: str = Field(default="Edited via OSM Edit MCP Server")
+    default_changeset_source: str = Field(default="OSM Edit MCP Server")
+    default_changeset_created_by: str = Field(default="osm-edit-mcp/0.1.0")
+
+    # Security Settings
+    use_keyring: bool = Field(default=True)
+
+    # Backward compatibility
+    osm_api_base_url: str = Field(default="", description="Legacy field for backward compatibility")
 
     class Config:
         env_file = ".env"
+        env_file_encoding = "utf-8"
+        case_sensitive = False
+
+    @property
+    def current_api_base_url(self) -> str:
+        """Get the current API base URL based on dev/prod setting"""
+        if self.osm_api_base_url:  # Backward compatibility
+            return self.osm_api_base_url
+        return self.osm_dev_api_base if self.osm_use_dev_api else self.osm_api_base
+
+    @property
+    def is_development(self) -> bool:
+        """Check if running in development mode"""
+        return self.osm_use_dev_api or self.development_mode or self.debug
 
 config = OSMConfig()
+
+# Configure logging
+def setup_logging():
+    """Setup structured logging with configurable levels"""
+    log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+    # Configure root logger
+    logging.basicConfig(
+        level=getattr(logging, config.log_level.upper()),
+        format=log_format,
+        handlers=[
+            logging.StreamHandler(),
+        ]
+    )
+
+    # Create logger for this module
+    logger = logging.getLogger(__name__)
+
+    # Log configuration info
+    logger.info(f"OSM Edit MCP Server v{config.mcp_server_version}")
+    logger.info(f"API Mode: {'Development' if config.is_development else 'Production'}")
+    logger.info(f"API Base URL: {config.current_api_base_url}")
+    logger.info(f"Log Level: {config.log_level}")
+
+    return logger
+
+# Initialize logging
+logger = setup_logging()
 
 # Global client instance
 osm_client = None
@@ -95,7 +172,8 @@ async def get_osm_node(node_id: int) -> Dict[str, Any]:
         Dictionary containing node data including coordinates and tags
     """
     try:
-        url = f"{config.osm_api_base_url}/node/{node_id}"
+        url = f"{config.current_api_base_url}/node/{node_id}"
+        logger.debug(f"Fetching node {node_id} from {url}")
         async with httpx.AsyncClient() as client:
             response = await client.get(url)
             response.raise_for_status()
@@ -123,7 +201,8 @@ async def get_osm_way(way_id: int) -> Dict[str, Any]:
         Dictionary containing way data including nodes and tags
     """
     try:
-        url = f"{config.osm_api_base_url}/way/{way_id}"
+        url = f"{config.current_api_base_url}/way/{way_id}"
+        logger.debug(f"Fetching way {way_id} from {url}")
         async with httpx.AsyncClient() as client:
             response = await client.get(url)
             response.raise_for_status()
@@ -151,7 +230,8 @@ async def get_osm_relation(relation_id: int) -> Dict[str, Any]:
         Dictionary containing relation data including members and tags
     """
     try:
-        url = f"{config.osm_api_base_url}/relation/{relation_id}"
+        url = f"{config.current_api_base_url}/relation/{relation_id}"
+        logger.debug(f"Fetching relation {relation_id} from {url}")
         async with httpx.AsyncClient() as client:
             response = await client.get(url)
             response.raise_for_status()
@@ -179,7 +259,8 @@ async def get_osm_elements_in_area(bbox: str) -> Dict[str, Any]:
         Dictionary containing all elements in the area
     """
     try:
-        url = f"{config.osm_api_base_url}/map?bbox={bbox}"
+        url = f"{config.current_api_base_url}/map?bbox={bbox}"
+        logger.debug(f"Fetching elements in bbox {bbox} from {url}")
         async with httpx.AsyncClient() as client:
             response = await client.get(url)
             response.raise_for_status()
@@ -221,7 +302,8 @@ async def create_changeset(comment: str, tags: Optional[Dict[str, str]] = None) 
             changeset_xml += f'<tag k="{key}" v="{value}"/>'
         changeset_xml += "</changeset></osm>"
 
-        url = f"{config.osm_api_base_url}/changeset/create"
+        url = f"{config.current_api_base_url}/changeset/create"
+        logger.debug(f"Creating changeset at {url}")
         async with httpx.AsyncClient() as client:
             response = await client.put(
                 url,
@@ -254,7 +336,8 @@ async def get_changeset(changeset_id: int) -> Dict[str, Any]:
         Dictionary containing changeset information
     """
     try:
-        url = f"{config.osm_api_base_url}/changeset/{changeset_id}"
+        url = f"{config.current_api_base_url}/changeset/{changeset_id}"
+        logger.debug(f"Fetching changeset {changeset_id} from {url}")
         async with httpx.AsyncClient() as client:
             response = await client.get(url)
             response.raise_for_status()
@@ -282,7 +365,8 @@ async def close_changeset(changeset_id: int) -> Dict[str, Any]:
         Dictionary containing operation status
     """
     try:
-        url = f"{config.osm_api_base_url}/changeset/{changeset_id}/close"
+        url = f"{config.current_api_base_url}/changeset/{changeset_id}/close"
+        logger.debug(f"Closing changeset {changeset_id} at {url}")
         async with httpx.AsyncClient() as client:
             response = await client.put(url)
             response.raise_for_status()
@@ -307,7 +391,7 @@ async def get_server_info() -> Dict[str, Any]:
     return {
         "server_name": "OSM Edit MCP Server",
         "version": "1.0.0",
-        "api_base_url": config.osm_api_base_url,
+                    "api_base_url": config.current_api_base_url,
         "available_operations": [
             "get_osm_node", "get_osm_way", "get_osm_relation",
             "get_osm_elements_in_area", "create_changeset", "get_changeset",
@@ -1826,7 +1910,8 @@ async def get_changeset_history(user_id: Optional[int] = None, limit: int = 20) 
             query_params['user'] = user_id
 
         query_string = '&'.join([f'{k}={v}' for k, v in query_params.items()])
-        url = f"{config.osm_api_base_url}/changesets?{query_string}"
+        url = f"{config.current_api_base_url}/changesets?{query_string}"
+        logger.debug(f"Fetching changeset history from {url}")
 
         async with httpx.AsyncClient() as client:
             response = await client.get(url)
