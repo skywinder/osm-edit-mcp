@@ -27,7 +27,7 @@ from osm_edit_mcp.server import (
     delete_place_from_description, parse_natural_language_osm_request,
     bulk_create_places, validate_osm_data, get_changeset_history,
     export_osm_data, get_osm_statistics, smart_geocode,
-    config, logger
+    check_authentication, config, logger
 )
 
 class TestResult:
@@ -88,6 +88,14 @@ class OSMTestSuite:
         """Test all read-only operations that don't modify OSM data"""
         self.logger.info("=== Testing Read Operations ===")
 
+        # Test 0: Check authentication status first
+        auth_result = await self.run_test("check_authentication", check_authentication)
+        self.results.append(auth_result)
+        if auth_result.success:
+            self.logger.info(f"✅ Authentication working: {auth_result.message}")
+        else:
+            self.logger.warning(f"⚠️ Authentication issue: {auth_result.error}")
+
         # Test 1: Get server info
         result = await self.run_test("get_server_info", get_server_info)
         self.results.append(result)
@@ -96,21 +104,21 @@ class OSMTestSuite:
         result = await self.run_test("validate_coordinates", validate_coordinates, 51.5074, -0.1278)
         self.results.append(result)
 
-        # Test 3: Get OSM node (example: Big Ben)
+        # Test 3: Get OSM node (using dev server ID that exists)
         result = await self.run_test("get_osm_node", get_osm_node, 150537)
         self.results.append(result)
 
-        # Test 4: Get OSM way (example: Baker Street)
-        result = await self.run_test("get_osm_way", get_osm_way, 4082988)
+        # Test 4: Get OSM way (try a few different IDs for dev server)
+        result = await self.run_test("get_osm_way", get_osm_way, 1)
         self.results.append(result)
 
-        # Test 5: Get OSM relation (example: London Bus Route)
-        result = await self.run_test("get_osm_relation", get_osm_relation, 1306)
+        # Test 5: Get OSM relation (try a smaller ID for dev server)
+        result = await self.run_test("get_osm_relation", get_osm_relation, 1)
         self.results.append(result)
 
-        # Test 6: Get elements in area (small area in London)
+        # Test 6: Get elements in area (larger area for dev server compatibility)
         result = await self.run_test("get_osm_elements_in_area", get_osm_elements_in_area,
-                                   "-0.1279,-0.1278,51.5074,51.5075")
+                                   "-0.13,-0.12,51.50,51.51")
         self.results.append(result)
 
         # Test 7: Find nearby amenities
@@ -140,12 +148,12 @@ class OSMTestSuite:
 
         # Test 12: Export OSM data
         result = await self.run_test("export_osm_data", export_osm_data,
-                                   "-0.1279,-0.1278,51.5074,51.5075", "json")
+                                   "-0.13,-0.12,51.50,51.51", "json")
         self.results.append(result)
 
         # Test 13: Get OSM statistics
         result = await self.run_test("get_osm_statistics", get_osm_statistics,
-                                   "-0.1279,-0.1278,51.5074,51.5075")
+                                   "-0.13,-0.12,51.50,51.51")
         self.results.append(result)
 
         # Test 14: Get changeset history
