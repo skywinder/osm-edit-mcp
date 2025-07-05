@@ -150,7 +150,7 @@ class SecurityAuditor:
         print("📝 Checking logging security...")
         
         for py_file in self.root_path.rglob("*.py"):
-            if "test" in str(py_file):
+            if "test" in str(py_file) or ".venv" in str(py_file) or "venv" in str(py_file):
                 continue
                 
             with open(py_file, 'r') as f:
@@ -218,9 +218,10 @@ class SecurityAuditor:
         
         # Save to file
         report_path = self.root_path / "security_audit_report.json"
+        from datetime import datetime
         with open(report_path, 'w') as f:
             json.dump({
-                "timestamp": str(Path.ctime(Path.cwd())),
+                "timestamp": datetime.now().isoformat(),
                 "total_issues": len(self.issues),
                 "by_severity": {k: len(v) for k, v in by_severity.items()},
                 "issues": self.issues

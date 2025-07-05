@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(mkdir:*)"
+      "Bash(mkdir:*)",
+      "Bash(python test:*)",
+      "Bash(cp:*)"
     ],
     "deny": []
   }

@@ -176,3 +176,17 @@ test_results.log
 # OAuth tokens
 .osm_token_dev.json
 .osm_token_prod.json
+.osm_token_*.json
+
+# Security and keys
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+*.cer
+private_key*
+secret_key*
+
+# Security audit reports
+security_audit_report.json

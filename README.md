@@ -154,6 +154,62 @@ After running tests, check your changesets:
    ```
 3. **Re-authenticate** for production: `python oauth_auth.py`
 
+## 📖 Documentation
+
+- [Quick Start Guide](docs/quick-start-guide.md)
+- [MCP Usage Examples](docs/mcp-usage-examples.md)
+- [OSM Tagging Guide](docs/osm-tagging-guide.md)
+- [Natural Language Processing Guide](docs/natural-language-processing-guide.md)
+- [Tag Validation and Checking](docs/tag-validation-and-checking.md)
+- [Contributing Guidelines](CONTRIBUTING.md)
+
+## 🛡️ Security
+
+This project takes security seriously:
+
+- **OAuth 2.0** authentication with secure token storage
+- **Development API** by default to prevent accidental edits
+- **Rate limiting** to respect OSM API limits
+- **Input validation** on all user inputs
+- **Secure logging** without exposing sensitive data
+
+See [SECURITY.md](SECURITY.md) for reporting vulnerabilities.
+
+## 🤝 Contributing
+
+We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details on:
+
+- Code of conduct
+- Development setup
+- Testing requirements
+- Pull request process
+
+## 📝 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- OpenStreetMap community for the amazing collaborative mapping platform
+- Anthropic for the Model Context Protocol specification
+- All contributors who help improve this project
+
+## 📊 Project Status
+
+- **Current Version**: 0.1.0
+- **Status**: Production Ready
+- **Test Coverage**: 100% (19/19 tests passing)
+- **Python Support**: 3.10+
+- **MCP Compatibility**: 1.10.0+
+
+## 🔗 Links
+
+- [PyPI Package](https://pypi.org/project/osm-edit-mcp/)
+- [GitHub Repository](https://github.com/skywinder/osm-edit-mcp)
+- [Issue Tracker](https://github.com/skywinder/osm-edit-mcp/issues)
+- [OpenStreetMap](https://www.openstreetmap.org)
+- [Model Context Protocol](https://modelcontextprotocol.io)
+
 ### 🚨 Troubleshooting
 
 #### **"401 Unauthorized" errors**
