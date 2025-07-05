@@ -6,718 +6,215 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
-A comprehensive **Model Context Protocol (MCP)** server for interacting with OpenStreetMap data. This server provides AI assistants with powerful tools to read, search, and interact with OpenStreetMap data safely and efficiently.
+A powerful **Model Context Protocol (MCP)** server that enables AI assistants to interact with OpenStreetMap data. Read, search, validate, and edit map data safely with built-in protections.
 
-## 🚀 Features
+## 🌟 What Can You Do?
 
-### Core OSM Operations
-- **Read OSM Elements**: Get nodes, ways, relations, and changesets by ID
-- **Search Areas**: Find elements within geographic bounding boxes
-- **Changeset Management**: Create and manage changesets for OSM edits
+- 🔍 **Search Places**: Find restaurants, cafes, hospitals, schools, and more
+- 📍 **Validate Locations**: Check coordinates and get detailed location info
+- 🗺️ **Explore Areas**: Discover what's in any geographic region
+- ✏️ **Edit Safely**: Make map edits on the development server first
+- 🤖 **Natural Language**: Use plain English to describe what you want
 
-### Convenient Search Tools
-- **Find Nearby Amenities**: Search for restaurants, cafes, hospitals, etc. around a location
-- **Validate Coordinates**: Check coordinate validity and get location information
-- **Place Search**: Find places by name with detailed information
-- **Text Search**: Search OSM elements by text query
+## 🚀 Quick Start (5 Minutes)
 
-### Safety Features
-- **Development API**: Uses OSM development server by default for safe testing
-- **Coordinate Validation**: Ensures all coordinates are within valid ranges
-- **Error Handling**: Comprehensive error handling with informative messages
-- **Rate Limiting**: Respects OSM API rate limits
-
-## 🛠️ Complete Setup Guide
-
-### Prerequisites
-- Python 3.8+
-- OpenStreetMap account for development server
-- System with browser access (for OAuth setup)
-
-### 📋 Step-by-Step Setup
-
-#### 1. **Install Dependencies**
+### 1️⃣ Install
 ```bash
-git clone <repository-url>
+git clone https://github.com/skywinder/osm-edit-mcp
 cd osm-edit-mcp
 pip install -r requirements.txt
 ```
 
-#### 2. **Create Development Account**
-First, create an account on the OpenStreetMap development server:
-- Go to: https://api06.dev.openstreetmap.org/
-- Click "Sign Up" and create an account
-- **Note**: This is separate from main OSM - safe for testing!
-
-#### 3. **Configure Environment**
-Copy the environment template:
+### 2️⃣ Configure
 ```bash
 cp .env.example .env
+# No need to edit - defaults are ready to use!
 ```
 
-Edit `.env` to ensure development mode:
-```bash
-# ========================================
-# API Configuration (KEEP AS DEV FOR TESTING)
-# ========================================
-OSM_USE_DEV_API=true
-OSM_DEV_API_BASE=https://api06.dev.openstreetmap.org/api/0.6
-
-# ========================================
-# OAuth Credentials (will be filled automatically)
-# ========================================
-OSM_DEV_CLIENT_ID=
-OSM_DEV_CLIENT_SECRET=
-OSM_DEV_REDIRECT_URI=https://localhost:8080/callback
-```
-
-#### 4. **OAuth Setup**
-Register an OAuth application on the development server:
-
-1. **Login** to https://api06.dev.openstreetmap.org/
-2. **Go to Account Settings** → OAuth 2 Applications
-3. **Click "Register new application"**
-4. **Fill the form**:
-   - **Name**: `OSM Edit MCP Server - Dev`
-   - **Redirect URI**: `https://localhost:8080/callback`
-   - **Permissions**: ✅ read_prefs, ✅ write_prefs, ✅ write_api, ✅ write_changeset_comments
-5. **Copy credentials** to your `.env` file:
-   ```bash
-   OSM_DEV_CLIENT_ID=your_client_id
-   OSM_DEV_CLIENT_SECRET=your_client_secret
-   ```
-
-#### 5. **Authenticate with Your Account**
-Run the authentication script:
-```bash
-python oauth_auth.py
-```
-This will:
-- Open your browser to the OAuth login page
-- Ask you to login with your dev account
-- Save the access token securely
-- ✅ You're now authenticated!
-
-#### 6. **Test Everything Works**
-Run comprehensive tests:
-```bash
-python test_comprehensive.py
-```
-
-Expected results:
-- ✅ **Read operations**: Working without auth
-- ✅ **Write operations**: Working with auth (creates test changeset)
-- ✅ **OAuth flow**: Token saved and working
-
-#### 7. **Start the MCP Server**
-```bash
-python main.py
-```
-
-You should see:
-```
-OSM Edit MCP Server v0.1.0
-API Mode: Development
-API Base URL: https://api06.dev.openstreetmap.org/api/0.6
-Log Level: INFO
-Starting OSM Edit MCP Server...
-```
-
-### 🧪 Testing Your Setup
-
-#### **Quick Test**
-```bash
-python quick_test.py
-```
-
-#### **Comprehensive Test**
-```bash
-python test_comprehensive.py
-```
-
-#### **Verify Your Changes on OSM Dev**
-After running tests, check your changesets:
-1. Go to: https://api06.dev.openstreetmap.org/user/[your-username]/history
-2. Look for test changesets created by "osm-edit-mcp/0.1.0"
-3. ✅ If you see them, everything is working!
-
-### 🔧 Production Setup (Advanced)
-
-**⚠️ ONLY for production deployments - requires extreme caution**
-
-1. **Create production OAuth app** at https://www.openstreetmap.org/oauth2/applications
-2. **Update .env**:
-   ```bash
-   OSM_USE_DEV_API=false
-   OSM_PROD_CLIENT_ID=your_prod_client_id
-   OSM_PROD_CLIENT_SECRET=your_prod_client_secret
-   ```
-3. **Re-authenticate** for production: `python oauth_auth.py`
-
-## 📖 Documentation
-
-- [Quick Start Guide](docs/quick-start-guide.md)
-- [MCP Usage Examples](docs/mcp-usage-examples.md)
-- [OSM Tagging Guide](docs/osm-tagging-guide.md)
-- [Natural Language Processing Guide](docs/natural-language-processing-guide.md)
-- [Tag Validation and Checking](docs/tag-validation-and-checking.md)
-- [Contributing Guidelines](CONTRIBUTING.md)
-
-## 🛡️ Security
-
-This project takes security seriously:
-
-- **OAuth 2.0** authentication with secure token storage
-- **Development API** by default to prevent accidental edits
-- **Rate limiting** to respect OSM API limits
-- **Input validation** on all user inputs
-- **Secure logging** without exposing sensitive data
-
-See [SECURITY.md](SECURITY.md) for reporting vulnerabilities.
-
-## 🤝 Contributing
-
-We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details on:
-
-- Code of conduct
-- Development setup
-- Testing requirements
-- Pull request process
-
-## 📝 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- OpenStreetMap community for the amazing collaborative mapping platform
-- Anthropic for the Model Context Protocol specification
-- All contributors who help improve this project
-
-## 📊 Project Status
-
-- **Current Version**: 0.1.0
-- **Status**: Production Ready
-- **Test Coverage**: 100% (19/19 tests passing)
-- **Python Support**: 3.10+
-- **MCP Compatibility**: 1.10.0+
-
-## 🔗 Links
-
-- [PyPI Package](https://pypi.org/project/osm-edit-mcp/)
-- [GitHub Repository](https://github.com/skywinder/osm-edit-mcp)
-- [Issue Tracker](https://github.com/skywinder/osm-edit-mcp/issues)
-- [OpenStreetMap](https://www.openstreetmap.org)
-- [Model Context Protocol](https://modelcontextprotocol.io)
-
-### 🚨 Troubleshooting
-
-#### **"401 Unauthorized" errors**
-- Run `python oauth_auth.py` to re-authenticate
-- Check your OAuth credentials in `.env`
-- Verify you're using the correct API (dev vs prod)
-
-#### **"Client authentication failed"**
-- OAuth app not registered correctly
-- Wrong client ID/secret in `.env`
-- Try re-registering the OAuth application
-
-#### **Can't see changesets on OSM**
-- Check the correct URL: `https://api06.dev.openstreetmap.org/user/[username]/history`
-- Remove URL filters like `?before=` that might hide recent changesets
-- Look for changesets with `created_by=osm-edit-mcp/0.1.0`
-
-#### **Import errors**
-- Install missing dependencies: `pip install -r requirements.txt`
-
-### ✅ Quick Status Check
-
-Verify your complete setup:
+### 3️⃣ Test
 ```bash
 python status_check.py
 ```
 
-This will check your configuration, OAuth credentials, and authentication status.
-
-## 🔧 Configuration
-
-### Environment Variables (.env)
-
-The server supports comprehensive configuration through environment variables. Copy `.env.example` to `.env` and customize:
-
+### 4️⃣ Run
 ```bash
-# ========================================
-# API Configuration (Dev/Prod Switching)
-# ========================================
-# Set to true to use development API (safe for testing)
-OSM_USE_DEV_API=true
-
-# Production API (⚠️ requires extreme caution)
-OSM_API_BASE=https://api.openstreetmap.org/api/0.6
-
-# Development API (safe for testing)
-OSM_DEV_API_BASE=https://api06.dev.openstreetmap.org/api/0.6
-
-# ========================================
-# OAuth 2.0 Credentials - Production
-# ========================================
-OSM_PROD_CLIENT_ID=your_prod_client_id
-OSM_PROD_CLIENT_SECRET=your_prod_client_secret
-OSM_PROD_REDIRECT_URI=https://localhost:8080/callback
-
-# ========================================
-# OAuth 2.0 Credentials - Development
-# ========================================
-OSM_DEV_CLIENT_ID=your_dev_client_id
-OSM_DEV_CLIENT_SECRET=your_dev_client_secret
-OSM_DEV_REDIRECT_URI=https://localhost:8080/callback
-
-# ========================================
-# Logging Configuration
-# ========================================
-LOG_LEVEL=INFO                    # DEBUG, INFO, WARNING, ERROR
-DEBUG=false                       # Enable debug mode
-DEVELOPMENT_MODE=false            # Enable development features
-
-# ========================================
-# Safety and Rate Limiting
-# ========================================
-REQUIRE_USER_CONFIRMATION=true    # Require confirmation for destructive ops
-RATE_LIMIT_PER_MINUTE=60         # API calls per minute
-MAX_CHANGESET_SIZE=50            # Maximum operations per changeset
-
-# ========================================
-# Cache Configuration
-# ========================================
-ENABLE_CACHE=true                # Enable response caching
-CACHE_TTL_SECONDS=300           # Cache expiration time
-
-# ========================================
-# Security Settings
-# ========================================
-USE_KEYRING=true                 # Use system keyring for credentials
+python main.py
 ```
 
-### Dev/Prod API Switching
+That's it! The server is running. For write operations, you'll need OAuth (see below).
 
-**🔄 Easy switching between development and production APIs:**
+## 🔐 Enable Write Operations (Optional)
 
-```bash
-# For safe testing (recommended)
-OSM_USE_DEV_API=true
+To create or edit map data, you need OAuth authentication:
 
-# For production use (⚠️ requires extreme caution)
-OSM_USE_DEV_API=false
-```
+### Step 1: Create Dev Account
+Visit https://api06.dev.openstreetmap.org and sign up (separate from main OSM).
 
-The server automatically:
-- Uses appropriate API endpoints
-- Shows current mode in logs
-- Validates configuration on startup
-- Warns when using production API
-
-### OAuth Setup
-For development, follow step 4 in the setup guide above. For production:
-1. Visit [OpenStreetMap OAuth Applications](https://www.openstreetmap.org/oauth2/applications)
-2. Create a new application with these settings:
-   - **Name**: Your application name
+### Step 2: Create OAuth App
+1. Go to your [dev account settings](https://api06.dev.openstreetmap.org/user/account) → OAuth 2 Applications
+2. Register new application:
+   - **Name**: `OSM Edit MCP Dev`
    - **Redirect URI**: `https://localhost:8080/callback`
-   - **Scopes**: `read_prefs`, `write_prefs`, `write_api`, `write_changeset_comments`
-3. Copy the Client ID and Client Secret to your `.env` file as `OSM_PROD_CLIENT_ID` and `OSM_PROD_CLIENT_SECRET`
+   - **Permissions**: Select all checkboxes
 
-### Log Level Configuration
-
-Configure logging detail level:
-
+### Step 3: Add Credentials
+Edit `.env` and add your OAuth credentials:
 ```bash
-# Show all messages (development)
-LOG_LEVEL=DEBUG
-
-# Show important messages only (production)
-LOG_LEVEL=INFO
-
-# Show only warnings and errors
-LOG_LEVEL=WARNING
-
-# Show only errors
-LOG_LEVEL=ERROR
+OSM_DEV_CLIENT_ID=your_client_id_here
+OSM_DEV_CLIENT_SECRET=your_client_secret_here
 ```
 
-## 📚 Available Tools
-
-### 1. Core OSM Data Access
-
-#### `get_osm_node(node_id: int)`
-Retrieve a specific OSM node by ID.
-
-**Example**:
-```python
-# Get the Eiffel Tower node
-result = await get_osm_node(1413967589)
+### Step 4: Authenticate
+```bash
+python oauth_auth.py
 ```
 
-#### `get_osm_way(way_id: int)`
-Retrieve a specific OSM way by ID.
-
-#### `get_osm_relation(relation_id: int)`
-Retrieve a specific OSM relation by ID.
-
-#### `get_osm_elements_in_area(min_lat, min_lon, max_lat, max_lon)`
-Find all elements within a geographic bounding box.
-
-**Example**:
-```python
-# Get elements in central Paris
-result = await get_osm_elements_in_area(48.85, 2.29, 48.87, 2.31)
+### Step 5: Verify
+```bash
+python test_comprehensive.py
 ```
 
-### 2. Search and Discovery Tools
+Expected: ✅ 19/19 tests passing
 
-#### `find_nearby_amenities(lat, lon, radius_meters=1000, amenity_type="restaurant")`
-Find nearby amenities around a location.
+## 📖 Available Tools
 
-**Example**:
+### 🔍 Search & Discovery
+
+| Tool | Description | Example |
+|------|-------------|---------|
+| `find_nearby_amenities` | Find places around a location | "Find restaurants within 500m" |
+| `get_place_info` | Search places by name | "Where is Central Park?" |
+| `search_osm_elements` | Text search for any element | "Search for coffee shops" |
+| `smart_geocode` | Convert address to coordinates | "10 Downing Street, London" |
+
+### 📍 Location Tools
+
+| Tool | Description | Example |
+|------|-------------|---------|
+| `validate_coordinates` | Check if coordinates are valid | `51.5074, -0.1278` |
+| `get_osm_elements_in_area` | Get all elements in a box | "What's in this area?" |
+| `get_osm_statistics` | Area statistics | "How many restaurants?" |
+
+### 🗺️ OSM Data Access
+
+| Tool | Description | Example |
+|------|-------------|---------|
+| `get_osm_node` | Get node by ID | Node details |
+| `get_osm_way` | Get way by ID | Street/building info |
+| `get_osm_relation` | Get relation by ID | Complex features |
+
+### ✏️ Editing Tools (Requires Auth)
+
+| Tool | Description | Example |
+|------|-------------|---------|
+| `create_changeset` | Start editing session | Required for edits |
+| `create_osm_node` | Add new point | "Add restaurant here" |
+| `create_place_from_description` | Natural language creation | "Add coffee shop called Bean There at..." |
+
+## 💡 Usage Examples
+
+### Find Nearby Restaurants
 ```python
-# Find restaurants within 500m of the Louvre
-result = await find_nearby_amenities(48.8606, 2.3376, 500, "restaurant")
-```
-
-**Common amenity types**:
-- `restaurant`, `cafe`, `bar`, `pub`
-- `hospital`, `clinic`, `pharmacy`
-- `school`, `university`, `library`
-- `bank`, `atm`, `post_office`
-- `fuel`, `parking`, `charging_station`
-
-#### `get_place_info(place_name: str)`
-Search for places by name and get detailed information.
-
-**Example**:
-```python
-# Find information about "Central Park, New York"
-result = await get_place_info("Central Park, New York")
-```
-
-#### `search_osm_elements(query: str, element_type="all")`
-Search OSM elements using text queries.
-
-**Example**:
-```python
-# Search for coffee shops
-result = await search_osm_elements("coffee shop", "node")
-```
-
-### 3. Utility Tools
-
-#### `validate_coordinates(lat: float, lon: float)`
-Validate coordinates and get location information.
-
-**Example**:
-```python
-# Validate coordinates for Times Square
-result = await validate_coordinates(40.7580, -73.9855)
-```
-
-#### `get_server_info()`
-Get server configuration and available operations.
-
-### 4. Changeset Management
-
-#### `create_changeset(tags: dict)`
-Create a new changeset for OSM edits.
-
-#### `get_changeset(changeset_id: int)`
-Get information about a specific changeset.
-
-#### `close_changeset(changeset_id: int)`
-Close an open changeset.
-
-## 🎯 Usage Examples
-
-### Example 1: Finding Nearby Restaurants
-
-```python
-# Find Italian restaurants near the Colosseum in Rome
+# Find Italian restaurants near the Colosseum
 result = await find_nearby_amenities(
-    lat=41.8902,
-    lon=12.4922,
-    radius_meters=800,
+    lat=41.8902, lon=12.4922,
+    radius_meters=500,
     amenity_type="restaurant"
 )
-
-# Filter for Italian restaurants
-italian_restaurants = [
-    r for r in result["data"]["amenities"]
-    if "italian" in r["tags"].get("cuisine", "").lower()
-]
 ```
 
-### Example 2: Exploring a City
-
+### Validate Coordinates
 ```python
-# Search for tourist attractions in Paris
-places = await get_place_info("Paris, France")
-paris_coords = places["data"]["places"][0]["coordinates"]
-
-# Find nearby tourist attractions
-attractions = await find_nearby_amenities(
-    lat=paris_coords["lat"],
-    lon=paris_coords["lon"],
-    radius_meters=2000,
-    amenity_type="tourist_attraction"
-)
-```
-
-### Example 3: Coordinate Validation with Location Info
-
-```python
-# Validate and get info about coordinates
+# Check if coordinates are valid and get location info
 result = await validate_coordinates(51.5074, -0.1278)
-print(f"Location: {result['data']['location_info']['display_name']}")
-print(f"Valid: {result['data']['is_valid']}")
+# Returns: "London, England, United Kingdom"
+```
+
+### Natural Language Search
+```python
+# Parse natural language requests
+result = await parse_natural_language_osm_request(
+    "Find coffee shops near the Eiffel Tower"
+)
 ```
 
 ## 🖥️ Claude Desktop Integration
 
-### Configuration
-Add this to your Claude Desktop configuration:
+Add to your Claude Desktop config:
 
 ```json
 {
   "mcpServers": {
     "osm-edit-mcp": {
       "command": "python",
-      "args": ["/path/to/osm-edit-mcp/main.py"],
-      "env": {
-        "OSM_API_BASE_URL": "https://api06.dev.openstreetmap.org/api/0.6",
-        "OSM_CLIENT_ID": "your_client_id",
-        "OSM_CLIENT_SECRET": "your_client_secret",
-        "OSM_REDIRECT_URI": "https://localhost:8080/callback"
-      }
+      "args": ["/path/to/osm-edit-mcp/main.py"]
     }
   }
 }
 ```
 
-### Using with Claude Desktop
+Then ask Claude:
+- "Find restaurants near Times Square"
+- "What's at coordinates 48.8584, 2.2945?"
+- "Search for hospitals in Seattle"
 
-Once configured, you can ask Claude to:
+## 🛡️ Safety Features
 
-- **"Find me restaurants near the Eiffel Tower"**
-- **"What's the coordinates of Central Park?"**
-- **"Search for hospitals in downtown Seattle"**
-- **"Validate these coordinates: 40.7589, -73.9851"**
-- **"Get information about OSM node 123456"**
+- ✅ **Development API by default** - Safe testing environment
+- ✅ **OAuth protection** - Edits require authentication  
+- ✅ **Rate limiting** - Respects API limits
+- ✅ **Input validation** - Prevents invalid data
+- ✅ **Changeset management** - Groups edits properly
 
-### Example Conversations
+## 📊 Project Status
 
-**User**: "Find me coffee shops near Times Square"
-
-**Claude**: I'll search for coffee shops near Times Square for you.
-
-```python
-# First, let me get the coordinates of Times Square
-times_square = await get_place_info("Times Square, New York")
-coords = times_square["data"]["places"][0]["coordinates"]
-
-# Now find nearby coffee shops
-coffee_shops = await find_nearby_amenities(
-    lat=coords["lat"],
-    lon=coords["lon"],
-    radius_meters=500,
-    amenity_type="cafe"
-)
-```
-
-**User**: "What's at coordinates 48.8584, 2.2945?"
-
-**Claude**: Let me validate those coordinates and see what's there.
-
-```python
-location_info = await validate_coordinates(48.8584, 2.2945)
-print(f"Location: {location_info['data']['location_info']['display_name']}")
-# This is the Eiffel Tower in Paris!
-```
-
-## 🔒 Safety and Best Practices
-
-### Development vs Production
-- **Always use the development API** (`api06.dev.openstreetmap.org`) for testing
-- **Never test write operations** on the production OSM database
-- **Validate all coordinates** before sending to OSM
-
-### Rate Limiting
-- OSM API allows **10,000 requests per hour per IP**
-- The server implements automatic rate limiting
-- **Use caching** for frequently accessed data
-
-### Error Handling
-All tools return structured responses:
-```python
-{
-    "success": True/False,
-    "data": {...},          # On success
-    "error": "...",         # On failure
-    "message": "..."        # Human-readable message
-}
-```
+- **Version**: 0.1.0
+- **Tests**: 100% passing (19/19)
+- **Python**: 3.10+
+- **License**: MIT
 
 ## 🧪 Testing
 
-### Comprehensive Test Suite
-
-The server includes a comprehensive test suite that validates all 31 MCP tools:
-
 ```bash
-# Run full test suite (tests all 31 tools)
+# Quick test
+python quick_test.py
+
+# Full test suite
 python test_comprehensive.py
+
+# Check your edits
+# Visit: https://api06.dev.openstreetmap.org/user/YOUR_USERNAME/history
 ```
 
-This will:
-- Test all read operations (safe)
-- Test write operations in simulation mode
-- Test natural language processing
-- Generate detailed reports (`test_report.json`)
-- Create test logs (`test_results.log`)
+## 🚨 Troubleshooting
 
-### Manual Testing Checklist
+| Issue | Solution |
+|-------|----------|
+| "401 Unauthorized" | Run `python oauth_auth.py` |
+| "Client auth failed" | Check OAuth credentials in `.env` |
+| Import errors | Run `pip install -r requirements.txt` |
+| Can't see changesets | Check dev server URL (not main OSM) |
 
-Follow the systematic testing checklist:
+## 📚 Documentation
 
-```bash
-# Use the comprehensive testing checklist
-open TESTING_CHECKLIST.md
-```
-
-The checklist includes:
-- ✅ Pre-test configuration verification
-- ✅ Automated testing with the test suite
-- ✅ Manual testing of all tool categories
-- ✅ Configuration testing (dev/prod switching)
-- ✅ Error handling validation
-- ✅ Performance and security testing
-
-### Quick Tests
-
-```bash
-# Test configuration
-python -c "from src.osm_edit_mcp.server import config; print(f'Dev Mode: {config.is_development}'); print(f'API: {config.current_api_base_url}')"
-
-# Test server info
-python -c "from src.osm_edit_mcp.server import get_server_info; import asyncio; print(asyncio.run(get_server_info()))"
-
-# Test coordinate validation
-python -c "from src.osm_edit_mcp.server import validate_coordinates; import asyncio; print(asyncio.run(validate_coordinates(51.5074, -0.1278)))"
-
-# Test place search
-python -c "from src.osm_edit_mcp.server import get_place_info; import asyncio; print(asyncio.run(get_place_info('Statue of Liberty')))"
-```
-
-### Test Results
-
-The test suite generates:
-- **Console output**: Real-time test results with pass/fail status
-- **test_report.json**: Detailed JSON report with metrics
-- **test_results.log**: Comprehensive logs for debugging
-
-Example test output:
-```
-================================================================================
-OSM EDIT MCP SERVER - COMPREHENSIVE TEST REPORT
-================================================================================
-Test Suite Started: 2024-01-15 14:30:00
-Configuration: Development
-API Base URL: https://api06.dev.openstreetmap.org/api/0.6
-Total Duration: 45.23 seconds
-Total Tests: 31
-Passed: 28
-Failed: 3
-Success Rate: 90.3%
-```
-
-### Expected Test Results
-
-- **Read Operations (Tests 1-15)**: Should mostly pass
-- **Write Operations (Tests 16-27)**: Expected to fail without OAuth (normal)
-- **Natural Language (Tests 28-31)**: Should pass (input validation)
-
-### Debugging Failed Tests
-
-If tests fail unexpectedly:
-
-1. **Check configuration**: Verify `.env` file is correctly set up
-2. **Check network**: Ensure internet connectivity to OSM API
-3. **Check logs**: Review `test_results.log` for detailed error messages
-4. **Test individually**: Use quick test commands to isolate issues
-
-## 🛣️ Common Use Cases
-
-### 1. **Location Discovery**
-- Find points of interest around a location
-- Search for specific types of businesses
-- Validate and get information about coordinates
-
-### 2. **Urban Planning Research**
-- Analyze amenity distribution in cities
-- Find gaps in services (hospitals, schools, etc.)
-- Study transportation infrastructure
-
-### 3. **Travel Planning**
-- Find restaurants, hotels, attractions
-- Explore neighborhoods and their amenities
-- Plan routes with POI information
-
-### 4. **Data Analysis**
-- Extract OSM data for analysis
-- Validate geographic datasets
-- Research geographic patterns
-
-## 🔍 Advanced Queries
-
-### Complex Overpass Queries
-The server uses Overpass API for complex searches:
-
-```python
-# Find all bicycle parking within 1km of a university
-result = await search_osm_elements("bicycle parking", "node")
-```
-
-### Custom Amenity Searches
-```python
-# Find all healthcare facilities
-healthcare = await find_nearby_amenities(
-    lat=40.7580, lon=-73.9855,
-    radius_meters=2000,
-    amenity_type="hospital"
-)
-```
-
-## 📖 Additional Resources
-
-- [OpenStreetMap API Documentation](https://wiki.openstreetmap.org/wiki/API)
-- [Overpass API Documentation](https://wiki.openstreetmap.org/wiki/Overpass_API)
-- [OSM Tagging Guidelines](https://wiki.openstreetmap.org/wiki/Map_Features)
-- [Model Context Protocol](https://modelcontextprotocol.io/)
+- [Quick Reference Card](QUICK_REFERENCE.md) - All commands on one page
+- [Quick Start Guide](docs/quick-start-guide.md)
+- [API Examples](docs/mcp-usage-examples.md)
+- [OSM Tagging Guide](docs/osm-tagging-guide.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security Policy](SECURITY.md)
 
 ## 🤝 Contributing
 
-1. Fork the repository
-2. Create a feature branch
-3. Test your changes with the development API
-4. Submit a pull request
+We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
-## 📄 License
+## 🔗 Links
 
-This project is licensed under the MIT License.
-
-## ⚠️ Important Notes
-
-- **Always use development API** for testing
-- **Respect OSM community guidelines**
-- **Validate all data** before writing to OSM
-- **Handle rate limits gracefully**
-- **Never commit OAuth credentials**
+- [GitHub Repository](https://github.com/skywinder/osm-edit-mcp)
+- [Issue Tracker](https://github.com/skywinder/osm-edit-mcp/issues)
+- [OpenStreetMap](https://www.openstreetmap.org)
+- [Model Context Protocol](https://modelcontextprotocol.io)
 
 ---
 
-**Ready to explore OpenStreetMap data with AI? Start with the examples above and discover the world's geographic data! 🌍**
+**Ready to explore the world's map data? Start with the Quick Start above! 🌍**
