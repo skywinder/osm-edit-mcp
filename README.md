@@ -138,22 +138,81 @@ result = await parse_natural_language_osm_request(
 )
 ```
 
-## 🖥️ Claude Desktop Integration
+## 🖥️ MCP Client Integration
 
-Add to your Claude Desktop config:
+### Quick Setup for Popular Clients
+
+<details>
+<summary><b>Cursor IDE</b></summary>
 
 ```json
 {
   "mcpServers": {
-    "osm-edit-mcp": {
+    "osm-edit": {
+      "command": "python",
+      "args": ["/path/to/osm-edit-mcp/main.py"],
+      "env": {
+        "PYTHONPATH": "/path/to/osm-edit-mcp"
+      }
+    }
+  }
+}
+```
+Add to Cursor Settings → Features → MCP
+</details>
+
+<details>
+<summary><b>Claude Desktop</b></summary>
+
+```json
+{
+  "mcpServers": {
+    "osm-edit": {
       "command": "python",
       "args": ["/path/to/osm-edit-mcp/main.py"]
     }
   }
 }
 ```
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (Mac)
+</details>
 
-Then ask Claude:
+<details>
+<summary><b>Continue.dev</b></summary>
+
+```json
+{
+  "mcpServers": [
+    {
+      "name": "osm-edit",
+      "command": "python",
+      "args": ["/path/to/osm-edit-mcp/main.py"]
+    }
+  ]
+}
+```
+Add to `~/.continue/config.json`
+</details>
+
+<details>
+<summary><b>Cline (VSCode)</b></summary>
+
+```json
+{
+  "cline.mcpServers": {
+    "osm-edit": {
+      "command": "python",
+      "args": ["./osm-edit-mcp/main.py"]
+    }
+  }
+}
+```
+Add to VSCode settings or `.vscode/settings.json`
+</details>
+
+📖 **[Full MCP Client Setup Guide](docs/MCP_CLIENT_SETUP.md)** - Detailed instructions for all clients
+
+### Example Queries
 - "Find restaurants near Times Square"
 - "What's at coordinates 48.8584, 2.2945?"
 - "Search for hospitals in Seattle"
@@ -198,6 +257,7 @@ python test_comprehensive.py
 ## 📚 Documentation
 
 - [Quick Reference Card](QUICK_REFERENCE.md) - All commands on one page
+- [MCP Client Setup](docs/MCP_CLIENT_SETUP.md) - Cursor, Claude, VSCode, etc.
 - [Quick Start Guide](docs/quick-start-guide.md)
 - [API Examples](docs/mcp-usage-examples.md)
 - [OSM Tagging Guide](docs/osm-tagging-guide.md)

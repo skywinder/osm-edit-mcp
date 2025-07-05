@@ -1,0 +1,14 @@
+{
+  "cline.mcpServers": {
+    "osm-edit": {
+      "command": "python",
+      "args": ["${workspaceFolder}/osm-edit-mcp/main.py"],
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/osm-edit-mcp",
+        "OSM_USE_DEV_API": "true"
+      },
+      "enabled": true
+    }
+  },
+  "cline.enableMcp": true
+}

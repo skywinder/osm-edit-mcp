@@ -46,6 +46,8 @@ osm-edit-mcp/
 - Added visual setup flow
 - Created quick reference card
 - Clear tables for tools and troubleshooting
+- Comprehensive MCP client setup guide (Cursor, Claude, VSCode, etc.)
+- Detailed troubleshooting for MCP connections
 
 ### Testing
 - Fixed all failing tests (was 46.9% → now 100%)

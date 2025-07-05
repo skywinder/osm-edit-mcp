@@ -95,7 +95,29 @@ search_osm_elements("coffee shop", "node")
 - **Your Edits**: https://api06.dev.openstreetmap.org/user/YOUR_USERNAME/history
 - **OAuth Apps**: https://api06.dev.openstreetmap.org/oauth2/applications
 
-## 📝 Example Requests (for Claude)
+## 🖥️ MCP Client Setup
+
+### Cursor
+```json
+{
+  "mcpServers": {
+    "osm-edit": {
+      "command": "python",
+      "args": ["/path/to/osm-edit-mcp/main.py"]
+    }
+  }
+}
+```
+
+### Claude Desktop
+- Mac: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+- Linux: `~/.config/Claude/claude_desktop_config.json`
+
+### VSCode (Cline)
+Add to `.vscode/settings.json`
+
+## 📝 Example Requests (Any MCP Client)
 
 - "Find Italian restaurants near the Colosseum"
 - "What's at coordinates 40.7580, -73.9855?"

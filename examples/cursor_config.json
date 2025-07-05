@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "osm-edit": {
+      "command": "python",
+      "args": ["/Users/YOUR_USERNAME/osm-edit-mcp/main.py"],
+      "env": {
+        "PYTHONPATH": "/Users/YOUR_USERNAME/osm-edit-mcp",
+        "OSM_USE_DEV_API": "true",
+        "LOG_LEVEL": "INFO"
+      },
+      "enabled": true,
+      "alwaysRun": true
+    }
+  },
+  "description": "OSM Edit MCP Server - OpenStreetMap data access and editing"
+}

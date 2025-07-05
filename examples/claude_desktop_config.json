@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "osm-edit": {
+      "command": "python",
+      "args": ["/Users/YOUR_USERNAME/osm-edit-mcp/main.py"],
+      "env": {
+        "PYTHONPATH": "/Users/YOUR_USERNAME/osm-edit-mcp"
+      }
+    }
+  }
+}
