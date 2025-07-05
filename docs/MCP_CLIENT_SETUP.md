@@ -18,6 +18,20 @@ This guide shows how to use OSM Edit MCP Server with various MCP clients.
 2. Search for "MCP" or go to Features → MCP
 3. Add server configuration:
 
+#### Option 1: Using uv (Recommended)
+```json
+{
+  "mcpServers": {
+    "osm-edit": {
+      "command": "uv",
+      "args": ["run", "python", "main.py"],
+      "cwd": "/absolute/path/to/osm-edit-mcp"
+    }
+  }
+}
+```
+
+#### Option 2: Using Python directly
 ```json
 {
   "mcpServers": {

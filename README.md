@@ -16,9 +16,27 @@ A powerful **Model Context Protocol (MCP)** server that enables AI assistants to
 - ✏️ **Edit Safely**: Make map edits on the development server first
 - 🤖 **Natural Language**: Use plain English to describe what you want
 
+## 📦 Prerequisites
+
+- Python 3.10+
+- (Optional) [uv](https://github.com/astral-sh/uv) for fast dependency management
+  ```bash
+  # Install uv (optional but recommended)
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  ```
+
 ## 🚀 Quick Start (5 Minutes)
 
 ### 1️⃣ Install
+
+#### Option A: Using uv (Recommended - Fast!)
+```bash
+git clone https://github.com/skywinder/osm-edit-mcp
+cd osm-edit-mcp
+uv sync
+```
+
+#### Option B: Using pip
 ```bash
 git clone https://github.com/skywinder/osm-edit-mcp
 cd osm-edit-mcp
@@ -33,11 +51,19 @@ cp .env.example .env
 
 ### 3️⃣ Test
 ```bash
+# With uv
+uv run python status_check.py
+
+# With pip
 python status_check.py
 ```
 
 ### 4️⃣ Run
 ```bash
+# With uv
+uv run python main.py
+
+# With pip
 python main.py
 ```
 
@@ -66,11 +92,19 @@ OSM_DEV_CLIENT_SECRET=your_client_secret_here
 
 ### Step 4: Authenticate
 ```bash
+# With uv
+uv run python oauth_auth.py
+
+# With pip
 python oauth_auth.py
 ```
 
 ### Step 5: Verify
 ```bash
+# With uv
+uv run python test_comprehensive.py
+
+# With pip
 python test_comprehensive.py
 ```
 
@@ -146,6 +180,18 @@ result = await parse_natural_language_osm_request(
 <summary><b>Cursor IDE</b></summary>
 
 ```json
+// With uv
+{
+  "mcpServers": {
+    "osm-edit": {
+      "command": "uv",
+      "args": ["run", "python", "/path/to/osm-edit-mcp/main.py"],
+      "cwd": "/path/to/osm-edit-mcp"
+    }
+  }
+}
+
+// With pip/python
 {
   "mcpServers": {
     "osm-edit": {
@@ -251,13 +297,15 @@ python test_comprehensive.py
 |-------|----------|
 | "401 Unauthorized" | Run `python oauth_auth.py` |
 | "Client auth failed" | Check OAuth credentials in `.env` |
-| Import errors | Run `pip install -r requirements.txt` |
+| Import errors | Run `pip install -r requirements.txt` or `uv sync` |
 | Can't see changesets | Check dev server URL (not main OSM) |
+| uv: command not found | Install uv: `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
 
 ## 📚 Documentation
 
 - [Quick Reference Card](QUICK_REFERENCE.md) - All commands on one page
 - [MCP Client Setup](docs/MCP_CLIENT_SETUP.md) - Cursor, Claude, VSCode, etc.
+- [Running the Server](docs/RUNNING_SERVER.md) - Background, monitoring, auto-restart
 - [Quick Start Guide](docs/quick-start-guide.md)
 - [API Examples](docs/mcp-usage-examples.md)
 - [OSM Tagging Guide](docs/osm-tagging-guide.md)

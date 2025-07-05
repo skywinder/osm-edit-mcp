@@ -2,6 +2,24 @@
 
 ## 🚀 Installation & Setup
 
+### Using uv (Fast!)
+```bash
+# 1. Clone and install
+git clone https://github.com/skywinder/osm-edit-mcp
+cd osm-edit-mcp
+uv sync
+
+# 2. Configure
+cp .env.example .env
+
+# 3. Test setup
+uv run python status_check.py
+
+# 4. Run server
+uv run python main.py
+```
+
+### Using pip
 ```bash
 # 1. Clone and install
 git clone https://github.com/skywinder/osm-edit-mcp
@@ -31,6 +49,36 @@ python main.py
 
 ## 🛠️ Common Commands
 
+### With uv
+| Command | Purpose |
+|---------|---------|
+| `uv run python main.py` | Start the MCP server |
+| `uv run python status_check.py` | Check configuration |
+| `uv run python oauth_auth.py` | Authenticate with OSM |
+| `uv run python test_comprehensive.py` | Run all tests |
+| `uv run python quick_test.py` | Quick functionality test |
+
+### Running in Background
+```bash
+# Using server manager (easiest)
+./scripts/server_manager.sh start
+./scripts/server_manager.sh status
+./scripts/server_manager.sh logs
+./scripts/server_manager.sh stop
+
+# With nohup
+nohup uv run python main.py > osm-mcp.log 2>&1 &
+
+# With screen
+screen -S osm-mcp
+uv run python main.py
+# Press Ctrl+A, then D to detach
+
+# Check if running
+ps aux | grep "[m]ain.py"
+```
+
+### With pip/python
 | Command | Purpose |
 |---------|---------|
 | `python main.py` | Start the MCP server |

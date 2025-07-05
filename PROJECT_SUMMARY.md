@@ -18,6 +18,7 @@
 3. **Comprehensive Tools**: 31 tools covering all OSM operations
 4. **Claude Desktop Ready**: Direct integration with AI assistants
 5. **Production Ready**: CI/CD, error handling, logging
+6. **uv Support**: Fast dependency management with uv
 
 ## 📁 Project Structure
 

@@ -18,15 +18,25 @@ By participating in this project, you agree to abide by our code of conduct:
    git clone https://github.com/YOUR_USERNAME/osm-edit-mcp.git
    cd osm-edit-mcp
    ```
-3. **Create a virtual environment**:
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
-4. **Install development dependencies**:
-   ```bash
-   pip install -e .[dev]
-   ```
+
+### Option 1: Using uv (Recommended)
+```bash
+# Install dependencies
+uv sync
+
+# Install with dev dependencies
+uv sync --all-extras
+```
+
+### Option 2: Using pip
+```bash
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install development dependencies
+pip install -e .[dev]
+```
 
 ## 🔧 Development Setup
 
@@ -41,6 +51,22 @@ By participating in this project, you agree to abide by our code of conduct:
 
 ### Running Tests
 
+#### With uv
+```bash
+# Run all tests
+uv run pytest
+
+# Run with coverage
+uv run pytest --cov=src/osm_edit_mcp
+
+# Run specific test file
+uv run pytest tests/test_config.py
+
+# Run integration tests
+uv run python test_comprehensive.py
+```
+
+#### With pip/python
 ```bash
 # Run all tests
 pytest

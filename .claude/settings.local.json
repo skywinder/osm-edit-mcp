@@ -4,7 +4,8 @@
       "Bash(mkdir:*)",
       "Bash(python test:*)",
       "Bash(cp:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(uv run:*)"
     ],
     "deny": []
   }
