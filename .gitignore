@@ -170,4 +170,9 @@ temp/
 # Testing output
 test-results/
 .coverage.*
+test_report.json
+test_results.log
+
+# OAuth tokens
 .osm_token_dev.json
+.osm_token_prod.json

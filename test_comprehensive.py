@@ -210,6 +210,7 @@ class OSMTestSuite:
                                    members, {"type": "multipolygon"}, 1)
         self.results.append(result)
 
+
         # Test 21: Update OSM node (will fail without changeset but validates input)
         result = await self.run_test("update_osm_node", update_osm_node,
                                    1, 51.5074, -0.1278,
