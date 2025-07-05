@@ -21,10 +21,11 @@ async def check_health():
         result = await get_server_info()
         
         if result.get('success'):
+            data = result.get('data', {})
             print("✅ Server is healthy")
-            print(f"   Version: {result['data']['version']}")
-            print(f"   API Mode: {result['data']['api_mode']}")
-            print(f"   Authenticated: {result['data']['authenticated']}")
+            print(f"   Version: {data.get('version', 'Unknown')}")
+            print(f"   API Mode: {data.get('api_mode', 'Unknown')}")
+            print(f"   Authenticated: {data.get('authenticated', False)}")
             return 0
         else:
             print("❌ Server returned error:", result.get('error', 'Unknown error'))

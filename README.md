@@ -58,16 +58,23 @@ uv run python status_check.py
 python status_check.py
 ```
 
-### 4️⃣ Run
+### 4️⃣ Connect to MCP Client
+
+**Important**: MCP servers communicate via stdin/stdout with MCP clients. Don't run `main.py` directly!
+
+Instead, configure the server in your MCP client:
+- **Cursor IDE**: Settings → Features → MCP
+- **Claude Desktop**: See [MCP Client Setup](docs/MCP_CLIENT_SETUP.md)
+- **VSCode (Cline)**: Add to settings.json
+
+To test functionality without a client:
 ```bash
 # With uv
-uv run python main.py
+uv run python test_comprehensive.py
 
 # With pip
-python main.py
+python test_comprehensive.py
 ```
-
-That's it! The server is running. For write operations, you'll need OAuth (see below).
 
 ## 🔐 Enable Write Operations (Optional)
 
@@ -295,11 +302,13 @@ python test_comprehensive.py
 
 | Issue | Solution |
 |-------|----------|
+| "Server hangs" when running main.py | This is normal! MCP servers wait for client input. Use `python test_comprehensive.py` instead |
 | "401 Unauthorized" | Run `python oauth_auth.py` |
 | "Client auth failed" | Check OAuth credentials in `.env` |
 | Import errors | Run `pip install -r requirements.txt` or `uv sync` |
 | Can't see changesets | Check dev server URL (not main OSM) |
 | uv: command not found | Install uv: `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
+| How do I use the server? | Configure in MCP client or run `python explain_mcp_server.py` |
 
 ## 📚 Documentation
 

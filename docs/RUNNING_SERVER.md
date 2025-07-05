@@ -1,5 +1,20 @@
 # Running the OSM Edit MCP Server
 
+## ⚠️ Important: Understanding MCP Servers
+
+**MCP servers are NOT standalone HTTP servers!** They communicate via stdin/stdout with MCP clients. When you run `python main.py` directly, it will appear to "hang" because it's waiting for input from an MCP client.
+
+### How MCP Works:
+1. MCP clients (Cursor, Claude Desktop, etc.) start the server as a subprocess
+2. Communication happens through stdin/stdout using JSON-RPC
+3. The server doesn't listen on any network port
+
+### To Test the Server:
+- ✅ Use `python test_comprehensive.py` to test functionality
+- ✅ Use `python quick_test.py` for a quick test
+- ✅ Configure in an MCP client (see MCP_CLIENT_SETUP.md)
+- ❌ Don't run `python main.py` directly expecting a web interface
+
 ## 🔍 Check if Server is Already Running
 
 ### Method 1: Check Process

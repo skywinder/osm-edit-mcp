@@ -33,6 +33,10 @@ start_server() {
         return 1
     fi
     
+    echo -e "${YELLOW}⚠️  Note: MCP servers communicate via stdin/stdout with MCP clients.${NC}"
+    echo -e "${YELLOW}   This script starts the server for testing, but normally MCP clients${NC}"
+    echo -e "${YELLOW}   (Cursor, Claude Desktop, etc.) start the server automatically.${NC}"
+    echo ""
     echo -e "${GREEN}Starting OSM Edit MCP Server...${NC}"
     cd "$PROJECT_DIR"
     

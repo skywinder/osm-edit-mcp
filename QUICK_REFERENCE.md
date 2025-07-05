@@ -15,8 +15,8 @@ cp .env.example .env
 # 3. Test setup
 uv run python status_check.py
 
-# 4. Run server
-uv run python main.py
+# 4. Configure in MCP client (see docs/MCP_CLIENT_SETUP.md)
+# To test: uv run python test_comprehensive.py
 ```
 
 ### Using pip
@@ -32,8 +32,8 @@ cp .env.example .env
 # 3. Test setup
 python status_check.py
 
-# 4. Run server
-python main.py
+# 4. Configure in MCP client (see docs/MCP_CLIENT_SETUP.md)
+# To test: python test_comprehensive.py
 ```
 
 ## 🔐 OAuth Setup (for write operations)
@@ -52,36 +52,30 @@ python main.py
 ### With uv
 | Command | Purpose |
 |---------|---------|
-| `uv run python main.py` | Start the MCP server |
+| Configure in MCP client | Server runs via client (see setup below) |
 | `uv run python status_check.py` | Check configuration |
 | `uv run python oauth_auth.py` | Authenticate with OSM |
 | `uv run python test_comprehensive.py` | Run all tests |
 | `uv run python quick_test.py` | Quick functionality test |
 
-### Running in Background
+### Understanding MCP Servers
 ```bash
-# Using server manager (easiest)
-./scripts/server_manager.sh start
-./scripts/server_manager.sh status
-./scripts/server_manager.sh logs
-./scripts/server_manager.sh stop
+# ⚠️ MCP servers communicate via stdin/stdout
+# They are started by MCP clients, not run directly!
 
-# With nohup
-nohup uv run python main.py > osm-mcp.log 2>&1 &
+# To test server functionality:
+uv run python test_comprehensive.py
+uv run python quick_test.py
 
-# With screen
-screen -S osm-mcp
-uv run python main.py
-# Press Ctrl+A, then D to detach
-
-# Check if running
-ps aux | grep "[m]ain.py"
+# To use the server:
+# 1. Configure in your MCP client (Cursor, Claude Desktop, etc.)
+# 2. The client will start/stop the server automatically
 ```
 
 ### With pip/python
 | Command | Purpose |
 |---------|---------|
-| `python main.py` | Start the MCP server |
+| Configure in MCP client | Server runs via client (see setup below) |
 | `python status_check.py` | Check configuration |
 | `python oauth_auth.py` | Authenticate with OSM |
 | `python test_comprehensive.py` | Run all tests |
