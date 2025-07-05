@@ -33,7 +33,7 @@ A powerful **Model Context Protocol (MCP)** server that enables AI assistants to
 ```bash
 git clone https://github.com/skywinder/osm-edit-mcp
 cd osm-edit-mcp
-uv sync
+uv sync --dev  # Installs both base and development dependencies
 ```
 
 #### Option B: Using pip
@@ -305,7 +305,7 @@ python test_comprehensive.py
 | "Server hangs" when running main.py | This is normal! MCP servers wait for client input. Use `python test_comprehensive.py` instead |
 | "401 Unauthorized" | Run `python oauth_auth.py` |
 | "Client auth failed" | Check OAuth credentials in `.env` |
-| Import errors | Run `pip install -r requirements.txt` or `uv sync` |
+| Import errors | Run `pip install -r requirements.txt` or `uv sync --dev` |
 | Can't see changesets | Check dev server URL (not main OSM) |
 | uv: command not found | Install uv: `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
 | How do I use the server? | Configure in MCP client or run `python explain_mcp_server.py` |
