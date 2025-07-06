@@ -29,18 +29,10 @@ A powerful **Model Context Protocol (MCP)** server that enables AI assistants to
 
 ### 1️⃣ Install
 
-#### Option A: Using uv (Recommended - Fast!)
 ```bash
 git clone https://github.com/skywinder/osm-edit-mcp
 cd osm-edit-mcp
 uv sync --dev  # Installs both base and development dependencies
-```
-
-#### Option B: Using pip
-```bash
-git clone https://github.com/skywinder/osm-edit-mcp
-cd osm-edit-mcp
-pip install -r requirements.txt
 ```
 
 ### 2️⃣ Configure
@@ -51,11 +43,7 @@ cp .env.example .env
 
 ### 3️⃣ Test
 ```bash
-# With uv
 uv run python status_check.py
-
-# With pip
-python status_check.py
 ```
 
 ### 4️⃣ Connect to MCP Client
@@ -69,11 +57,7 @@ Instead, configure the server in your MCP client:
 
 To test functionality without a client:
 ```bash
-# With uv
 uv run python test_comprehensive.py
-
-# With pip
-python test_comprehensive.py
 ```
 
 ## 🔐 Enable Write Operations (Optional)
@@ -99,20 +83,12 @@ OSM_DEV_CLIENT_SECRET=your_client_secret_here
 
 ### Step 4: Authenticate
 ```bash
-# With uv
 uv run python oauth_auth.py
-
-# With pip
-python oauth_auth.py
 ```
 
 ### Step 5: Verify
 ```bash
-# With uv
 uv run python test_comprehensive.py
-
-# With pip
-python test_comprehensive.py
 ```
 
 Expected: ✅ 19/19 tests passing
@@ -187,25 +163,30 @@ result = await parse_natural_language_osm_request(
 <summary><b>Cursor IDE</b></summary>
 
 ```json
-// With uv
+// With uv (Recommended)
 {
   "mcpServers": {
     "osm-edit": {
       "command": "uv",
-      "args": ["run", "python", "/path/to/osm-edit-mcp/main.py"],
-      "cwd": "/path/to/osm-edit-mcp"
+      "args": ["run", "python", "main.py"],
+      "cwd": "/path/to/osm-edit-mcp",
+      "env": {
+        "OSM_USE_DEV_API": "true",
+        "LOG_LEVEL": "INFO"
+      }
     }
   }
 }
 
-// With pip/python
+// Alternative: Using wrapper script (if uv has path issues)
 {
   "mcpServers": {
     "osm-edit": {
-      "command": "python",
-      "args": ["/path/to/osm-edit-mcp/main.py"],
+      "command": "/path/to/osm-edit-mcp/run_mcp.sh",
+      "args": [],
       "env": {
-        "PYTHONPATH": "/path/to/osm-edit-mcp"
+        "OSM_USE_DEV_API": "true",
+        "LOG_LEVEL": "INFO"
       }
     }
   }
@@ -218,11 +199,31 @@ Add to Cursor Settings → Features → MCP
 <summary><b>Claude Desktop</b></summary>
 
 ```json
+// With uv (Recommended)
 {
   "mcpServers": {
     "osm-edit": {
-      "command": "python",
-      "args": ["/path/to/osm-edit-mcp/main.py"]
+      "command": "uv",
+      "args": ["run", "python", "main.py"],
+      "cwd": "/path/to/osm-edit-mcp",
+      "env": {
+        "OSM_USE_DEV_API": "true",
+        "LOG_LEVEL": "INFO"
+      }
+    }
+  }
+}
+
+// Alternative: Using wrapper script (if uv has path issues)
+{
+  "mcpServers": {
+    "osm-edit": {
+      "command": "/path/to/osm-edit-mcp/run_mcp.sh",
+      "args": [],
+      "env": {
+        "OSM_USE_DEV_API": "true",
+        "LOG_LEVEL": "INFO"
+      }
     }
   }
 }
@@ -238,8 +239,9 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (Mac)
   "mcpServers": [
     {
       "name": "osm-edit",
-      "command": "python",
-      "args": ["/path/to/osm-edit-mcp/main.py"]
+      "command": "uv",
+      "args": ["run", "python", "main.py"],
+      "cwd": "/path/to/osm-edit-mcp"
     }
   ]
 }
@@ -254,8 +256,9 @@ Add to `~/.continue/config.json`
 {
   "cline.mcpServers": {
     "osm-edit": {
-      "command": "python",
-      "args": ["./osm-edit-mcp/main.py"]
+      "command": "uv",
+      "args": ["run", "python", "main.py"],
+      "cwd": "./osm-edit-mcp"
     }
   }
 }
@@ -285,6 +288,165 @@ Add to VSCode settings or `.vscode/settings.json`
 - **Python**: 3.10+
 - **License**: MIT
 
+## 🌐 Remote Deployment (Make it Accessible Anywhere)
+
+The OSM Edit MCP Server can be deployed as a web service accessible from anywhere. This is useful for:
+- Team collaboration
+- Integration with web applications
+- Running on cloud servers
+- Access from multiple devices
+
+### 🚀 Quick Deploy with Docker
+
+#### 1. Prerequisites
+- Docker and docker-compose installed
+- A server with public IP or domain name
+- SSL certificate (or use the self-signed cert for testing)
+
+#### 2. Deploy Steps
+
+```bash
+# Clone the repository
+git clone https://github.com/skywinder/osm-edit-mcp
+cd osm-edit-mcp
+
+# Configure environment
+cp .env.example .env
+# Edit .env with your OAuth credentials and API_KEY
+
+# Deploy with Docker
+chmod +x deploy.sh
+./deploy.sh
+```
+
+The deploy script will:
+- Build Docker containers
+- Generate SSL certificates (self-signed for development)
+- Start the web server on port 8000
+- Set up Nginx reverse proxy on port 443
+
+#### 3. Access Your Server
+
+After deployment, access your server at:
+- `https://your-server-ip/` (with Nginx SSL)
+- `http://your-server-ip:8000/` (direct access)
+- API docs: `http://your-server-ip:8000/docs`
+
+### 📡 API Usage
+
+All MCP functionality is exposed via REST API endpoints. Authenticate with your API key:
+
+```bash
+# Example: Find nearby amenities
+curl -X POST https://your-server-ip/api/nearby-amenities \
+  -H "Authorization: Bearer your-api-key-here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "lat": 51.5074,
+    "lon": -0.1278,
+    "radius_meters": 500,
+    "amenity_type": "restaurant"
+  }'
+```
+
+### 🔐 Security Configuration
+
+1. **API Key**: Set a strong `API_KEY` in your `.env` file
+2. **SSL Certificate**: Replace self-signed cert with a real one for production
+3. **Firewall**: Only expose necessary ports (80, 443)
+4. **Rate Limiting**: Configured via `RATE_LIMIT_PER_MINUTE` in `.env`
+
+### ☁️ Cloud Platform Deployment
+
+<details>
+<summary><b>Deploy to AWS EC2</b></summary>
+
+```bash
+# Launch EC2 instance (Ubuntu 22.04 recommended)
+# Install Docker
+sudo apt update
+sudo apt install docker.io docker-compose
+
+# Clone and deploy
+git clone https://github.com/skywinder/osm-edit-mcp
+cd osm-edit-mcp
+sudo ./deploy.sh
+```
+</details>
+
+<details>
+<summary><b>Deploy to DigitalOcean</b></summary>
+
+```bash
+# Create a Droplet with Docker pre-installed
+# SSH into your droplet
+ssh root@your-droplet-ip
+
+# Clone and deploy
+git clone https://github.com/skywinder/osm-edit-mcp
+cd osm-edit-mcp
+./deploy.sh
+```
+</details>
+
+<details>
+<summary><b>Deploy to Google Cloud Run</b></summary>
+
+```bash
+# Build and push to Container Registry
+gcloud builds submit --tag gcr.io/PROJECT-ID/osm-edit-mcp
+
+# Deploy to Cloud Run
+gcloud run deploy osm-edit-mcp \
+  --image gcr.io/PROJECT-ID/osm-edit-mcp \
+  --platform managed \
+  --allow-unauthenticated \
+  --set-env-vars API_KEY=your-api-key
+```
+</details>
+
+### 🔧 Advanced Configuration
+
+#### Custom Domain & SSL
+```nginx
+# Update nginx.conf with your domain
+server_name yourdomain.com;
+
+# Use Let's Encrypt for free SSL
+sudo apt install certbot python3-certbot-nginx
+sudo certbot --nginx -d yourdomain.com
+```
+
+#### Environment Variables
+All configuration is done via environment variables. Key settings:
+- `OSM_USE_DEV_API`: Use dev (true) or production (false) API
+- `API_KEY`: Authentication key for API access
+- `RATE_LIMIT_PER_MINUTE`: API rate limiting
+- `LOG_LEVEL`: Logging verbosity
+
+#### Monitoring
+```bash
+# View logs
+docker-compose logs -f
+
+# Check health
+curl https://your-server/health
+
+# Monitor resources
+docker stats
+```
+
+### 📊 Production Checklist
+
+- [ ] Use production OSM API (`OSM_USE_DEV_API=false`)
+- [ ] Set strong `API_KEY`
+- [ ] Install real SSL certificate
+- [ ] Configure firewall rules
+- [ ] Set up monitoring/alerts
+- [ ] Enable automated backups
+- [ ] Configure log rotation
+- [ ] Set resource limits in docker-compose.yml
+
 ## 🧪 Testing
 
 ```bash
@@ -302,13 +464,13 @@ python test_comprehensive.py
 
 | Issue | Solution |
 |-------|----------|
-| "Server hangs" when running main.py | This is normal! MCP servers wait for client input. Use `python test_comprehensive.py` instead |
-| "401 Unauthorized" | Run `python oauth_auth.py` |
+| "Server hangs" when running main.py | This is normal! MCP servers wait for client input. Use `uv run python test_comprehensive.py` instead |
+| "401 Unauthorized" | Run `uv run python oauth_auth.py` |
 | "Client auth failed" | Check OAuth credentials in `.env` |
-| Import errors | Run `pip install -r requirements.txt` or `uv sync --dev` |
+| Import errors | Run `uv sync --dev` |
 | Can't see changesets | Check dev server URL (not main OSM) |
 | uv: command not found | Install uv: `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
-| How do I use the server? | Configure in MCP client or run `python explain_mcp_server.py` |
+| How do I use the server? | Configure in MCP client or run `uv run python explain_mcp_server.py` |
 
 ## 📚 Documentation
 

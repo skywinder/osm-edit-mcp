@@ -25,7 +25,11 @@ This guide shows how to use OSM Edit MCP Server with various MCP clients.
     "osm-edit": {
       "command": "uv",
       "args": ["run", "python", "main.py"],
-      "cwd": "/absolute/path/to/osm-edit-mcp"
+      "cwd": "/Users/pk/repo/_mine/osm-edit-mcp",
+      "env": {
+        "OSM_USE_DEV_API": "true",
+        "LOG_LEVEL": "INFO"
+      }
     }
   }
 }
@@ -37,9 +41,9 @@ This guide shows how to use OSM Edit MCP Server with various MCP clients.
   "mcpServers": {
     "osm-edit": {
       "command": "python",
-      "args": ["/absolute/path/to/osm-edit-mcp/main.py"],
+      "args": ["/Users/pk/repo/_mine/osm-edit-mcp/main.py"],
       "env": {
-        "PYTHONPATH": "/absolute/path/to/osm-edit-mcp"
+        "PYTHONPATH": "/Users/pk/repo/_mine/osm-edit-mcp"
       }
     }
   }
@@ -94,9 +98,9 @@ Once configured, you can use natural language:
   "mcpServers": {
     "osm-edit": {
       "command": "python",
-      "args": ["/absolute/path/to/osm-edit-mcp/main.py"],
+      "args": ["/Users/pk/repo/_mine/osm-edit-mcp/main.py"],
       "env": {
-        "PYTHONPATH": "/absolute/path/to/osm-edit-mcp",
+        "PYTHONPATH": "/Users/pk/repo/_mine/osm-edit-mcp",
         "OSM_USE_DEV_API": "true"
       }
     }

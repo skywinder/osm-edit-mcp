@@ -1,0 +1,26 @@
+[Unit]
+Description=OSM Edit MCP Web Server
+After=network.target
+
+[Service]
+Type=simple
+User=osmuser
+Group=osmuser
+WorkingDirectory=/opt/osm-edit-mcp
+Environment="PATH=/usr/local/bin:/usr/bin:/bin"
+EnvironmentFile=/opt/osm-edit-mcp/.env
+ExecStart=/usr/bin/python3 /opt/osm-edit-mcp/web_server.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=append:/var/log/osm-edit-mcp/server.log
+StandardError=append:/var/log/osm-edit-mcp/error.log
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log/osm-edit-mcp
+
+[Install]
+WantedBy=multi-user.target

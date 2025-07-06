@@ -2536,13 +2536,13 @@ def main():
     """Main entry point for the OSM Edit MCP Server."""
     import sys
     import asyncio
-    
+
     # Log startup info
     logger.info("Starting OSM Edit MCP Server...")
     logger.info(f"Python version: {sys.version}")
     logger.info(f"Server version: {config.mcp_server_version}")
     logger.info(f"API mode: {'Development' if config.is_development else 'Production'}")
-    
+
     # Start the MCP server
     try:
         mcp.run()

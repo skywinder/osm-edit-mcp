@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  osm-edit-mcp:
+    build: .
+    container_name: osm-edit-mcp-server
+    ports:
+      - "8000:8000"
+    environment:
+      # API Configuration
+      - OSM_USE_DEV_API=true
+      
+      # OAuth Configuration - Development
+      - OSM_DEV_CLIENT_ID=${OSM_DEV_CLIENT_ID}
+      - OSM_DEV_CLIENT_SECRET=${OSM_DEV_CLIENT_SECRET}
+      - OSM_DEV_REDIRECT_URI=https://localhost:8080/callback
+      
+      # OAuth Configuration - Production (when ready)
+      # - OSM_USE_DEV_API=false
+      # - OSM_PROD_CLIENT_ID=${OSM_PROD_CLIENT_ID}
+      # - OSM_PROD_CLIENT_SECRET=${OSM_PROD_CLIENT_SECRET}
+      # - OSM_PROD_REDIRECT_URI=https://yourdomain.com/callback
+      
+      # Web Server Configuration
+      - API_KEY=${API_KEY:-your-secure-api-key-here}
+      
+      # Logging
+      - LOG_LEVEL=INFO
+      
+    volumes:
+      # Mount .env file if you prefer file-based config
+      - ./.env:/app/.env:ro
+      
+    restart: unless-stopped
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+  # Optional: Nginx reverse proxy for SSL termination
+  nginx:
+    image: nginx:alpine
+    container_name: osm-edit-nginx
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - osm-edit-mcp
+    restart: unless-stopped
