@@ -48,6 +48,7 @@ If the above doesn't work, try these alternatives:
 }
 ```
 
+
 ### 3. Debugging Steps
 
 1. **Check Cursor MCP Logs**:
@@ -57,7 +58,7 @@ If the above doesn't work, try these alternatives:
 2. **Verify Dependencies**:
    ```bash
    cd /Users/pk/repo/_mine/osm-edit-mcp
-   uv sync
+   uv sync --dev  # Important: Use --dev flag to install all dependencies
    ```
 
 3. **Test Server Manually**:
@@ -65,7 +66,7 @@ If the above doesn't work, try these alternatives:
    cd /Users/pk/repo/_mine/osm-edit-mcp
    echo '{"jsonrpc":"2.0","method":"initialize","id":1,"params":{"protocolVersion":"1.0.0","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}}}' | uv run python main.py
    ```
-   
+
    You should see a JSON response with "serverInfo" if working correctly.
 
 4. **Restart Cursor**:
@@ -80,7 +81,7 @@ If the above doesn't work, try these alternatives:
 
 2. **Python Environment**:
    - The PYTHONPATH env variable helps find the src modules
-   - Make sure you've run `uv sync` in the project directory
+   - Make sure you've run `uv sync --dev` in the project directory
 
 3. **Permissions**:
    - Check that main.py is readable: `ls -la /Users/pk/repo/_mine/osm-edit-mcp/main.py`
