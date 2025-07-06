@@ -78,6 +78,7 @@ class OSMConfig(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = False
+        extra = "ignore"  # Allow extra fields from environment
 
     @property
     def current_api_base_url(self) -> str:

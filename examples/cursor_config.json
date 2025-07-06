@@ -1,10 +1,10 @@
 {
   "mcpServers": {
     "osm-edit": {
-      "command": "python",
-      "args": ["/Users/YOUR_USERNAME/osm-edit-mcp/main.py"],
+      "command": "uv",
+      "args": ["run", "python", "main.py"],
+      "cwd": "/Users/YOUR_USERNAME/osm-edit-mcp",
       "env": {
-        "PYTHONPATH": "/Users/YOUR_USERNAME/osm-edit-mcp",
         "OSM_USE_DEV_API": "true",
         "LOG_LEVEL": "INFO"
       },

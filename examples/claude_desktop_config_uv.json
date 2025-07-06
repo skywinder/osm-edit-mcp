@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "osm-edit": {
-      "command": "uv",
-      "args": ["run", "python", "main.py"],
-      "cwd": "/Users/YOUR_USERNAME/osm-edit-mcp"
-    }
-  }
-}
