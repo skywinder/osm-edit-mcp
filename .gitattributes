@@ -1,7 +1,7 @@
 # Git-crypt configuration for encrypting sensitive files
 .env filter=git-crypt diff=git-crypt
 .env.* filter=git-crypt diff=git-crypt
-!.env.example
+.env.example !filter !diff
 *.key filter=git-crypt diff=git-crypt
 oauth_tokens.json filter=git-crypt diff=git-crypt
 secrets.key filter=git-crypt diff=git-crypt

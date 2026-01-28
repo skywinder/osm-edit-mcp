@@ -66,6 +66,43 @@ Edit `~/.cursor/config/mcp.json`:
 }
 ```
 
+### Alternative: Using `~/.cursor/mcp.json` (Dev & Prod)
+
+If your Cursor uses `~/.cursor/mcp.json`, you can add both development and production entries. The examples below use the repository's `run_mcp.sh` wrapper, which launches `main.py` via `uv`.
+
+```json
+{
+  "mcpServers": {
+    "osm-edit-dev": {
+      "command": "/Users/pk/repo/_mine/osm-edit-mcp/run_mcp.sh",
+      "args": [],
+      "env": {
+        "OSM_USE_DEV_API": "true",
+        "LOG_LEVEL": "INFO",
+        "DEVELOPMENT_MODE": "true"
+      },
+      "enabled": false,
+      "_comment": "OSM Edit MCP Server - Development (safe testing with api06.dev.openstreetmap.org)"
+    },
+    "osm-edit-prod": {
+      "command": "/Users/pk/repo/_mine/osm-edit-mcp/run_mcp.sh",
+      "args": [],
+      "env": {
+        "OSM_USE_DEV_API": "false",
+        "LOG_LEVEL": "INFO",
+        "DEVELOPMENT_MODE": "false"
+      },
+      "enabled": false,
+      "_comment": "OSM Edit MCP Server - Production (uses api.openstreetmap.org). Use with extreme caution; write operations require OAuth and explicit confirmation."
+    }
+  }
+}
+```
+
+Note:
+- Replace absolute paths with your local path.
+- Keep production disabled until you've configured OAuth and understand the risks. Always prefer dev (`api06.dev.openstreetmap.org`) for testing.
+
 ### Usage in Cursor
 
 Once configured, you can use natural language:

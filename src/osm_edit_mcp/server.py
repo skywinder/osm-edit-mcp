@@ -1384,18 +1384,62 @@ async def update_osm_node(node_id: int, lat: float, lon: float, tags: Dict[str, 
                 "message": "Latitude must be between -90 and 90, longitude between -180 and 180"
             }
 
-        # Note: This would require OAuth authentication and version info
-        return {
-            "success": False,
-            "error": "Authentication required",
-            "message": "Node update requires OAuth authentication. This is a read-only demo.",
-            "would_update": {
-                "node_id": node_id,
-                "coordinates": {"lat": lat, "lon": lon},
-                "tags": tags,
-                "changeset_id": changeset_id
+        # Check authentication
+        token_data = load_oauth_token()
+        if not token_data:
+            return {
+                "success": False,
+                "error": "Authentication required",
+                "message": "Node update requires OAuth authentication. Run 'python oauth_auth.py' to authenticate."
             }
-        }
+
+        # First, get the current node to retrieve version
+        url = f"{config.current_api_base_url}/node/{node_id}"
+        async with get_authenticated_client() as client:
+            get_response = await client.get(url)
+
+            if get_response.status_code != 200:
+                return {
+                    "success": False,
+                    "error": f"Failed to get node: {get_response.status_code}",
+                    "message": f"Could not retrieve node {node_id}: {get_response.text}"
+                }
+
+            # Parse version from XML response
+            import xml.etree.ElementTree as ET
+            root = ET.fromstring(get_response.text)
+            node_elem = root.find('.//node')
+            version = node_elem.get('version')
+
+            # Create node XML for update
+            node_xml = f'<osm><node id="{node_id}" changeset="{changeset_id}" version="{version}" lat="{lat}" lon="{lon}">'
+            for key, value in tags.items():
+                node_xml += f'<tag k="{key}" v="{value}"/>'
+            node_xml += '</node></osm>'
+
+            # Update node via OSM API
+            update_url = f"{config.current_api_base_url}/node/{node_id}"
+            update_response = await client.put(update_url, content=node_xml, headers={"Content-Type": "text/xml"})
+
+            if update_response.status_code == 200:
+                new_version = int(update_response.text.strip())
+                return {
+                    "success": True,
+                    "data": {
+                        "node_id": node_id,
+                        "version": new_version,
+                        "coordinates": {"lat": lat, "lon": lon},
+                        "tags": tags,
+                        "changeset_id": changeset_id
+                    },
+                    "message": f"Updated node {node_id} to version {new_version}"
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": f"API error: {update_response.status_code}",
+                    "message": f"Failed to update node: {update_response.text}"
+                }
 
     except Exception as e:
         return {

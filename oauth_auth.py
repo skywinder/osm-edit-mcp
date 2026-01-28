@@ -7,11 +7,14 @@ This script helps you authenticate with OpenStreetMap using OAuth 2.0.
 Run this to get authentication tokens for use with the MCP server.
 
 Usage:
-    python oauth_auth.py
+    python oauth_auth.py              # Development API (default)
+    python oauth_auth.py --prod       # Production API
+    python oauth_auth.py --dev        # Development API (explicit)
 """
 
 import asyncio
 import os
+import sys
 import webbrowser
 from urllib.parse import urlencode, parse_qs, urlparse
 import httpx
@@ -159,12 +162,41 @@ async def main():
     print("🚀 OSM Edit MCP Server - OAuth Authentication")
     print("=" * 50)
 
-    # Initialize OAuth for development API
-    oauth = OSMOAuth(use_dev_api=True)
+    # Determine which API to use
+    use_dev_api = True  # Default to dev for safety
+
+    # Check command-line arguments
+    if len(sys.argv) > 1:
+        if sys.argv[1] in ['--prod', '--production']:
+            use_dev_api = False
+            print("⚠️  WARNING: Using PRODUCTION API - changes will affect real OSM data!")
+        elif sys.argv[1] in ['--dev', '--development']:
+            use_dev_api = True
+        elif sys.argv[1] in ['-h', '--help']:
+            print("Usage:")
+            print("  python oauth_auth.py              # Development API (default)")
+            print("  python oauth_auth.py --dev        # Development API (explicit)")
+            print("  python oauth_auth.py --prod       # Production API")
+            print("  python oauth_auth.py --help       # Show this help")
+            return
+        else:
+            print(f"Unknown argument: {sys.argv[1]}")
+            print("Use --help for usage information")
+            return
+    # Check environment variable as fallback
+    elif os.getenv("OSM_USE_PROD_API", "").lower() in ["true", "1", "yes"]:
+        use_dev_api = False
+        print("⚠️  WARNING: Using PRODUCTION API (from OSM_USE_PROD_API env var)")
+
+    # Initialize OAuth
+    oauth = OSMOAuth(use_dev_api=use_dev_api)
 
     if not oauth.client_id or not oauth.client_secret:
         print("❌ Missing OAuth credentials!")
-        print("Please set OSM_CLIENT_ID and OSM_CLIENT_SECRET in your .env file")
+        if use_dev_api:
+            print("Please set OSM_DEV_CLIENT_ID and OSM_DEV_CLIENT_SECRET in your .env file")
+        else:
+            print("Please set OSM_PROD_CLIENT_ID and OSM_PROD_CLIENT_SECRET in your .env file")
         return
 
     # Test if we already have valid authentication
