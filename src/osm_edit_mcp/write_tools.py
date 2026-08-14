@@ -1,6 +1,7 @@
 """OSM mutation tools and higher-level write workflows."""
 
 from typing import Any, Dict, List, Optional
+from xml.sax.saxutils import quoteattr
 
 from defusedxml.ElementTree import fromstring as parse_xml
 
@@ -205,17 +206,14 @@ async def create_osm_node(lat: float, lon: float, tags: Dict[str, str], changese
 
 # OSM Tag Mapping System for Natural Language Processing
 
-# The functions below build the correct request payloads but never send them -
-# they return a "would_create"/"would_update"/"would_delete" preview instead.
-# They are deliberately NOT registered as MCP tools (no @mcp.tool()): exposing
-# them would advertise capabilities to an agent that the server cannot deliver,
-# producing confusing failures mid-edit. Add the decorator back once the OSM API
-# calls (including version fetch and conflict handling) are actually wired up.
+# Some relation/delete functions below remain previews and are deliberately not
+# registered. Way create/update are real authenticated tools because the track
+# editor and direct MCP clients need a dependable low-level way primitive.
 #
-# Implemented and registered write tools: create_changeset, close_changeset,
-# create_osm_node, update_osm_node.
+# Implemented and registered write tools include changesets, nodes, and ways.
 # ---------------------------------------------------------------------------
 
+@mcp.tool()
 async def create_osm_way(node_ids: List[int], tags: Dict[str, str], changeset_id: int) -> Dict[str, Any]:
     """Create a new OSM way from a list of node IDs (requires authentication).
 
@@ -243,17 +241,36 @@ async def create_osm_way(node_ids: List[int], tags: Dict[str, str], changeset_id
             f'{nds_xml}{build_tags_xml(tags)}</way></osm>'
         )
 
-        # Note: This would require OAuth authentication for actual creation
+        if not load_oauth_token():
+            return {
+                "success": False,
+                "error": "Authentication required",
+                "message": "Way creation requires OAuth authentication with write_api scope."
+            }
+
+        async with get_authenticated_client() as client:
+            response = await client.post(
+                f"{config.current_api_base_url}/ways",
+                content=way_xml,
+                headers={"Content-Type": "text/xml"},
+            )
+        if response.status_code != 200:
+            return {
+                "success": False,
+                "error": f"API error: {response.status_code}",
+                "message": f"Failed to create way: {response.text}",
+            }
+        way_id = int(response.text.strip())
         return {
-            "success": False,
-            "error": "Authentication required",
-            "message": "Way creation requires OAuth authentication. This is a read-only demo.",
-            "would_create": {
+            "success": True,
+            "data": {
+                "way_id": way_id,
+                "version": 1,
                 "node_ids": node_ids,
                 "tags": tags,
                 "changeset_id": changeset_id,
-                "xml": way_xml
-            }
+            },
+            "message": f"Created way {way_id} successfully",
         }
 
     except Exception as e:
@@ -416,6 +433,7 @@ async def update_osm_node(node_id: int, lat: float, lon: float, tags: Dict[str, 
             "message": f"Failed to update node {node_id}"
         }
 
+@mcp.tool()
 async def update_osm_way(way_id: int, node_ids: List[int], tags: Dict[str, str], changeset_id: int) -> Dict[str, Any]:
     """Update an existing OSM way (requires authentication).
 
@@ -437,17 +455,62 @@ async def update_osm_way(way_id: int, node_ids: List[int], tags: Dict[str, str],
                 "message": "A way must contain at least 2 nodes"
             }
 
-        # Note: This would require OAuth authentication and version info
+        if not load_oauth_token():
+            return {
+                "success": False,
+                "error": "Authentication required",
+                "message": "Way update requires OAuth authentication with write_api scope."
+            }
+
+        async with get_authenticated_client() as client:
+            current_response = await client.get(
+                f"{config.current_api_base_url}/way/{int(way_id)}"
+            )
+            if current_response.status_code != 200:
+                return {
+                    "success": False,
+                    "error": f"API error: {current_response.status_code}",
+                    "message": f"Could not retrieve way {way_id}: {current_response.text}",
+                }
+            root = parse_xml(current_response.text)
+            way_element = root.find(".//way")
+            version = way_element.get("version") if way_element is not None else None
+            if version is None:
+                return {
+                    "success": False,
+                    "error": "Missing version",
+                    "message": f"Refusing to update way {way_id} without its current version",
+                }
+            nds_xml = "".join(
+                f'<nd ref="{int(node_id)}"/>' for node_id in node_ids
+            )
+            way_xml = (
+                f'<osm><way id="{int(way_id)}" version="{int(version)}" '
+                f'changeset="{int(changeset_id)}">{nds_xml}'
+                f'{build_tags_xml(tags)}</way></osm>'
+            )
+            update_response = await client.put(
+                f"{config.current_api_base_url}/way/{int(way_id)}",
+                content=way_xml,
+                headers={"Content-Type": "text/xml"},
+            )
+        if update_response.status_code != 200:
+            return {
+                "success": False,
+                "error": f"API error: {update_response.status_code}",
+                "message": f"Failed to update way: {update_response.text}",
+            }
+        new_version = int(update_response.text.strip())
         return {
-            "success": False,
-            "error": "Authentication required",
-            "message": "Way update requires OAuth authentication. This is a read-only demo.",
-            "would_update": {
+            "success": True,
+            "data": {
                 "way_id": way_id,
+                "version": new_version,
                 "node_ids": node_ids,
                 "tags": tags,
-                "changeset_id": changeset_id
-            }
+                "changeset_id": changeset_id,
+            },
+            "message": f"Updated way {way_id} to version {new_version}",
         }
 
     except Exception as e:

@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Safe GPX road workflow with track analysis, candidate suggestions, GeoJSON
+  previews, explicit confirmation, and transactional `osmChange` uploads
+- Partial and multi-way road realignment that preserves way IDs, tags, and
+  topology-critical nodes
 - Comprehensive CI/CD pipeline with GitHub Actions
 - Unit tests for configuration and XML parsing
 - Contributing guidelines and code of conduct
@@ -18,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cache configuration options
 
 ### Changed
+- `create_osm_way` and `update_osm_way` now perform authenticated OSM writes
+  with optimistic version handling
 - Enhanced OAuth token security with keyring integration
 - Improved documentation with badges and better structure
 - Updated dependencies to latest stable versions

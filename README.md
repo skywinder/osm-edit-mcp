@@ -180,13 +180,76 @@ settings, by design — verification must never write test data to the live map.
 | `close_changeset` | Finish editing session | Publishes the edit |
 | `create_osm_node` | Add new point | "Add restaurant here" |
 | `update_osm_node` | Move or retag a point | "Change its opening hours" |
+| `create_osm_way` | Create a way from existing node IDs | Low-level authenticated write |
+| `update_osm_way` | Replace a way's node list and tags | Uses optimistic versioning |
 | `create_place_from_description` | Natural language creation | "Add coffee shop called Bean There at..." |
 
-**Not available:** creating or updating ways and relations, and deleting anything.
-Those code paths exist in `write_tools.py` but only build a request preview without sending
-it, so they are deliberately not registered as MCP tools — an agent that could call them
-would fail partway through an edit. To edit ways, relations, or delete elements, use
-[JOSM](https://josm.openstreetmap.de/) or [iD](https://www.openstreetmap.org/edit).
+Relation writes and element deletion remain unavailable. Use
+[JOSM](https://josm.openstreetmap.de/) or [iD](https://www.openstreetmap.org/edit)
+for those operations.
+
+### 🛣️ GPX Road Editing (Requires Auth to Apply)
+
+| Tool | Purpose |
+|------|---------|
+| `analyze_gpx_track` | Validate GPX and list selectable track segments |
+| `suggest_track_road_candidates` | Rank nearby `highway=*` ways without selecting one |
+| `preview_track_road_edit` | Preview a new road or selected way-chain reshape as GeoJSON |
+| `apply_track_road_edit` | Apply an unexpired proposal after `confirm=true` |
+
+GPX input can be inline XML or a `.gpx` file below `OSM_TRACK_IMPORT_DIR`
+(default `./tracks`). File paths are resolved and restricted to that directory.
+One segment is edited per proposal. Separate `<trkseg>` elements are never joined,
+and segments with consecutive GPS jumps over 500 m are rejected for editing.
+
+Do not put a long location-history export directly into a proposal. First crop the
+specific surveyed path into its own GPX track/segment. For a visual workflow on macOS:
+
+1. Open the source locally in [JOSM](https://josm.openstreetmap.de/) to compare it
+   with current OSM data, or use [gpx.studio](https://gpx.studio/) to crop/split it.
+2. Save only the selected path as `tracks/survey-road.gpx`. The `tracks/` contents
+   are gitignored because raw traces may reveal sensitive location history.
+3. Call `analyze_gpx_track`, select one returned `segment_id`, then suggest and
+   preview. Never apply before inspecting both GeoJSON layers and the warnings.
+
+For viewing only, GPXSee is a lightweight GPX/KML viewer; Google Earth Pro is the
+most convenient option for KMZ files. JOSM is the recommended final visual check
+because it shows the trace beside editable OSM geometry.
+
+New roads require an explicit `highway=*` tag. Existing-road previews preserve way IDs,
+tags, and protected intersection nodes. They never move existing nodes or infer whether an
+interior crossing is at grade. Preview first, inspect the returned current/proposed
+GeoJSON and warnings, then call apply with the returned `proposal_id` and `confirm=true`.
+
+Track proposals expire after 30 minutes. Apply re-fetches existing ways and refuses the
+write if another mapper changed them after preview. The actual node/way changes and
+conditional cleanup are sent as one transactional `osmChange` upload. This feature edits
+map data; it does not publish the GPX to OSM's GPS trace service.
+
+Example flow:
+
+```python
+analysis = await analyze_gpx_track(gpx_path="survey-road.gpx")
+
+candidates = await suggest_track_road_candidates(
+    gpx_path="survey-road.gpx",
+    segment_id="trk-0-seg-0",
+)
+
+preview = await preview_track_road_edit(
+    action="update",
+    gpx_path="survey-road.gpx",
+    segment_id="trk-0-seg-0",
+    target_way_ids=[123456, 123457],
+    changeset_comment="Realign road from GPS survey",
+    changeset_source="survey",
+)
+
+result = await apply_track_road_edit(
+    proposal_id=preview["data"]["proposal_id"],
+    confirm=True,
+)
+```
 
 ## 💡 Usage Examples
 
@@ -375,7 +438,7 @@ Add to VSCode settings or `.vscode/settings.json`
 
 What the server actually enforces today:
 
-- **OAuth required for writes** — changeset, node create and node update operations
+- **OAuth required for writes** — changeset, node, way, and confirmed GPX-road operations
   refuse to run without a valid token.
 - **Changeset management** — edits are grouped into changesets you open and close.
 - **Coordinate validation** — latitude/longitude bounds are checked before any write.
@@ -386,9 +449,10 @@ What the server actually enforces today:
 - **Production warning on startup** — the server logs a loud warning whenever it is
   configured against the live API.
 
-Not implemented yet — `require_user_confirmation`, `rate_limit_per_minute`,
-`max_changeset_size` and the cache settings are accepted as configuration but no code
-path acts on them. Do not rely on them as guardrails.
+`require_user_confirmation` and `max_changeset_size` are enforced by GPX-road
+proposals, but not yet shared by every legacy write tool. `rate_limit_per_minute` and
+the cache settings are accepted as configuration but are not yet enforced. Do not
+rely on them as global guardrails.
 
 ## 📊 Project Status
 
@@ -396,9 +460,9 @@ path acts on them. Do not rely on them as guardrails.
 - **Python**: 3.10+
 - **License**: MIT
 - **Read/search tools**: working against the live API
-- **Write tools**: `create_changeset`, `close_changeset`, `create_osm_node`,
-  `update_osm_node`
-- **Not implemented**: way and relation create/update, and all delete operations.
+- **Write tools**: changesets, node and way create/update, plus confirmed GPX-road
+  proposals
+- **Not implemented**: relation create/update and general-purpose delete operations.
   These are not registered as MCP tools — see [Available Tools](#-available-tools).
 
 ## 🌐 Remote Deployment (Make it Accessible Anywhere)

@@ -651,6 +651,23 @@ AI: Nonna's Italian Deli tagged successfully!
 
 ## Tool Reference Quick Guide
 
+### GPX Road Geometry Workflow
+
+1. Call `analyze_gpx_track` with inline GPX or a file below
+   `OSM_TRACK_IMPORT_DIR`, then select exactly one returned segment ID.
+2. For an existing road, call `suggest_track_road_candidates` and explicitly
+   choose an ordered contiguous list of way IDs.
+3. Call `preview_track_road_edit` with `action="create"` and explicit road tags,
+   or `action="update"` with the selected way IDs. Review both GeoJSON layers,
+   endpoint snaps, preserved nodes, conditional deletions, and warnings.
+4. Apply only the reviewed proposal with
+   `apply_track_road_edit(proposal_id=..., confirm=True)`.
+
+The apply call expires after 30 minutes, rejects stale OSM versions, and uses a
+transactional `osmChange` upload. It never auto-connects interior crossings,
+moves existing nodes, joins separate GPX segments, or uploads a public GPS trace.
+Segments with implausible consecutive GPS jumps must be cropped before preview.
+
 ### Core Tools
 - `parse_natural_language_tags()` - Convert descriptions to OSM tags
 - `create_feature_with_natural_language()` - Create features from descriptions

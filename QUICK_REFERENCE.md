@@ -105,6 +105,33 @@ validate_coordinates(51.5074, -0.1278)
 search_osm_elements("coffee shop", "node")
 ```
 
+### Add or Realign a Road from GPX
+```python
+# GPX paths are relative to OSM_TRACK_IMPORT_DIR (default: ./tracks)
+analyze_gpx_track(gpx_path="survey-road.gpx")
+suggest_track_road_candidates(
+    gpx_path="survey-road.gpx", segment_id="trk-0-seg-0"
+)
+preview_track_road_edit(
+    action="create",
+    gpx_path="survey-road.gpx",
+    segment_id="trk-0-seg-0",
+    tags={"highway": "track", "surface": "gravel"},
+    changeset_comment="Add surveyed track",
+    changeset_source="survey",
+)
+# Review GeoJSON, warnings, and element counts before calling:
+apply_track_road_edit(proposal_id="...", confirm=True)
+```
+
+For existing roads use `action="update"`, omit `tags`, and provide the explicitly
+selected ordered `target_way_ids`. One segment is handled per preview.
+
+Crop a long history export to the one surveyed path first. On macOS, use JOSM to
+compare the GPX with OSM, gpx.studio to crop/split, GPXSee for quick GPX/KML
+viewing, or Google Earth Pro for KMZ. Save the selected result under `tracks/`;
+that directory's contents are intentionally ignored by Git.
+
 ## 🔍 Amenity Types
 
 - **Food**: restaurant, cafe, bar, pub, fast_food
@@ -123,8 +150,9 @@ search_osm_elements("coffee shop", "node")
 
 Coverage by category:
 - Read operations: work without auth
-- Write operations: require OAuth; limited to changesets and nodes
-- Way/relation edits and deletes: not implemented, not exposed as tools
+- Write operations: require OAuth; changesets, nodes, and ways are supported
+- GPX road edits: preview plus explicit confirmed transactional apply
+- Relation edits and deletes: not implemented, not exposed as tools
 - Natural language: always works
 
 ## 🆘 Quick Fixes

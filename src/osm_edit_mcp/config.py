@@ -1,6 +1,7 @@
 """Runtime configuration and logging for the OSM MCP service."""
 
 import logging
+from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings
@@ -37,14 +38,20 @@ class OSMConfig(BaseSettings):
     debug: bool = Field(default=False)
     development_mode: bool = Field(default=False)
 
-    # Safety and Rate Limiting
-    # NOT YET ENFORCED. These are declared and read from the environment, but no
-    # code path currently acts on them - do not present them as safety features.
+    # Safety and Rate Limiting. Track-edit previews enforce confirmation and the
+    # local changeset cap; legacy tools do not yet share a global rate limiter.
     require_user_confirmation: bool = Field(default=True)
     rate_limit_per_minute: int = Field(default=60)
     max_changeset_size: int = Field(default=50)
 
-    # Cache Configuration - NOT YET ENFORCED, see note above.
+    # GPX road editing. File input is deliberately restricted to one import
+    # directory; callers that cannot place files there can pass inline XML.
+    osm_track_import_dir: Path = Field(default=Path("tracks"))
+    osm_track_max_file_bytes: int = Field(default=16 * 1024 * 1024)
+    osm_track_max_points: int = Field(default=100_000)
+    osm_track_proposal_ttl_seconds: int = Field(default=30 * 60)
+
+    # Cache Configuration - not yet used by the legacy read tools.
     enable_cache: bool = Field(default=True)
     cache_ttl_seconds: int = Field(default=300)
 

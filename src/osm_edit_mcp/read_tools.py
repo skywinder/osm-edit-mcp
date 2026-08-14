@@ -196,9 +196,11 @@ async def get_server_info() -> Dict[str, Any]:
                     "get_osm_elements_in_area", "create_changeset", "get_changeset",
                     "close_changeset", "get_server_info", "find_nearby_amenities",
                     "validate_coordinates", "get_place_info", "search_osm_elements",
-                    "check_authentication"
+                    "check_authentication", "create_osm_way", "update_osm_way",
+                    "analyze_gpx_track", "suggest_track_road_candidates",
+                    "preview_track_road_edit", "apply_track_road_edit"
                 ],
-                "description": "Basic OSM read/fetch/update operations via MCP"
+                "description": "OSM read, authenticated edit, and safe GPX road-edit operations via MCP"
             },
             "message": "Server information retrieved successfully"
         }

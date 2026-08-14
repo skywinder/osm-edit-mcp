@@ -5,6 +5,7 @@ This guide shows how to use OSM Edit MCP Server with various MCP clients.
 ## 📋 Table of Contents
 
 - [Cursor IDE](#cursor-ide)
+- [Codex / ChatGPT desktop](#codex--chatgpt-desktop)
 - [Claude Desktop](#claude-desktop)
 - [Continue.dev](#continuedev)
 - [Cline (VSCode)](#cline-vscode)
@@ -118,6 +119,27 @@ Once configured, you can use natural language:
 - Ensure Python path is correct
 - Check Cursor logs: View → Output → MCP
 - Restart Cursor after configuration changes
+
+## Codex / ChatGPT Desktop
+
+Codex CLI, the Codex IDE extension, and the ChatGPT desktop app share the same
+local MCP configuration. Add the development server from Terminal:
+
+```bash
+codex mcp add osm-edit-dev \
+  --env OSM_USE_DEV_API=true \
+  --env DEVELOPMENT_MODE=true \
+  --env OSM_TRACK_IMPORT_DIR=/absolute/path/to/osm-edit-mcp/tracks \
+  -- /absolute/path/to/osm-edit-mcp/run_mcp.sh
+```
+
+Then run `codex mcp list`, restart the desktop app or IDE extension, and use
+`/mcp` to confirm that `osm-edit-dev` is connected. Keep the development entry
+separate from any production configuration.
+
+The same server can be added through the desktop UI: Settings → MCP servers →
+Add server → STDIO. Use the absolute `run_mcp.sh` path as the command and add
+the three environment variables above.
 
 ## 🖥️ Claude Desktop
 

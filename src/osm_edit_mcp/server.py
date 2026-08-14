@@ -48,6 +48,12 @@ from .read_tools import (
     validate_osm_data,
 )
 from .token_store import get_current_user_info, load_oauth_token
+from .track_tools import (
+    analyze_gpx_track,
+    apply_track_road_edit,
+    preview_track_road_edit,
+    suggest_track_road_candidates,
+)
 from .write_tools import (
     bulk_create_places,
     close_changeset,
@@ -100,6 +106,8 @@ __all__ = [
     "PUBLIC_API_TIMEOUT",
     "USER_AGENT",
     "app",
+    "analyze_gpx_track",
+    "apply_track_road_edit",
     "build_tags_xml",
     "bulk_create_places",
     "check_authentication",
@@ -144,9 +152,11 @@ __all__ = [
     "parse_natural_language_request",
     "parse_opening_hours",
     "parse_osm_xml",
+    "preview_track_road_edit",
     "search_osm_elements",
     "setup_logging",
     "smart_geocode",
+    "suggest_track_road_candidates",
     "update_osm_node",
     "update_osm_relation",
     "update_osm_way",
