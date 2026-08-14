@@ -55,16 +55,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Run Bandit security checks
       run: |
         pip install bandit
         bandit -r src/ -ll
-    
-    - name: Run Safety check
+
+    # `safety check` was deprecated in 2024 and now exits 64 regardless of
+    # findings, which failed this job unconditionally. pip-audit covers the same
+    # ground (dependency CVEs) and is maintained.
+    - name: Audit dependencies for known vulnerabilities
       run: |
-        pip install safety
-        safety check --json
+        pip install pip-audit
+        pip-audit -r requirements.txt
 
   build:
     runs-on: ubuntu-latest

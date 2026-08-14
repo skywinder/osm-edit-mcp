@@ -3,11 +3,18 @@
 Comprehensive Test Suite for OSM Edit MCP Server
 Tests all MCP tools systematically with proper error handling
 Handles authentication status and known API limitations gracefully
+
+This suite performs REAL WRITES: it opens changesets and creates nodes. It is
+therefore pinned to the OSM development API and will refuse to run against
+production, independently of what .env says. The server itself is normally
+configured for production; that setting must never leak into this file, or a
+verification run would publish test data to the live map.
 """
 
 import asyncio
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -15,6 +22,10 @@ from datetime import datetime
 
 # Add the src directory to the Python path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
+
+# Must precede the server import: the config singleton is built at import time
+# and environment variables outrank the dotenv file.
+os.environ["OSM_USE_DEV_API"] = "true"
 
 from osm_edit_mcp.server import (
     get_osm_node, get_osm_way, get_osm_relation, get_osm_elements_in_area,
@@ -346,12 +357,34 @@ class OSMTestSuite:
         print(f"\nDetailed report saved to: test_report.json")
         print(f"Logs saved to: test_results.log")
 
+def assert_not_production():
+    """Abort unless the suite is pointed at the OSM development API.
+
+    This is a hard stop, not a warning: the write tests below create real
+    changesets and nodes, and on production those become permanent edits to a
+    public database that other people have to clean up.
+    """
+    if not config.osm_use_dev_api or "api.openstreetmap.org" in config.current_api_base_url:
+        print("=" * 60)
+        print("ABORTED: test suite is not pointed at the development API.")
+        print(f"  Resolved API base URL: {config.current_api_base_url}")
+        print("  Expected a URL on api06.dev.openstreetmap.org.")
+        print()
+        print("  This suite creates real changesets and nodes. Running it")
+        print("  against production would publish test data to the live map.")
+        print("=" * 60)
+        sys.exit(1)
+
+
 async def main():
     """Main test runner"""
     print("OSM Edit MCP Server - Comprehensive Test Suite")
     print("Tests all MCP tools with proper error handling")
     print("=" * 60)
-    
+
+    assert_not_production()
+    print(f"Target API (development): {config.current_api_base_url}")
+
     test_suite = OSMTestSuite()
     await test_suite.run_all_tests()
     

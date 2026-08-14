@@ -33,6 +33,7 @@ dependencies = [
     "authlib>=1.2.0",
     "keyring>=24.0.0",
     "anyio>=3.0.0",
+    "defusedxml>=0.7.1",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.34.0",
 ]
@@ -76,11 +77,10 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = [
-    "--cov=src/osm_edit_mcp",
-    "--cov-report=term-missing",
-    "--cov-report=html",
-]
+# Coverage flags are passed explicitly by CI rather than baked in here, so that
+# a bare `pytest` works without pytest-cov installed.
+addopts = []
+asyncio_default_fixture_loop_scope = "function"
 
 [tool.coverage.run]
 source = ["src/osm_edit_mcp"]

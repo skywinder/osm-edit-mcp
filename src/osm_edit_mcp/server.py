@@ -8,6 +8,7 @@ Supports reading, fetching, and updating OSM data with changeset management.
 import os
 import asyncio
 import logging
+import urllib.parse
 from typing import Any, Dict, List, Optional, Union
 import httpx
 from mcp.server.fastmcp import FastMCP
@@ -17,6 +18,10 @@ from authlib.integrations.httpx_client import AsyncOAuth2Client
 import json
 from datetime import datetime
 import xml.etree.ElementTree as ET
+# defusedxml hardens the stdlib parser against XML bombs; every document parsed
+# here comes from a remote server (OSM API, Overpass) and is untrusted input.
+from defusedxml.ElementTree import fromstring as parse_xml
+from xml.sax.saxutils import quoteattr
 
 # Initialize FastMCP server
 mcp = FastMCP("osm-edit-mcp")
@@ -55,11 +60,13 @@ class OSMConfig(BaseSettings):
     development_mode: bool = Field(default=False)
 
     # Safety and Rate Limiting
+    # NOT YET ENFORCED. These are declared and read from the environment, but no
+    # code path currently acts on them - do not present them as safety features.
     require_user_confirmation: bool = Field(default=True)
     rate_limit_per_minute: int = Field(default=60)
     max_changeset_size: int = Field(default=50)
 
-    # Cache Configuration
+    # Cache Configuration - NOT YET ENFORCED, see note above.
     enable_cache: bool = Field(default=True)
     cache_ttl_seconds: int = Field(default=300)
 
@@ -115,8 +122,13 @@ class OSMConfig(BaseSettings):
 
 config = OSMConfig()
 
+# Every OSM service we talk to (the API, Overpass and Nominatim) requires a
+# descriptive User-Agent. Overpass in particular rejects httpx's default with
+# "406 Not Acceptable", so all outbound clients must set this.
+USER_AGENT = f"osm-edit-mcp/{config.mcp_server_version} (+https://github.com/skywinder/osm-edit-mcp)"
+
 # Configure logging
-def setup_logging():
+def setup_logging() -> logging.Logger:
     """Setup structured logging with configurable levels"""
     log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
@@ -138,6 +150,14 @@ def setup_logging():
     logger.info(f"API Base URL: {config.current_api_base_url}")
     logger.info(f"Log Level: {config.log_level}")
 
+    if not config.osm_use_dev_api:
+        logger.warning(
+            "PRODUCTION MODE: writes go to the live OpenStreetMap database at %s. "
+            "Edits are public, permanent and visible to every OSM user. "
+            "Set OSM_USE_DEV_API=true to target the sandbox instead.",
+            config.osm_api_base,
+        )
+
     return logger
 
 # Initialize logging
@@ -153,7 +173,7 @@ def load_oauth_token() -> Optional[Dict[str, Any]]:
         token_file = '.osm_token_dev.json' if config.osm_use_dev_api else '.osm_token_prod.json'
         if os.path.exists(token_file):
             with open(token_file, 'r') as f:
-                token_data = json.load(f)
+                token_data: Dict[str, Any] = json.load(f)
             logger.debug(f"Loaded OAuth token from {token_file}")
             return token_data
         return None
@@ -167,13 +187,36 @@ def get_authenticated_client() -> httpx.AsyncClient:
     if token_data and token_data.get('access_token'):
         headers = {
             'Authorization': f"Bearer {token_data['access_token']}",
-            'User-Agent': 'OSM-Edit-MCP-Server/0.1.0'
+            'User-Agent': USER_AGENT
         }
         logger.debug("Using authenticated HTTP client")
         return httpx.AsyncClient(headers=headers)
     else:
         logger.debug("Using unauthenticated HTTP client")
-        return httpx.AsyncClient(headers={'User-Agent': 'OSM-Edit-MCP-Server/0.1.0'})
+        return httpx.AsyncClient(headers={'User-Agent': USER_AGENT})
+
+# Overpass queries declare [timeout:25] server-side and routinely take longer than
+# httpx's 5s default, which surfaced as intermittent, blank-messaged ReadTimeouts.
+PUBLIC_API_TIMEOUT = httpx.Timeout(60.0, connect=10.0)
+
+def get_public_client() -> httpx.AsyncClient:
+    """Get an unauthenticated HTTP client for public services (Overpass, Nominatim).
+
+    Always sets a User-Agent: Overpass returns 406 without one.
+    """
+    return httpx.AsyncClient(
+        headers={'User-Agent': USER_AGENT},
+        timeout=PUBLIC_API_TIMEOUT,
+    )
+
+def describe_exception(exc: Exception) -> str:
+    """Render an exception for the `error` field of a tool result.
+
+    Several httpx timeout exceptions stringify to the empty string, which left
+    callers with `"error": ""` and no way to tell what went wrong.
+    """
+    text = str(exc).strip()
+    return f"{type(exc).__name__}: {text}" if text else type(exc).__name__
 
 def get_current_user_info() -> Optional[Dict[str, Any]]:
     """Get current authenticated user information"""
@@ -188,11 +231,32 @@ def get_current_user_info() -> Optional[Dict[str, Any]]:
     return None
 
 # Helper functions
+def build_tags_xml(tags: Dict[str, str]) -> str:
+    """Serialise a tag dict into OSM <tag> elements with proper XML escaping.
+
+    Tag keys and values come from user or model input and routinely contain
+    characters that are special in XML - a name like `Bob's "Best" Fish & Chips`
+    would otherwise produce malformed XML or inject extra elements into the
+    changeset.
+    """
+    return "".join(
+        f'<tag k={quoteattr(str(key))} v={quoteattr(str(value))}/>'
+        for key, value in tags.items()
+    )
+
+def overpass_literal(value: str) -> str:
+    """Escape a value for use inside a double-quoted Overpass QL string.
+
+    Without this, a search term containing a quote terminates the string early
+    and the rest is interpreted as query syntax.
+    """
+    return str(value).replace("\\", "\\\\").replace('"', '\\"')
+
 def parse_osm_xml(xml_content: str) -> Dict[str, Any]:
     """Parse OSM XML response into JSON format."""
     try:
-        root = ET.fromstring(xml_content)
-        result = {"elements": []}
+        root = parse_xml(xml_content)
+        result: Dict[str, Any] = {"elements": []}
 
         for element in root:
             if element.tag in ["node", "way", "relation"]:
@@ -205,21 +269,27 @@ def parse_osm_xml(xml_content: str) -> Dict[str, Any]:
                     "user": element.get("user", ""),
                     "uid": int(element.get("uid", 0)),
                     "tags": {}
-                }
+                }  # type: Dict[str, Any]
 
                 if element.tag == "node":
                     elem_data["lat"] = float(element.get("lat", 0))
                     elem_data["lon"] = float(element.get("lon", 0))
                 elif element.tag == "way":
-                    elem_data["nodes"] = []
-                    for nd in element.findall("nd"):
-                        elem_data["nodes"].append(int(nd.get("ref")))
+                    # A malformed <nd> without a ref would otherwise raise
+                    # TypeError from int(None) and fail the whole parse.
+                    elem_data["nodes"] = [
+                        int(ref) for ref in (nd.get("ref") for nd in element.findall("nd"))
+                        if ref is not None
+                    ]
                 elif element.tag == "relation":
                     elem_data["members"] = []
                     for member in element.findall("member"):
+                        ref = member.get("ref")
+                        if ref is None:
+                            continue
                         elem_data["members"].append({
                             "type": member.get("type"),
-                            "ref": int(member.get("ref")),
+                            "ref": int(ref),
                             "role": member.get("role", "")
                         })
 
@@ -259,7 +329,7 @@ async def get_osm_node(node_id: int) -> Dict[str, Any]:
     except Exception as e:
         return {
             "success": False,
-            "error": str(e),
+            "error": describe_exception(e),
             "message": f"Failed to retrieve node {node_id}"
         }
 
@@ -288,7 +358,7 @@ async def get_osm_way(way_id: int) -> Dict[str, Any]:
     except Exception as e:
         return {
             "success": False,
-            "error": str(e),
+            "error": describe_exception(e),
             "message": f"Failed to retrieve way {way_id}"
         }
 
@@ -317,7 +387,7 @@ async def get_osm_relation(relation_id: int) -> Dict[str, Any]:
     except Exception as e:
         return {
             "success": False,
-            "error": str(e),
+            "error": describe_exception(e),
             "message": f"Failed to retrieve relation {relation_id}"
         }
 
@@ -346,7 +416,7 @@ async def get_osm_elements_in_area(bbox: str) -> Dict[str, Any]:
     except Exception as e:
         return {
             "success": False,
-            "error": str(e),
+            "error": describe_exception(e),
             "message": f"Failed to retrieve elements in area {bbox}"
         }
 
@@ -380,10 +450,7 @@ async def create_changeset(comment: str, tags: Optional[Dict[str, str]] = None) 
             changeset_tags.update(tags)
 
         # Create changeset XML
-        changeset_xml = "<osm><changeset>"
-        for key, value in changeset_tags.items():
-            changeset_xml += f'<tag k="{key}" v="{value}"/>'
-        changeset_xml += "</changeset></osm>"
+        changeset_xml = f"<osm><changeset>{build_tags_xml(changeset_tags)}</changeset></osm>"
 
         url = f"{config.current_api_base_url}/changeset/create"
         logger.debug(f"Creating changeset at {url}")
@@ -417,7 +484,7 @@ async def create_changeset(comment: str, tags: Optional[Dict[str, str]] = None) 
     except Exception as e:
         return {
             "success": False,
-            "error": str(e),
+            "error": describe_exception(e),
             "message": "Failed to create changeset"
         }
 
@@ -446,7 +513,7 @@ async def get_changeset(changeset_id: int) -> Dict[str, Any]:
     except Exception as e:
         return {
             "success": False,
-            "error": str(e),
+            "error": describe_exception(e),
             "message": f"Failed to retrieve changeset {changeset_id}"
         }
 
@@ -495,7 +562,7 @@ async def close_changeset(changeset_id: int) -> Dict[str, Any]:
     except Exception as e:
         return {
             "success": False,
-            "error": str(e),
+            "error": describe_exception(e),
             "message": f"Failed to close changeset {changeset_id}"
         }
 
@@ -510,7 +577,7 @@ async def get_server_info() -> Dict[str, Any]:
         user_info = get_current_user_info()
         auth_status = "authenticated" if user_info else "not authenticated"
 
-        result = {
+        result: Dict[str, Any] = {
             "success": True,
             "data": {
                 "server_name": "OSM Edit MCP Server",
@@ -542,7 +609,7 @@ async def get_server_info() -> Dict[str, Any]:
     except Exception as e:
         return {
             "success": False,
-            "error": str(e),
+            "error": describe_exception(e),
             "message": "Failed to retrieve server information"
         }
 
@@ -563,7 +630,7 @@ async def check_authentication() -> Dict[str, Any]:
             # Parse user details from XML - try different approach for user details
             try:
                 import xml.etree.ElementTree as ET
-                root = ET.fromstring(response.text)
+                root = parse_xml(response.text)
                 user_elem = root.find('.//user')
 
                 if user_elem is not None:
@@ -624,7 +691,7 @@ async def check_authentication() -> Dict[str, Any]:
             return {
                 "success": False,
                 "authenticated": True,
-                "error": str(e),
+                "error": describe_exception(e),
                 "message": "Token exists but authentication check failed",
                 "data": {
                     "token_file_exists": True,
@@ -662,24 +729,22 @@ async def find_nearby_amenities(lat: float, lon: float, radius_meters: int = 100
             }
 
         # Overpass API query
+        safe_amenity = overpass_literal(amenity_type)
+        around = f"(around:{int(radius_meters)},{float(lat)},{float(lon)})"
         overpass_query = f"""
         [out:json][timeout:25];
         (
-          node["amenity"="{amenity_type}"](around:{radius_meters},{lat},{lon});
-          way["amenity"="{amenity_type}"](around:{radius_meters},{lat},{lon});
-          relation["amenity"="{amenity_type}"](around:{radius_meters},{lat},{lon});
+          node["amenity"="{safe_amenity}"]{around};
+          way["amenity"="{safe_amenity}"]{around};
+          relation["amenity"="{safe_amenity}"]{around};
         );
         out geom;
         """
 
         overpass_url = "https://overpass-api.de/api/interpreter"
 
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                overpass_url,
-                data=overpass_query,
-                headers={"Content-Type": "application/x-www-form-urlencoded"}
-            )
+        async with get_public_client() as client:
+            response = await client.post(overpass_url, data={"data": overpass_query})
             response.raise_for_status()
             data = response.json()
 
@@ -723,7 +788,7 @@ async def find_nearby_amenities(lat: float, lon: float, radius_meters: int = 100
     except Exception as e:
         return {
             "success": False,
-            "error": str(e),
+            "error": describe_exception(e),
             "message": f"Failed to find nearby {amenity_type}s"
         }
 
@@ -742,7 +807,7 @@ async def validate_coordinates(lat: float, lon: float) -> Dict[str, Any]:
         # Basic validation
         is_valid = (-90 <= lat <= 90) and (-180 <= lon <= 180)
 
-        result = {
+        result: Dict[str, Any] = {
             "success": True,
             "data": {
                 "coordinates": {"lat": lat, "lon": lon},
@@ -767,9 +832,16 @@ async def validate_coordinates(lat: float, lon: float) -> Dict[str, Any]:
 
             # Try to get reverse geocoding from OSM Nominatim
             try:
-                nominatim_url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lon}&zoom=18&addressdetails=1"
-                async with httpx.AsyncClient() as client:
-                    response = await client.get(nominatim_url, headers={"User-Agent": "OSM-Edit-MCP-Server"})
+                reverse_params = urllib.parse.urlencode({
+                    "format": "json",
+                    "lat": lat,
+                    "lon": lon,
+                    "zoom": 18,
+                    "addressdetails": 1,
+                })
+                nominatim_url = f"https://nominatim.openstreetmap.org/reverse?{reverse_params}"
+                async with get_public_client() as client:
+                    response = await client.get(nominatim_url)
                     if response.status_code == 200:
                         location_data = response.json()
                         result["data"]["location_info"] = {
@@ -790,7 +862,7 @@ async def validate_coordinates(lat: float, lon: float) -> Dict[str, Any]:
     except Exception as e:
         return {
             "success": False,
-            "error": str(e),
+            "error": describe_exception(e),
             "message": "Failed to validate coordinates"
         }
 
@@ -805,11 +877,18 @@ async def get_place_info(place_name: str) -> Dict[str, Any]:
         Dictionary containing place information and coordinates
     """
     try:
-        # Use Nominatim to search for the place
-        nominatim_url = f"https://nominatim.openstreetmap.org/search?format=json&q={place_name}&limit=5&addressdetails=1"
+        # Use Nominatim to search for the place. The query must be URL-encoded -
+        # an unescaped '&' would silently truncate it and return wrong results.
+        nominatim_params = urllib.parse.urlencode({
+            "format": "json",
+            "q": place_name,
+            "limit": 5,
+            "addressdetails": 1,
+        })
+        nominatim_url = f"https://nominatim.openstreetmap.org/search?{nominatim_params}"
 
-        async with httpx.AsyncClient() as client:
-            response = await client.get(nominatim_url, headers={"User-Agent": "OSM-Edit-MCP-Server"})
+        async with get_public_client() as client:
+            response = await client.get(nominatim_url)
             response.raise_for_status()
             places = response.json()
 
@@ -852,7 +931,7 @@ async def get_place_info(place_name: str) -> Dict[str, Any]:
     except Exception as e:
         return {
             "success": False,
-            "error": str(e),
+            "error": describe_exception(e),
             "message": f"Failed to search for place '{place_name}'"
         }
 
@@ -869,13 +948,14 @@ async def search_osm_elements(query: str, element_type: str = "all") -> Dict[str
     """
     try:
         # Build Overpass query based on element type
+        safe_query = overpass_literal(query)
         element_filters = []
         if element_type in ["node", "all"]:
-            element_filters.append(f'node[~".*"~"{query}",i]')
+            element_filters.append(f'node[~".*"~"{safe_query}",i]')
         if element_type in ["way", "all"]:
-            element_filters.append(f'way[~".*"~"{query}",i]')
+            element_filters.append(f'way[~".*"~"{safe_query}",i]')
         if element_type in ["relation", "all"]:
-            element_filters.append(f'relation[~".*"~"{query}",i]')
+            element_filters.append(f'relation[~".*"~"{safe_query}",i]')
 
         overpass_query = f"""
         [out:json][timeout:25];
@@ -887,12 +967,8 @@ async def search_osm_elements(query: str, element_type: str = "all") -> Dict[str
 
         overpass_url = "https://overpass-api.de/api/interpreter"
 
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                overpass_url,
-                data=overpass_query,
-                headers={"Content-Type": "application/x-www-form-urlencoded"}
-            )
+        async with get_public_client() as client:
+            response = await client.post(overpass_url, data={"data": overpass_query})
             response.raise_for_status()
             data = response.json()
 
@@ -934,7 +1010,7 @@ async def search_osm_elements(query: str, element_type: str = "all") -> Dict[str
     except Exception as e:
         return {
             "success": False,
-            "error": str(e),
+            "error": describe_exception(e),
             "message": f"Failed to search for '{query}'"
         }
 
@@ -962,10 +1038,10 @@ async def create_osm_node(lat: float, lon: float, tags: Dict[str, str], changese
             }
 
         # Create node XML
-        node_xml = f'<osm><node changeset="{changeset_id}" lat="{lat}" lon="{lon}">'
-        for key, value in tags.items():
-            node_xml += f'<tag k="{key}" v="{value}"/>'
-        node_xml += '</node></osm>'
+        node_xml = (
+            f'<osm><node changeset="{int(changeset_id)}" lat="{lat}" lon="{lon}">'
+            f'{build_tags_xml(tags)}</node></osm>'
+        )
 
         # Check authentication
         token_data = load_oauth_token()
@@ -1003,7 +1079,7 @@ async def create_osm_node(lat: float, lon: float, tags: Dict[str, str], changese
     except Exception as e:
         return {
             "success": False,
-            "error": str(e),
+            "error": describe_exception(e),
             "message": "Failed to create node"
         }
 
@@ -1259,7 +1335,20 @@ def parse_natural_language_request(request: str) -> Dict[str, Any]:
 
 # Enhanced CRUD Operations
 
-@mcp.tool()
+# ---------------------------------------------------------------------------
+# Unimplemented write operations.
+#
+# The functions below build the correct request payloads but never send them -
+# they return a "would_create"/"would_update"/"would_delete" preview instead.
+# They are deliberately NOT registered as MCP tools (no @mcp.tool()): exposing
+# them would advertise capabilities to an agent that the server cannot deliver,
+# producing confusing failures mid-edit. Add the decorator back once the OSM API
+# calls (including version fetch and conflict handling) are actually wired up.
+#
+# Implemented and registered write tools: create_changeset, close_changeset,
+# create_osm_node, update_osm_node.
+# ---------------------------------------------------------------------------
+
 async def create_osm_way(node_ids: List[int], tags: Dict[str, str], changeset_id: int) -> Dict[str, Any]:
     """Create a new OSM way from a list of node IDs (requires authentication).
 
@@ -1281,12 +1370,11 @@ async def create_osm_way(node_ids: List[int], tags: Dict[str, str], changeset_id
             }
 
         # Create way XML
-        way_xml = f'<osm><way changeset="{changeset_id}">'
-        for node_id in node_ids:
-            way_xml += f'<nd ref="{node_id}"/>'
-        for key, value in tags.items():
-            way_xml += f'<tag k="{key}" v="{value}"/>'
-        way_xml += '</way></osm>'
+        nds_xml = "".join(f'<nd ref="{int(node_id)}"/>' for node_id in node_ids)
+        way_xml = (
+            f'<osm><way changeset="{int(changeset_id)}">'
+            f'{nds_xml}{build_tags_xml(tags)}</way></osm>'
+        )
 
         # Note: This would require OAuth authentication for actual creation
         return {
@@ -1304,11 +1392,10 @@ async def create_osm_way(node_ids: List[int], tags: Dict[str, str], changeset_id
     except Exception as e:
         return {
             "success": False,
-            "error": str(e),
+            "error": describe_exception(e),
             "message": "Failed to create way"
         }
 
-@mcp.tool()
 async def create_osm_relation(members: List[Dict[str, Any]], tags: Dict[str, str], changeset_id: int) -> Dict[str, Any]:
     """Create a new OSM relation from a list of members (requires authentication).
 
@@ -1330,16 +1417,20 @@ async def create_osm_relation(members: List[Dict[str, Any]], tags: Dict[str, str
             }
 
         # Create relation XML
-        relation_xml = f'<osm><relation changeset="{changeset_id}">'
+        members_xml = ""
         for member in members:
             member_type = member.get('type', 'node')
             member_ref = member.get('ref', 0)
             member_role = member.get('role', '')
-            relation_xml += f'<member type="{member_type}" ref="{member_ref}" role="{member_role}"/>'
+            members_xml += (
+                f'<member type={quoteattr(str(member_type))} ref="{int(member_ref)}" '
+                f'role={quoteattr(str(member_role))}/>'
+            )
 
-        for key, value in tags.items():
-            relation_xml += f'<tag k="{key}" v="{value}"/>'
-        relation_xml += '</relation></osm>'
+        relation_xml = (
+            f'<osm><relation changeset="{int(changeset_id)}">'
+            f'{members_xml}{build_tags_xml(tags)}</relation></osm>'
+        )
 
         # Note: This would require OAuth authentication for actual creation
         return {
@@ -1357,7 +1448,7 @@ async def create_osm_relation(members: List[Dict[str, Any]], tags: Dict[str, str
     except Exception as e:
         return {
             "success": False,
-            "error": str(e),
+            "error": describe_exception(e),
             "message": "Failed to create relation"
         }
 
@@ -1406,16 +1497,26 @@ async def update_osm_node(node_id: int, lat: float, lon: float, tags: Dict[str, 
                 }
 
             # Parse version from XML response
-            import xml.etree.ElementTree as ET
-            root = ET.fromstring(get_response.text)
+            root = parse_xml(get_response.text)
             node_elem = root.find('.//node')
-            version = node_elem.get('version')
+            version = node_elem.get('version') if node_elem is not None else None
+            if version is None:
+                return {
+                    "success": False,
+                    "error": "Missing version",
+                    "message": (
+                        f"Could not determine the current version of node {node_id}; "
+                        "refusing to update without it, as that would risk overwriting "
+                        "another mapper's edit."
+                    )
+                }
 
             # Create node XML for update
-            node_xml = f'<osm><node id="{node_id}" changeset="{changeset_id}" version="{version}" lat="{lat}" lon="{lon}">'
-            for key, value in tags.items():
-                node_xml += f'<tag k="{key}" v="{value}"/>'
-            node_xml += '</node></osm>'
+            node_xml = (
+                f'<osm><node id="{int(node_id)}" changeset="{int(changeset_id)}" '
+                f'version="{int(version)}" lat="{lat}" lon="{lon}">'
+                f'{build_tags_xml(tags)}</node></osm>'
+            )
 
             # Update node via OSM API
             update_url = f"{config.current_api_base_url}/node/{node_id}"
@@ -1444,11 +1545,10 @@ async def update_osm_node(node_id: int, lat: float, lon: float, tags: Dict[str, 
     except Exception as e:
         return {
             "success": False,
-            "error": str(e),
+            "error": describe_exception(e),
             "message": f"Failed to update node {node_id}"
         }
 
-@mcp.tool()
 async def update_osm_way(way_id: int, node_ids: List[int], tags: Dict[str, str], changeset_id: int) -> Dict[str, Any]:
     """Update an existing OSM way (requires authentication).
 
@@ -1486,11 +1586,10 @@ async def update_osm_way(way_id: int, node_ids: List[int], tags: Dict[str, str],
     except Exception as e:
         return {
             "success": False,
-            "error": str(e),
+            "error": describe_exception(e),
             "message": f"Failed to update way {way_id}"
         }
 
-@mcp.tool()
 async def update_osm_relation(relation_id: int, members: List[Dict[str, Any]], tags: Dict[str, str], changeset_id: int) -> Dict[str, Any]:
     """Update an existing OSM relation (requires authentication).
 
@@ -1528,11 +1627,10 @@ async def update_osm_relation(relation_id: int, members: List[Dict[str, Any]], t
     except Exception as e:
         return {
             "success": False,
-            "error": str(e),
+            "error": describe_exception(e),
             "message": f"Failed to update relation {relation_id}"
         }
 
-@mcp.tool()
 async def delete_osm_node(node_id: int, changeset_id: int) -> Dict[str, Any]:
     """Delete an existing OSM node (requires authentication and confirmation).
 
@@ -1559,11 +1657,10 @@ async def delete_osm_node(node_id: int, changeset_id: int) -> Dict[str, Any]:
     except Exception as e:
         return {
             "success": False,
-            "error": str(e),
+            "error": describe_exception(e),
             "message": f"Failed to delete node {node_id}"
         }
 
-@mcp.tool()
 async def delete_osm_way(way_id: int, changeset_id: int) -> Dict[str, Any]:
     """Delete an existing OSM way (requires authentication and confirmation).
 
@@ -1590,11 +1687,10 @@ async def delete_osm_way(way_id: int, changeset_id: int) -> Dict[str, Any]:
     except Exception as e:
         return {
             "success": False,
-            "error": str(e),
+            "error": describe_exception(e),
             "message": f"Failed to delete way {way_id}"
         }
 
-@mcp.tool()
 async def delete_osm_relation(relation_id: int, changeset_id: int) -> Dict[str, Any]:
     """Delete an existing OSM relation (requires authentication and confirmation).
 
@@ -1621,7 +1717,7 @@ async def delete_osm_relation(relation_id: int, changeset_id: int) -> Dict[str, 
     except Exception as e:
         return {
             "success": False,
-            "error": str(e),
+            "error": describe_exception(e),
             "message": f"Failed to delete relation {relation_id}"
         }
 
@@ -1684,7 +1780,7 @@ async def create_place_from_description(description: str, changeset_id: Optional
 
         # Create changeset if not provided
         if not changeset_id:
-            changeset_result = await create_changeset(
+            changeset_result: Dict[str, Any] = await create_changeset(
                 comment=f"Created place: {parsed['name'] or parsed['business_type']} via MCP",
                 tags={"created_by": "OSM-Edit-MCP", "source": "natural_language"}
             )
@@ -1715,7 +1811,7 @@ async def create_place_from_description(description: str, changeset_id: Optional
     except Exception as e:
         return {
             "success": False,
-            "error": str(e),
+            "error": describe_exception(e),
             "message": "Failed to create place from description"
         }
 
@@ -1774,7 +1870,7 @@ async def find_and_update_place(description: str, changeset_id: Optional[int] = 
 
         # Create changeset if not provided
         if not changeset_id:
-            changeset_result = await create_changeset(
+            changeset_result: Dict[str, Any] = await create_changeset(
                 comment=f"Updated place: {element.get('tags', {}).get('name', 'unnamed')} via MCP",
                 tags={"created_by": "OSM-Edit-MCP", "source": "natural_language"}
             )
@@ -1820,7 +1916,7 @@ async def find_and_update_place(description: str, changeset_id: Optional[int] = 
     except Exception as e:
         return {
             "success": False,
-            "error": str(e),
+            "error": describe_exception(e),
             "message": "Failed to find and update place"
         }
 
@@ -1862,7 +1958,7 @@ async def delete_place_from_description(description: str, changeset_id: Optional
 
         # Create changeset if not provided
         if not changeset_id:
-            changeset_result = await create_changeset(
+            changeset_result: Dict[str, Any] = await create_changeset(
                 comment=f"Deleted place: {element.get('tags', {}).get('name', 'unnamed')} via MCP",
                 tags={"created_by": "OSM-Edit-MCP", "source": "natural_language"}
             )
@@ -1908,7 +2004,7 @@ async def delete_place_from_description(description: str, changeset_id: Optional
     except Exception as e:
         return {
             "success": False,
-            "error": str(e),
+            "error": describe_exception(e),
             "message": "Failed to find and delete place"
         }
 
@@ -1957,7 +2053,7 @@ async def parse_natural_language_osm_request(request: str) -> Dict[str, Any]:
     except Exception as e:
         return {
             "success": False,
-            "error": str(e),
+            "error": describe_exception(e),
             "message": "Failed to parse natural language request"
         }
 
@@ -2025,7 +2121,7 @@ async def bulk_create_places(places_data: List[Dict[str, Any]], changeset_id: Op
 
         # Create changeset if not provided
         if not changeset_id:
-            changeset_result = await create_changeset(
+            changeset_result: Dict[str, Any] = await create_changeset(
                 comment=f"Bulk created {len(places_data)} places via MCP",
                 tags={"created_by": "OSM-Edit-MCP", "source": "bulk_operation"}
             )
@@ -2096,7 +2192,7 @@ async def bulk_create_places(places_data: List[Dict[str, Any]], changeset_id: Op
     except Exception as e:
         return {
             "success": False,
-            "error": str(e),
+            "error": describe_exception(e),
             "message": "Failed to bulk create places"
         }
 
@@ -2188,7 +2284,7 @@ async def validate_osm_data(data: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         return {
             "success": False,
-            "error": str(e),
+            "error": describe_exception(e),
             "message": "Failed to validate OSM data"
         }
 
@@ -2223,11 +2319,11 @@ async def get_changeset_history(user_id: Optional[int] = None, limit: int = 20) 
             changesets = []
             try:
                 import xml.etree.ElementTree as ET
-                root = ET.fromstring(response.text)
+                root = parse_xml(response.text)
 
                 for changeset in root.findall('.//changeset'):
-                    changeset_data = {
-                        'id': int(changeset.get('id')),
+                    changeset_data: Dict[str, Any] = {
+                        'id': int(changeset.get('id', 0)),
                         'created_at': changeset.get('created_at'),
                         'closed_at': changeset.get('closed_at'),
                         'open': changeset.get('open') == 'true',
@@ -2266,7 +2362,7 @@ async def get_changeset_history(user_id: Optional[int] = None, limit: int = 20) 
     except Exception as e:
         return {
             "success": False,
-            "error": str(e),
+            "error": describe_exception(e),
             "message": "Failed to get changeset history"
         }
 
@@ -2284,7 +2380,7 @@ async def export_osm_data(bbox: str, format: str = "json", include_metadata: boo
     """
     try:
         # Get OSM data from the area
-        area_result = await get_osm_elements_in_area(bbox)
+        area_result: Dict[str, Any] = await get_osm_elements_in_area(bbox)
         if not area_result['success']:
             return area_result
 
@@ -2295,7 +2391,7 @@ async def export_osm_data(bbox: str, format: str = "json", include_metadata: boo
             features = []
             for element in elements:
                 if 'lat' in element and 'lon' in element:
-                    feature = {
+                    feature: Dict[str, Any] = {
                         "type": "Feature",
                         "geometry": {
                             "type": "Point",
@@ -2316,7 +2412,7 @@ async def export_osm_data(bbox: str, format: str = "json", include_metadata: boo
 
                     features.append(feature)
 
-            exported_data = {
+            exported_data: Any = {
                 "type": "FeatureCollection",
                 "features": features
             }
@@ -2328,9 +2424,8 @@ async def export_osm_data(bbox: str, format: str = "json", include_metadata: boo
 
             for element in elements:
                 if element['type'] == 'node':
-                    xml_lines.append(f'  <node id="{element["id"]}" lat="{element.get("lat", 0)}" lon="{element.get("lon", 0)}">')
-                    for key, value in element.get('tags', {}).items():
-                        xml_lines.append(f'    <tag k="{key}" v="{value}"/>')
+                    xml_lines.append(f'  <node id="{int(element["id"])}" lat="{element.get("lat", 0)}" lon="{element.get("lon", 0)}">')
+                    xml_lines.append(f'    {build_tags_xml(element.get("tags", {}))}')
                     xml_lines.append('  </node>')
 
             xml_lines.append('</osm>')
@@ -2365,7 +2460,7 @@ async def export_osm_data(bbox: str, format: str = "json", include_metadata: boo
     except Exception as e:
         return {
             "success": False,
-            "error": str(e),
+            "error": describe_exception(e),
             "message": "Failed to export OSM data"
         }
 
@@ -2381,14 +2476,14 @@ async def get_osm_statistics(bbox: str) -> Dict[str, Any]:
     """
     try:
         # Get OSM data from the area
-        area_result = await get_osm_elements_in_area(bbox)
+        area_result: Dict[str, Any] = await get_osm_elements_in_area(bbox)
         if not area_result['success']:
             return area_result
 
         elements = area_result['data']['elements']
 
         # Calculate statistics
-        stats = {
+        stats: Dict[str, Any] = {
             'total_elements': len(elements),
             'element_types': {},
             'amenity_breakdown': {},
@@ -2405,7 +2500,7 @@ async def get_osm_statistics(bbox: str) -> Dict[str, Any]:
             stats['element_types'][element_type] = stats['element_types'].get(element_type, 0) + 1
 
         # Analyze tags
-        all_tags = {}
+        all_tags: Dict[str, Dict[str, int]] = {}
         for element in elements:
             tags = element.get('tags', {})
 
@@ -2471,7 +2566,7 @@ async def get_osm_statistics(bbox: str) -> Dict[str, Any]:
     except Exception as e:
         return {
             "success": False,
-            "error": str(e),
+            "error": describe_exception(e),
             "message": "Failed to generate OSM statistics"
         }
 
@@ -2493,11 +2588,13 @@ async def smart_geocode(address_or_description: str) -> Dict[str, Any]:
         place_result = await get_place_info(address_or_description)
         if place_result['success'] and place_result['data'] and place_result['data'].get('places'):
             for place in place_result['data']['places'][:3]:  # Top 3 results
+                # get_place_info nests coordinates under a 'coordinates' key
+                coordinates = place.get('coordinates', {})
                 results.append({
                     'source': 'nominatim',
                     'confidence': place.get('importance', 0.5),
-                    'lat': place.get('lat'),
-                    'lon': place.get('lon'),
+                    'lat': coordinates.get('lat'),
+                    'lon': coordinates.get('lon'),
                     'display_name': place.get('display_name'),
                     'address': place.get('address', {}),
                     'type': place.get('type'),
@@ -2512,12 +2609,14 @@ async def smart_geocode(address_or_description: str) -> Dict[str, Any]:
             search_result = await search_osm_elements(address_or_description)
             if search_result['success'] and search_result['data']['elements']:
                 for element in search_result['data']['elements'][:3]:
-                    if 'lat' in element and 'lon' in element:
+                    # search_osm_elements nests coordinates under 'location'
+                    location = element.get('location') or {}
+                    if 'lat' in location and 'lon' in location:
                         results.append({
                             'source': 'osm_search',
                             'confidence': 0.7,
-                            'lat': element['lat'],
-                            'lon': element['lon'],
+                            'lat': location['lat'],
+                            'lon': location['lon'],
                             'display_name': element.get('tags', {}).get('name', 'Unnamed'),
                             'osm_type': element['type'],
                             'osm_id': element['id'],
@@ -2542,7 +2641,7 @@ async def smart_geocode(address_or_description: str) -> Dict[str, Any]:
     except Exception as e:
         return {
             "success": False,
-            "error": str(e),
+            "error": describe_exception(e),
             "message": "Failed to geocode address"
         }
 
@@ -2576,7 +2675,7 @@ def parse_address_components(address: str) -> Dict[str, str]:
     return components
 
 
-def main():
+def main() -> None:
     """Main entry point for the OSM Edit MCP Server."""
     import sys
     import asyncio

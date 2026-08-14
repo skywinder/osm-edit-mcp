@@ -117,10 +117,15 @@ search_osm_elements("coffee shop", "node")
 
 ## 📊 Test Results
 
-✅ **Expected**: 19/19 tests passing
-- Read operations: Work without auth
-- Write operations: Require OAuth
-- Natural language: Always works
+- `uv run pytest` — unit tests, no network, no writes
+- `uv run python test_comprehensive.py` — integration suite; performs real writes and is
+  pinned to the dev API, so it aborts if configuration resolves to production
+
+Coverage by category:
+- Read operations: work without auth
+- Write operations: require OAuth; limited to changesets and nodes
+- Way/relation edits and deletes: not implemented, not exposed as tools
+- Natural language: always works
 
 ## 🆘 Quick Fixes
 

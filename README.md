@@ -38,7 +38,9 @@ uv sync --dev  # Installs both base and development dependencies
 ### 2️⃣ Configure
 ```bash
 cp .env.example .env
-# No need to edit - defaults are ready to use!
+# Defaults target the development sandbox (OSM_USE_DEV_API=true), which is safe
+# to experiment with. See "Switching to the Production API" below before pointing
+# this at the real map.
 ```
 
 ### 3️⃣ Test
@@ -91,7 +93,57 @@ uv run python oauth_auth.py
 uv run python test_comprehensive.py
 ```
 
-Expected: ✅ 19/19 tests passing
+This suite performs **real writes** — it opens changesets and creates nodes. It is
+pinned to the development API and will refuse to start if configuration resolves to
+production, so it is safe to run even when your `.env` targets prod.
+
+For the unit tests (no network, no writes):
+```bash
+uv run pytest
+```
+
+## 🌍 Switching to the Production API
+
+By default `.env.example` targets the development sandbox. Pointing at the real
+OpenStreetMap database is a deliberate, separate step — **every edit you make becomes
+a public, permanent change to the map that other people have to review or revert.**
+
+### Step 1: Register a production OAuth app
+Log in at https://www.openstreetmap.org → **My Settings → OAuth 2 applications →
+Register new application**:
+- **Redirect URI**: `https://localhost:8080/callback`
+- **Permissions**: at minimum `read_prefs`, `write_api`, `write_changesets`
+
+This is a *different* application from your dev-sandbox one; credentials are not shared
+between the two servers.
+
+### Step 2: Configure
+In `.env`:
+```bash
+OSM_USE_DEV_API=false                      # switches every tool to the live API
+OSM_PROD_CLIENT_ID=your_prod_client_id
+OSM_PROD_CLIENT_SECRET=your_prod_client_secret
+OSM_PROD_REDIRECT_URI=https://localhost:8080/callback
+```
+Leave `OSM_CLIENT_ID` / `OSM_CLIENT_SECRET` unset — those legacy variables override the
+dev/prod switch when present.
+
+### Step 3: Authenticate against production
+```bash
+uv run python oauth_auth.py
+```
+This writes `.osm_token_prod.json` (dev tokens live in `.osm_token_dev.json`; the server
+picks the file matching `OSM_USE_DEV_API`, so the two never mix).
+
+### Step 4: Confirm the target
+```bash
+uv run python status_check.py
+```
+On startup the server logs a `PRODUCTION MODE` warning naming the live API. If you do not
+see it, you are still on the sandbox.
+
+**Note:** `test_comprehensive.py` always runs against the dev API regardless of these
+settings, by design — verification must never write test data to the live map.
 
 ## 📖 Available Tools
 
@@ -125,8 +177,16 @@ Expected: ✅ 19/19 tests passing
 | Tool | Description | Example |
 |------|-------------|---------|
 | `create_changeset` | Start editing session | Required for edits |
+| `close_changeset` | Finish editing session | Publishes the edit |
 | `create_osm_node` | Add new point | "Add restaurant here" |
+| `update_osm_node` | Move or retag a point | "Change its opening hours" |
 | `create_place_from_description` | Natural language creation | "Add coffee shop called Bean There at..." |
+
+**Not available:** creating or updating ways and relations, and deleting anything.
+Those code paths exist in `server.py` but only build a request preview without sending
+it, so they are deliberately not registered as MCP tools — an agent that could call them
+would fail partway through an edit. To edit ways, relations, or delete elements, use
+[JOSM](https://josm.openstreetmap.de/) or [iD](https://www.openstreetmap.org/edit).
 
 ## 💡 Usage Examples
 
@@ -313,18 +373,33 @@ Add to VSCode settings or `.vscode/settings.json`
 
 ## 🛡️ Safety Features
 
-- ✅ **Development API by default** - Safe testing environment
-- ✅ **OAuth protection** - Edits require authentication
-- ✅ **Rate limiting** - Respects API limits
-- ✅ **Input validation** - Prevents invalid data
-- ✅ **Changeset management** - Groups edits properly
+What the server actually enforces today:
+
+- **OAuth required for writes** — changeset, node create and node update operations
+  refuse to run without a valid token.
+- **Changeset management** — edits are grouped into changesets you open and close.
+- **Coordinate validation** — latitude/longitude bounds are checked before any write.
+- **XML escaping** — tag keys and values are escaped, so names containing quotes or
+  ampersands cannot corrupt or inject into a changeset.
+- **Test suite pinned to the sandbox** — `test_comprehensive.py` aborts rather than
+  writing to the live map.
+- **Production warning on startup** — the server logs a loud warning whenever it is
+  configured against the live API.
+
+Not implemented yet — `require_user_confirmation`, `rate_limit_per_minute`,
+`max_changeset_size` and the cache settings are accepted as configuration but no code
+path acts on them. Do not rely on them as guardrails.
 
 ## 📊 Project Status
 
-- **Version**: 0.1.0
-- **Tests**: 100% passing (19/19)
+- **Version**: 0.1.0 (alpha)
 - **Python**: 3.10+
 - **License**: MIT
+- **Read/search tools**: working against the live API
+- **Write tools**: `create_changeset`, `close_changeset`, `create_osm_node`,
+  `update_osm_node`
+- **Not implemented**: way and relation create/update, and all delete operations.
+  These are not registered as MCP tools — see [Available Tools](#-available-tools).
 
 ## 🌐 Remote Deployment (Make it Accessible Anywhere)
 
