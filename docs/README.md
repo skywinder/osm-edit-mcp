@@ -49,6 +49,12 @@ The server is built using:
 - **Natural Language Processing**: Convert descriptions to OSM tags
 - **Tag Validation**: Ensure data quality and standards compliance
 
+The Python package is split by responsibility: `config.py`,
+`token_store.py`, `http_client.py`, `xml_models.py`, and
+`natural_language.py` provide the core services; `read_tools.py` and
+`write_tools.py` register MCP tools; and `server.py` preserves the public
+imports and starts the composed server.
+
 ### Key Components
 1. **OSM API Client**: Handles communication with OpenStreetMap
 2. **Tag Processing Engine**: Converts natural language to structured tags

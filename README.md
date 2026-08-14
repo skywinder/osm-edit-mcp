@@ -183,7 +183,7 @@ settings, by design — verification must never write test data to the live map.
 | `create_place_from_description` | Natural language creation | "Add coffee shop called Bean There at..." |
 
 **Not available:** creating or updating ways and relations, and deleting anything.
-Those code paths exist in `server.py` but only build a request preview without sending
+Those code paths exist in `write_tools.py` but only build a request preview without sending
 it, so they are deliberately not registered as MCP tools — an agent that could call them
 would fail partway through an edit. To edit ways, relations, or delete elements, use
 [JOSM](https://josm.openstreetmap.de/) or [iD](https://www.openstreetmap.org/edit).

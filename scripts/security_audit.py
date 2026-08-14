@@ -94,10 +94,12 @@ class SecurityAuditor:
         """Check API security practices."""
         print("🌐 Checking API security...")
         
-        server_file = self.root_path / "src" / "osm_edit_mcp" / "server.py"
-        if server_file.exists():
-            with open(server_file, 'r') as f:
-                content = f.read()
+        package_path = self.root_path / "src" / "osm_edit_mcp"
+        server_files = sorted(package_path.glob("*.py"))
+        if server_files:
+            content = "\n".join(
+                path.read_text(encoding="utf-8") for path in server_files
+            )
             
             # Check for HTTPS usage
             if "http://" in content and "https://" not in content:
@@ -105,7 +107,7 @@ class SecurityAuditor:
                     "HIGH",
                     "Network",
                     "Using HTTP instead of HTTPS for API calls",
-                    str(server_file)
+                    str(package_path)
                 )
             
             # Check for rate limiting
@@ -114,7 +116,7 @@ class SecurityAuditor:
                     "MEDIUM",
                     "API",
                     "No rate limiting implementation found",
-                    str(server_file)
+                    str(package_path)
                 )
             
             # Check for input validation
@@ -123,7 +125,7 @@ class SecurityAuditor:
                     "MEDIUM",
                     "Validation",
                     "Limited input validation functions found",
-                    str(server_file)
+                    str(package_path)
                 )
     
     def check_dependencies(self):

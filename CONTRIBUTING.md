@@ -206,7 +206,9 @@ Brief description of changes
 
 ### Adding New Tools
 
-1. Define the tool in `server.py` using the `@mcp.tool()` decorator
+1. Define read-only and validation tools in `read_tools.py`, or mutation
+   workflows in `write_tools.py`, using the shared `@mcp.tool()` decorator
+   from `app.py`
 2. Include comprehensive docstrings
 3. Validate all inputs
 4. Return consistent response format:
@@ -220,6 +222,17 @@ Brief description of changes
    ```
 5. Add corresponding tests
 6. Update documentation
+
+`server.py` is a compatibility facade and entry point. Keep implementation
+logic in the focused modules:
+
+- `config.py`: environment-backed configuration and logging
+- `token_store.py`: OAuth token persistence and identity metadata
+- `http_client.py`: authenticated/public HTTP client factories
+- `xml_models.py`: OSM XML serialization and parsing
+- `natural_language.py`: pure parsing and tag mappings
+- `read_tools.py`: read-only, discovery, export, and validation tools
+- `write_tools.py`: changesets, mutations, and higher-level write workflows
 
 ### Error Handling
 
