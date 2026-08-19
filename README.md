@@ -112,7 +112,7 @@ a public, permanent change to the map that other people have to review or revert
 Log in at https://www.openstreetmap.org → **My Settings → OAuth 2 applications →
 Register new application**:
 - **Redirect URI**: `https://localhost:8080/callback`
-- **Permissions**: at minimum `read_prefs`, `write_api`, `write_changesets`
+- **Permissions**: at minimum `read_prefs`, `write_api`, `write_changesets`, `write_changeset_comments`
 
 This is a *different* application from your dev-sandbox one; credentials are not shared
 between the two servers.
@@ -125,7 +125,7 @@ OSM_PROD_CLIENT_ID=your_prod_client_id
 OSM_PROD_CLIENT_SECRET=your_prod_client_secret
 OSM_PROD_REDIRECT_URI=https://localhost:8080/callback
 ```
-Leave `OSM_CLIENT_ID` / `OSM_CLIENT_SECRET` unset — those legacy variables override the
+Leave `OSM_OAUTH_CLIENT_ID` / `OSM_OAUTH_CLIENT_SECRET` unset — those legacy variables override the
 dev/prod switch when present.
 
 ### Step 3: Authenticate against production
@@ -184,8 +184,9 @@ settings, by design — verification must never write test data to the live map.
 | `update_osm_way` | Replace a way's node list and tags | Uses optimistic versioning |
 | `create_place_from_description` | Natural language creation | "Add coffee shop called Bean There at..." |
 
-Relation writes and element deletion remain unavailable. Use
-[JOSM](https://josm.openstreetmap.de/) or [iD](https://www.openstreetmap.org/edit)
+Relation/delete tools exist as MCP endpoints today, but they currently return explicit
+read-only/demo messages and do not perform real destructive edits.
+Use [JOSM](https://josm.openstreetmap.de/) or [iD](https://www.openstreetmap.org/edit)
 for those operations.
 
 ### 🛣️ GPX Road Editing (Requires Auth to Apply)
@@ -216,10 +217,19 @@ For viewing only, GPXSee is a lightweight GPX/KML viewer; Google Earth Pro is th
 most convenient option for KMZ files. JOSM is the recommended final visual check
 because it shows the trace beside editable OSM geometry.
 
-New roads require an explicit `highway=*` tag. Existing-road previews preserve way IDs,
-tags, and protected intersection nodes. They never move existing nodes or infer whether an
-interior crossing is at grade. Preview first, inspect the returned current/proposed
-GeoJSON and warnings, then call apply with the returned `proposal_id` and `confirm=true`.
+New roads require an explicit `highway=*` tag. By default, a new-road preview tries to
+connect each endpoint within the snap tolerance. It first reuses a nearby highway node;
+when no node is available but exactly one highway way is unambiguously close, the preview
+projects the endpoint onto that way, creates one shared node, and inserts it into both ways
+in the same transactional upload. Set `connect_endpoints_to_ways=false` to disable that
+behavior. Ambiguous nearby ways block the proposal, and `dangling_endpoints` explains any
+endpoint left intentionally unconnected.
+
+Existing-road previews preserve way IDs, tags, and protected intersection nodes. Neither
+workflow moves existing nodes or infers whether an interior crossing is at grade. Preview
+first, inspect both GeoJSON layers, `endpoint_snaps`, `endpoint_way_connections`, dangling
+endpoints, and warnings, then call apply with the returned `proposal_id` and
+`confirm=true`.
 
 Track proposals expire after 30 minutes. Apply re-fetches existing ways and refuses the
 write if another mapper changed them after preview. The actual node/way changes and
@@ -327,7 +337,7 @@ You can also configure dev and prod entries directly in `~/.cursor/mcp.json` usi
 {
   "mcpServers": {
     "osm-edit-dev": {
-      "command": "/Users/pk/repo/_mine/osm-edit-mcp/run_mcp.sh",
+      "command": "/path/to/osm-edit-mcp/run_mcp.sh",
       "args": [],
       "env": {
         "OSM_USE_DEV_API": "true",
@@ -338,7 +348,7 @@ You can also configure dev and prod entries directly in `~/.cursor/mcp.json` usi
       "_comment": "OSM Edit MCP Server - Development (safe testing with api06.dev.openstreetmap.org)"
     },
     "osm-edit-prod": {
-      "command": "/Users/pk/repo/_mine/osm-edit-mcp/run_mcp.sh",
+      "command": "/path/to/osm-edit-mcp/run_mcp.sh",
       "args": [],
       "env": {
         "OSM_USE_DEV_API": "false",
@@ -462,8 +472,8 @@ rely on them as global guardrails.
 - **Read/search tools**: working against the live API
 - **Write tools**: changesets, node and way create/update, plus confirmed GPX-road
   proposals
-- **Not implemented**: relation create/update and general-purpose delete operations.
-  These are not registered as MCP tools — see [Available Tools](#-available-tools).
+- **Relation and delete tools**: exposed as MCP endpoints, but these are currently
+  read-only/demo operations and do not perform full destructive edits yet.
 
 ## 🌐 Remote Deployment (Make it Accessible Anywhere)
 
@@ -511,7 +521,8 @@ After deployment, access your server at:
 
 ### 📡 API Usage
 
-All MCP functionality is exposed via REST API endpoints. Authenticate with your API key:
+The optional web API (`web_server.py`) exposes a subset of MCP capabilities over REST.
+Authenticate with your API key:
 
 ```bash
 # Example: Find nearby amenities
@@ -627,11 +638,14 @@ docker stats
 ## 🧪 Testing
 
 ```bash
-# Quick test
-python quick_test.py
+# Quick setup check (no writes)
+python status_check.py
 
-# Full test suite
+# Integration smoke tests (writes are gated to dev mode)
 python test_comprehensive.py
+
+# Unit tests
+uv run pytest
 
 # Check your edits
 # Visit: https://api06.dev.openstreetmap.org/user/YOUR_USERNAME/history
@@ -647,7 +661,7 @@ python test_comprehensive.py
 | Import errors | Run `uv sync --dev` |
 | Can't see changesets | Check dev server URL (not main OSM) |
 | uv: command not found | Install uv: `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
-| How do I use the server? | Configure in MCP client or run `uv run python explain_mcp_server.py` |
+| How do I use the server? | Configure it in your MCP client; see the MCP section above |
 
 ## 📚 Documentation
 
