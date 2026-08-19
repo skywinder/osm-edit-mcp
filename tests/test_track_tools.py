@@ -328,6 +328,136 @@ async def test_create_preview_builds_geojson_and_expiring_proposal(
 
 
 @pytest.mark.asyncio
+async def test_create_preview_inserts_shared_node_into_unambiguous_nearby_way(
+    monkeypatch,
+):
+    gpx = """<gpx><trk><trkseg>
+      <trkpt lat="0.00005" lon="0.001"/>
+      <trkpt lat="0.001" lon="0.001"/>
+    </trkseg></trk></gpx>"""
+    nearby_way = {
+        "id": 10,
+        "nodes": [1, 2],
+        "tags": {"highway": "residential", "name": "Existing Road"},
+        "geometry": [
+            {"lat": 0.0, "lon": 0.0},
+            {"lat": 0.0, "lon": 0.002},
+        ],
+    }
+    full_way = """<osm>
+      <node id="1" version="2" lat="0" lon="0"/>
+      <node id="2" version="3" lat="0" lon="0.002"/>
+      <way id="10" version="7"><nd ref="1"/><nd ref="2"/>
+        <tag k="highway" v="residential"/><tag k="name" v="Existing Road"/>
+      </way>
+    </osm>"""
+
+    async def fake_nearby(points, radius):
+        return [nearby_way], {}
+
+    client = FakeClient(
+        get_responses={
+            "/way/10/full": FakeResponse(text=full_way),
+            "/capabilities": FakeResponse(text=capabilities_xml()),
+        }
+    )
+    monkeypatch.setattr(track_tools, "_nearby_highways", fake_nearby)
+    monkeypatch.setattr(track_tools, "get_authenticated_client", lambda: client)
+
+    result = await track_tools.preview_track_road_edit(
+        action="create",
+        segment_id="trk-0-seg-0",
+        changeset_comment="Add connected surveyed road",
+        changeset_source="survey",
+        gpx_xml=gpx,
+        tags={"highway": "service"},
+        simplify_tolerance_m=0,
+    )
+
+    assert result["success"] is True
+    assert result["data"]["summary"]["modified_ways"] == 1
+    connection = result["data"]["endpoint_way_connections"][0]
+    assert connection["endpoint"] == "start"
+    assert connection["way_id"] == 10
+    assert connection["status"] == "planned"
+    assert result["data"]["dangling_endpoints"][0]["endpoint"] == "end"
+    proposal = track_tools._PROPOSALS[result["data"]["proposal_id"]].payload
+    shared_ref = proposal["create_ways"][0]["node_ids"][0]
+    modified_way = proposal["modify_ways"][0]
+    assert shared_ref < 0
+    assert modified_way["node_ids"] == [1, shared_ref, 2]
+    assert modified_way["tags"]["name"] == "Existing Road"
+    assert proposal["snapshot_ways"]["10"]["version"] == 7
+    assert result["data"]["current_geojson"]["features"]
+    assert any(
+        "insert a shared node" in warning for warning in result["data"]["warnings"]
+    )
+
+    osm_change = ET.fromstring(track_tools._build_osm_change(proposal, 123))
+    created_way_refs = [
+        int(node.get("ref")) for node in osm_change.findall("./create/way/nd")
+    ]
+    modified_way_refs = [
+        int(node.get("ref")) for node in osm_change.findall("./modify/way/nd")
+    ]
+    assert shared_ref in created_way_refs
+    assert shared_ref in modified_way_refs
+
+
+@pytest.mark.asyncio
+async def test_create_preview_blocks_ambiguous_endpoint_way_connection(monkeypatch):
+    gpx = """<gpx><trk><trkseg>
+      <trkpt lat="0.00005" lon="0.001"/>
+      <trkpt lat="0.001" lon="0.001"/>
+    </trkseg></trk></gpx>"""
+    ways = [
+        {
+            "id": 10,
+            "nodes": [1, 2],
+            "tags": {"highway": "residential"},
+            "geometry": [
+                {"lat": 0.0, "lon": 0.0},
+                {"lat": 0.0, "lon": 0.002},
+            ],
+        },
+        {
+            "id": 20,
+            "nodes": [3, 4],
+            "tags": {"highway": "service"},
+            "geometry": [
+                {"lat": 0.0001, "lon": 0.0},
+                {"lat": 0.0001, "lon": 0.002},
+            ],
+        },
+    ]
+
+    async def fake_nearby(points, radius):
+        return ways, {}
+
+    client = FakeClient(
+        get_responses={"/capabilities": FakeResponse(text=capabilities_xml())}
+    )
+    monkeypatch.setattr(track_tools, "_nearby_highways", fake_nearby)
+    monkeypatch.setattr(track_tools, "get_authenticated_client", lambda: client)
+
+    result = await track_tools.preview_track_road_edit(
+        action="create",
+        segment_id="trk-0-seg-0",
+        changeset_comment="Add connected surveyed road",
+        changeset_source="survey",
+        gpx_xml=gpx,
+        tags={"highway": "service"},
+        simplify_tolerance_m=0,
+    )
+
+    assert result["success"] is False
+    assert "ambiguously close" in result["data"]["blocking_issues"][0]
+    connection = result["data"]["endpoint_way_connections"][0]
+    assert connection["status"] == "ambiguous"
+    assert connection["candidate_way_ids"] == [10, 20]
+
+
+@pytest.mark.asyncio
 async def test_update_preview_splices_contiguous_way_chain(monkeypatch):
     way_10 = make_way(
         10,

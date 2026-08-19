@@ -23,7 +23,7 @@ from .natural_language import (
     parse_natural_language_request,
 )
 from .token_store import get_current_user_info, load_oauth_token
-from .xml_models import parse_osm_xml
+from .xml_models import build_tags_xml, parse_osm_xml
 
 @mcp.tool()
 async def get_osm_node(node_id: int) -> Dict[str, Any]:
@@ -38,7 +38,7 @@ async def get_osm_node(node_id: int) -> Dict[str, Any]:
     try:
         url = f"{config.current_api_base_url}/node/{node_id}"
         logger.debug(f"Fetching node {node_id} from {url}")
-        async with httpx.AsyncClient() as client:
+        async with get_public_client() as client:
             response = await client.get(url)
             response.raise_for_status()
             parsed_data = parse_osm_xml(response.text)
@@ -67,7 +67,7 @@ async def get_osm_way(way_id: int) -> Dict[str, Any]:
     try:
         url = f"{config.current_api_base_url}/way/{way_id}"
         logger.debug(f"Fetching way {way_id} from {url}")
-        async with httpx.AsyncClient() as client:
+        async with get_public_client() as client:
             response = await client.get(url)
             response.raise_for_status()
             parsed_data = parse_osm_xml(response.text)
@@ -96,7 +96,7 @@ async def get_osm_relation(relation_id: int) -> Dict[str, Any]:
     try:
         url = f"{config.current_api_base_url}/relation/{relation_id}"
         logger.debug(f"Fetching relation {relation_id} from {url}")
-        async with httpx.AsyncClient() as client:
+        async with get_public_client() as client:
             response = await client.get(url)
             response.raise_for_status()
             parsed_data = parse_osm_xml(response.text)
@@ -125,7 +125,7 @@ async def get_osm_elements_in_area(bbox: str) -> Dict[str, Any]:
     try:
         url = f"{config.current_api_base_url}/map?bbox={bbox}"
         logger.debug(f"Fetching elements in bbox {bbox} from {url}")
-        async with httpx.AsyncClient() as client:
+        async with get_public_client() as client:
             response = await client.get(url)
             response.raise_for_status()
             parsed_data = parse_osm_xml(response.text)
@@ -155,7 +155,7 @@ async def get_changeset(changeset_id: int) -> Dict[str, Any]:
     try:
         url = f"{config.current_api_base_url}/changeset/{changeset_id}"
         logger.debug(f"Fetching changeset {changeset_id} from {url}")
-        async with httpx.AsyncClient() as client:
+        async with get_public_client() as client:
             response = await client.get(url)
             response.raise_for_status()
             parsed_data = parse_osm_xml(response.text)
@@ -777,8 +777,6 @@ async def get_changeset_history(user_id: Optional[int] = None, limit: int = 20) 
         Dictionary containing changeset history
     """
     try:
-        config = OSMConfig()
-
         # Build query URL
         query_params = {'limit': min(limit, 100)}  # API limit
         if user_id:
@@ -788,7 +786,7 @@ async def get_changeset_history(user_id: Optional[int] = None, limit: int = 20) 
         url = f"{config.current_api_base_url}/changesets?{query_string}"
         logger.debug(f"Fetching changeset history from {url}")
 
-        async with httpx.AsyncClient() as client:
+        async with get_public_client() as client:
             response = await client.get(url)
             response.raise_for_status()
 

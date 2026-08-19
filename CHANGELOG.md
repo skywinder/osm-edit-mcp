@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   previews, explicit confirmation, and transactional `osmChange` uploads
 - Partial and multi-way road realignment that preserves way IDs, tags, and
   topology-critical nodes
+- Atomic new-road endpoint connections that reuse nearby nodes or insert a
+  shared node into one unambiguous nearby highway way
 - Comprehensive CI/CD pipeline with GitHub Actions
 - Unit tests for configuration and XML parsing
 - Contributing guidelines and code of conduct

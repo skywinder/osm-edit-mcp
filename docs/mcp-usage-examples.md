@@ -659,14 +659,18 @@ AI: Nonna's Italian Deli tagged successfully!
    choose an ordered contiguous list of way IDs.
 3. Call `preview_track_road_edit` with `action="create"` and explicit road tags,
    or `action="update"` with the selected way IDs. Review both GeoJSON layers,
-   endpoint snaps, preserved nodes, conditional deletions, and warnings.
+   endpoint snaps, endpoint-to-way connection plans, dangling endpoints,
+   preserved nodes, conditional deletions, and warnings. New-road previews
+   default to `connect_endpoints_to_ways=true`: an unambiguous nearby way gets a
+   new shared node inserted atomically into the existing and created ways.
 4. Apply only the reviewed proposal with
    `apply_track_road_edit(proposal_id=..., confirm=True)`.
 
 The apply call expires after 30 minutes, rejects stale OSM versions, and uses a
 transactional `osmChange` upload. It never auto-connects interior crossings,
-moves existing nodes, joins separate GPX segments, or uploads a public GPS trace.
-Segments with implausible consecutive GPS jumps must be cropped before preview.
+moves existing nodes, guesses between ambiguous endpoint ways, joins separate
+GPX segments, or uploads a public GPS trace. Segments with implausible
+consecutive GPS jumps must be cropped before preview.
 
 ### Core Tools
 - `parse_natural_language_tags()` - Convert descriptions to OSM tags

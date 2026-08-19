@@ -33,6 +33,7 @@ MAX_WAY_NODES_FALLBACK = 2_000
 MAX_CHANGESET_ELEMENTS_FALLBACK = 10_000
 DEFAULT_SIMPLIFY_TOLERANCE_M = 3.0
 DEFAULT_ENDPOINT_SNAP_M = 10.0
+ENDPOINT_WAY_AMBIGUITY_M = 2.0
 DEFAULT_MAX_ALIGNMENT_M = 20.0
 MAX_SURVEY_POINT_GAP_M = 500.0
 
@@ -713,6 +714,8 @@ def _proposal_result(
             "track_hash": payload["track_hash"],
             "summary": payload["summary"],
             "endpoint_snaps": payload.get("endpoint_snaps", []),
+            "endpoint_way_connections": payload.get("endpoint_way_connections", []),
+            "dangling_endpoints": payload.get("dangling_endpoints", []),
             "preserved_nodes": payload.get("preserved_nodes", []),
             "conditional_deletions": [
                 node["id"] for node in payload.get("delete_nodes", [])
@@ -887,6 +890,7 @@ async def _preview_create(
     source: str,
     simplify_tolerance_m: float,
     endpoint_snap_tolerance_m: float,
+    connect_endpoints_to_ways: bool,
 ) -> Dict[str, Any]:
     if not tags.get("highway"):
         raise ValueError("Creating a road requires an explicit highway=* tag")
@@ -898,9 +902,14 @@ async def _preview_create(
         points, max(30.0, endpoint_snap_tolerance_m)
     )
     endpoint_snaps: List[Dict[str, Any]] = []
+    endpoint_way_connections: List[Dict[str, Any]] = []
+    dangling_endpoints: List[Dict[str, Any]] = []
     snapped_refs: Dict[int, int] = {}
     snapshot_nodes: Dict[int, Dict[str, Any]] = {}
+    pending_way_connections: Dict[int, Dict[str, Any]] = {}
+    blocking: List[str] = []
     for point_index in (0, len(points) - 1):
+        endpoint_name = "start" if point_index == 0 else "end"
         ranked = sorted(
             (
                 _haversine_m(point, (float(node["lat"]), float(node["lon"]))),
@@ -919,24 +928,74 @@ async def _preview_create(
             }
             endpoint_snaps.append(
                 {
-                    "endpoint": "start" if point_index == 0 else "end",
+                    "endpoint": endpoint_name,
                     "node_id": node_id,
                     "distance_m": round(distance, 2),
+                    "kind": "existing_node",
                 }
             )
+            continue
 
-    create_nodes: List[Dict[str, Any]] = []
-    refs: List[int] = []
-    next_temp = -1
-    for index, point in enumerate(points):
-        if index in snapped_refs:
-            refs.append(snapped_refs[index])
-        else:
-            refs.append(next_temp)
-            create_nodes.append(
-                {"id": next_temp, "lat": point[0], "lon": point[1], "tags": {}}
+        ranked_ways: List[Tuple[float, int, int, float, Point]] = []
+        for way in nearby_ways:
+            geometry = [
+                (float(item["lat"]), float(item["lon"]))
+                for item in way.get("geometry", [])
+            ]
+            if len(geometry) < 2:
+                continue
+            distance, segment_index, t, projected, _ = _nearest_on_polyline(
+                points[point_index], geometry
             )
-            next_temp -= 1
+            if distance <= endpoint_snap_tolerance_m:
+                ranked_ways.append(
+                    (distance, int(way["id"]), segment_index, t, projected)
+                )
+        ranked_ways.sort(key=lambda item: (item[0], item[1]))
+        if not ranked_ways:
+            dangling_endpoints.append(
+                {
+                    "endpoint": endpoint_name,
+                    "reason": (
+                        "No reusable highway node or way was found within "
+                        f"{endpoint_snap_tolerance_m:.1f}m"
+                    ),
+                }
+            )
+            continue
+        if not connect_endpoints_to_ways:
+            dangling_endpoints.append(
+                {
+                    "endpoint": endpoint_name,
+                    "nearest_way_id": ranked_ways[0][1],
+                    "distance_m": round(ranked_ways[0][0], 2),
+                    "reason": "Endpoint-to-way connection planning was disabled",
+                }
+            )
+            continue
+        if (
+            len(ranked_ways) > 1
+            and ranked_ways[1][0] - ranked_ways[0][0] < ENDPOINT_WAY_AMBIGUITY_M
+        ):
+            candidate_ids = [item[1] for item in ranked_ways[:5]]
+            blocking.append(
+                f"{endpoint_name.capitalize()} endpoint is ambiguously close to "
+                f"multiple highway ways: {candidate_ids}"
+            )
+            endpoint_way_connections.append(
+                {
+                    "endpoint": endpoint_name,
+                    "status": "ambiguous",
+                    "candidate_way_ids": candidate_ids,
+                }
+            )
+            continue
+        best = ranked_ways[0]
+        pending_way_connections[point_index] = {
+            "endpoint": endpoint_name,
+            "way_id": best[1],
+            "map_distance_m": best[0],
+        }
 
     warnings = [
         "A single GPS trace can be offset by several metres; compare the preview "
@@ -959,6 +1018,8 @@ async def _preview_create(
             f"be inferred: {sorted(set(crossing_way_ids))}"
         )
 
+    fetched_connection_ways: Dict[int, Dict[str, Any]] = {}
+    verified_connections: Dict[int, Dict[str, Any]] = {}
     async with get_authenticated_client() as client:
         for node_id in list(snapshot_nodes):
             response = await client.get(f"{config.current_api_base_url}/node/{node_id}")
@@ -981,13 +1042,166 @@ async def _preview_create(
             for point_index, snapped_node_id in snapped_refs.items():
                 if snapped_node_id == node_id:
                     points[point_index] = authoritative_point
+
+        connection_way_ids = sorted(
+            {item["way_id"] for item in pending_way_connections.values()}
+        )
+        if connection_way_ids:
+            fetched = await asyncio.gather(
+                *(_fetch_way_full(client, way_id) for way_id in connection_way_ids)
+            )
+            fetched_connection_ways = {way["id"]: way for way in fetched}
+        for point_index, pending in pending_way_connections.items():
+            way = fetched_connection_ways[pending["way_id"]]
+            geometry = [
+                (way["nodes"][node_id]["lat"], way["nodes"][node_id]["lon"])
+                for node_id in way["node_ids"]
+            ]
+            distance, segment_index, t, projected, _ = _nearest_on_polyline(
+                points[point_index], geometry
+            )
+            endpoint_name = pending["endpoint"]
+            if distance > endpoint_snap_tolerance_m:
+                blocking.append(
+                    f"{endpoint_name.capitalize()} endpoint is now {distance:.1f}m "
+                    f"from candidate way {way['id']}; create a fresh preview"
+                )
+                continue
+            if t <= 1e-9 or t >= 1 - 1e-9:
+                boundary_index = segment_index if t <= 1e-9 else segment_index + 1
+                node_id = way["node_ids"][boundary_index]
+                node = way["nodes"][node_id]
+                snapped_refs[point_index] = node_id
+                snapshot_nodes[node_id] = {"version": node["version"]}
+                points[point_index] = (node["lat"], node["lon"])
+                endpoint_snaps.append(
+                    {
+                        "endpoint": endpoint_name,
+                        "node_id": node_id,
+                        "distance_m": round(distance, 2),
+                        "kind": "existing_way_boundary_node",
+                        "way_id": way["id"],
+                    }
+                )
+                continue
+            points[point_index] = projected
+            verified_connections[point_index] = {
+                "endpoint": endpoint_name,
+                "way_id": way["id"],
+                "distance_m": distance,
+                "segment_index": segment_index,
+                "segment_fraction": t,
+                "projected": projected,
+            }
         max_way_nodes, server_max_changes = await _fetch_api_limits(client)
-    blocking: List[str] = []
+
+    create_nodes: List[Dict[str, Any]] = []
+    refs: List[int] = []
+    next_temp = -1
+    for index, point in enumerate(points):
+        if index in snapped_refs:
+            refs.append(snapped_refs[index])
+            continue
+        refs.append(next_temp)
+        create_nodes.append(
+            {"id": next_temp, "lat": point[0], "lon": point[1], "tags": {}}
+        )
+        if index in verified_connections:
+            connection = verified_connections[index]
+            connection["new_node_id"] = next_temp
+            endpoint_way_connections.append(
+                {
+                    "endpoint": connection["endpoint"],
+                    "status": "planned",
+                    "way_id": connection["way_id"],
+                    "distance_m": round(connection["distance_m"], 2),
+                    "new_node_id": next_temp,
+                    "insert_after_node_id": fetched_connection_ways[
+                        connection["way_id"]
+                    ]["node_ids"][connection["segment_index"]],
+                    "insert_before_node_id": fetched_connection_ways[
+                        connection["way_id"]
+                    ]["node_ids"][connection["segment_index"] + 1],
+                    "coordinates": {
+                        "lat": point[0],
+                        "lon": point[1],
+                    },
+                }
+            )
+        next_temp -= 1
+
+    created_by_id = {node["id"]: node for node in create_nodes}
+    modify_ways: List[Dict[str, Any]] = []
+    current_features: List[Dict[str, Any]] = []
+    modified_features: List[Dict[str, Any]] = []
+    insertions_by_way: Dict[int, List[Dict[str, Any]]] = {}
+    for connection in verified_connections.values():
+        if "new_node_id" in connection:
+            insertions_by_way.setdefault(connection["way_id"], []).append(connection)
+    for way_id, insertions in insertions_by_way.items():
+        way = fetched_connection_ways[way_id]
+        insertions_by_segment: Dict[int, List[Dict[str, Any]]] = {}
+        for insertion in insertions:
+            insertions_by_segment.setdefault(insertion["segment_index"], []).append(
+                insertion
+            )
+        proposed_ids: List[int] = []
+        for segment_index, node_id in enumerate(way["node_ids"][:-1]):
+            proposed_ids.append(node_id)
+            for insertion in sorted(
+                insertions_by_segment.get(segment_index, []),
+                key=lambda item: item["segment_fraction"],
+            ):
+                if proposed_ids[-1] != insertion["new_node_id"]:
+                    proposed_ids.append(insertion["new_node_id"])
+        proposed_ids.append(way["node_ids"][-1])
+        modify_ways.append(
+            {
+                "id": way["id"],
+                "version": way["version"],
+                "node_ids": proposed_ids,
+                "tags": way["tags"],
+            }
+        )
+        current_coords = [
+            (way["nodes"][node_id]["lat"], way["nodes"][node_id]["lon"])
+            for node_id in way["node_ids"]
+        ]
+        proposed_coords = []
+        for node_id in proposed_ids:
+            node = created_by_id.get(node_id) or way["nodes"][node_id]
+            proposed_coords.append((node["lat"], node["lon"]))
+        current_features.append(
+            _line_feature(current_coords, {"way_id": way_id, "state": "current"})
+        )
+        modified_features.append(
+            _line_feature(proposed_coords, {"way_id": way_id, "state": "proposed"})
+        )
+
+    planned_connection_ids = sorted(
+        {
+            int(connection["way_id"])
+            for connection in endpoint_way_connections
+            if connection.get("status") == "planned"
+        }
+    )
+    if planned_connection_ids:
+        warnings.append(
+            "Endpoint connection will insert a shared node into existing highway "
+            f"ways: {planned_connection_ids}. Review the proposed topology."
+        )
+
     if len(refs) > max_way_nodes:
         blocking.append(
             f"Proposed way has {len(refs)} nodes; API maximum is {max_way_nodes}"
         )
-    operation_count = len(create_nodes) + 1
+    for way in modify_ways:
+        if len(way["node_ids"]) > max_way_nodes:
+            blocking.append(
+                f"Way {way['id']} would have {len(way['node_ids'])} nodes; "
+                f"API maximum is {max_way_nodes}"
+            )
+    operation_count = len(create_nodes) + 1 + len(modify_ways)
     local_limit = min(config.max_changeset_size, server_max_changes)
     if operation_count > local_limit:
         blocking.append(
@@ -1002,18 +1216,28 @@ async def _preview_create(
         "changeset_source": source,
         "create_nodes": create_nodes,
         "create_ways": [{"id": -1_000_000, "node_ids": refs, "tags": tags}],
-        "modify_ways": [],
+        "modify_ways": modify_ways,
         "delete_nodes": [],
-        "snapshot_ways": {},
+        "snapshot_ways": {
+            str(way["id"]): {
+                "version": way["version"],
+                "node_ids": way["node_ids"],
+                "tags": way["tags"],
+            }
+            for way in fetched_connection_ways.values()
+            if way["id"] in insertions_by_way
+        },
         "snapshot_nodes": snapshot_nodes,
         "endpoint_snaps": endpoint_snaps,
+        "endpoint_way_connections": endpoint_way_connections,
+        "dangling_endpoints": dangling_endpoints,
         "preserved_nodes": list(snapped_refs.values()),
         "warnings": warnings,
         "blocking_issues": blocking,
         "summary": {
             "new_nodes": len(create_nodes),
             "new_ways": 1,
-            "modified_ways": 0,
+            "modified_ways": len(modify_ways),
             "conditional_node_deletions": 0,
             "element_operations": operation_count,
         },
@@ -1021,8 +1245,10 @@ async def _preview_create(
     proposal = _store_proposal(payload)
     return _proposal_result(
         proposal,
-        _feature_collection([]),
-        _feature_collection([_line_feature(points, {"action": "create"})]),
+        _feature_collection(current_features),
+        _feature_collection(
+            modified_features + [_line_feature(points, {"action": "create"})]
+        ),
     )
 
 
@@ -1300,6 +1526,7 @@ async def preview_track_road_edit(
     tags: Optional[Dict[str, str]] = None,
     simplify_tolerance_m: float = DEFAULT_SIMPLIFY_TOLERANCE_M,
     endpoint_snap_tolerance_m: float = DEFAULT_ENDPOINT_SNAP_M,
+    connect_endpoints_to_ways: bool = True,
     max_alignment_distance_m: float = DEFAULT_MAX_ALIGNMENT_M,
 ) -> Dict[str, Any]:
     """Build a non-writing GeoJSON and element diff preview for a road edit."""
@@ -1331,6 +1558,7 @@ async def preview_track_road_edit(
                 changeset_source.strip(),
                 simplify_tolerance_m,
                 endpoint_snap_tolerance_m,
+                connect_endpoints_to_ways,
             )
         if tags:
             raise ValueError("Track updates preserve existing way tags; omit tags")
