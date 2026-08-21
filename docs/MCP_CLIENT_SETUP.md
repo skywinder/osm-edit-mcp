@@ -79,8 +79,9 @@ If your Cursor uses `~/.cursor/mcp.json`, you can add both development and produ
       "args": [],
       "env": {
         "OSM_USE_DEV_API": "true",
-        "LOG_LEVEL": "INFO",
-        "DEVELOPMENT_MODE": "true"
+        "OSM_WRITE_PROFILE": "safe",
+        "OSM_REQUIRE_HOST_CONFIRMATION": "true",
+        "LOG_LEVEL": "INFO"
       },
       "enabled": false,
       "_comment": "OSM Edit MCP Server - Development (safe testing with api06.dev.openstreetmap.org)"
@@ -90,8 +91,9 @@ If your Cursor uses `~/.cursor/mcp.json`, you can add both development and produ
       "args": [],
       "env": {
         "OSM_USE_DEV_API": "false",
-        "LOG_LEVEL": "INFO",
-        "DEVELOPMENT_MODE": "false"
+        "OSM_WRITE_PROFILE": "safe",
+        "OSM_REQUIRE_HOST_CONFIRMATION": "true",
+        "LOG_LEVEL": "INFO"
       },
       "enabled": false,
       "_comment": "OSM Edit MCP Server - Production (uses api.openstreetmap.org). Use with extreme caution; write operations require OAuth and explicit confirmation."
@@ -128,7 +130,8 @@ local MCP configuration. Add the development server from Terminal:
 ```bash
 codex mcp add osm-edit-dev \
   --env OSM_USE_DEV_API=true \
-  --env DEVELOPMENT_MODE=true \
+  --env OSM_WRITE_PROFILE=safe \
+  --env OSM_REQUIRE_HOST_CONFIRMATION=true \
   --env OSM_TRACK_IMPORT_DIR=/absolute/path/to/osm-edit-mcp/tracks \
   -- /absolute/path/to/osm-edit-mcp/run_mcp.sh
 ```
@@ -139,7 +142,12 @@ separate from any production configuration.
 
 The same server can be added through the desktop UI: Settings → MCP servers →
 Add server → STDIO. Use the absolute `run_mcp.sh` path as the command and add
-the three environment variables above.
+the four environment variables above.
+
+After connecting, call `get_edit_capabilities`. Production editing additionally
+requires a client that implements MCP elicitation: `apply_osm_edit` uses it for
+a separate approval of the exact proposal SHA-256. A plain `confirm=true` tool
+argument is not accepted as production confirmation.
 
 ## 🖥️ Claude Desktop
 

@@ -8,7 +8,13 @@ the FastAPI wrapper, scripts, and third-party callers.
 import sys
 
 from .app import app, mcp
-from .config import OSMConfig, USER_AGENT, config, logger, setup_logging
+from .config import USER_AGENT, OSMConfig, config, logger, setup_logging
+from .edit_tools import (
+    get_edit_capabilities,
+    inspect_map_context,
+    list_edit_proposals,
+    verify_osm_edit,
+)
 from .http_client import (
     PUBLIC_API_TIMEOUT,
     describe_exception,
@@ -50,7 +56,10 @@ from .read_tools import (
 from .token_store import get_current_user_info, load_oauth_token
 from .track_tools import (
     analyze_gpx_track,
+    apply_osm_edit,
     apply_track_road_edit,
+    create_track_selection,
+    match_track_selection,
     preview_track_road_edit,
     suggest_track_road_candidates,
 )
@@ -72,7 +81,6 @@ from .write_tools import (
     update_osm_way,
 )
 from .xml_models import build_tags_xml, parse_osm_xml
-
 
 # Retained for callers that imported the legacy placeholder.
 osm_client = None
@@ -107,6 +115,7 @@ __all__ = [
     "USER_AGENT",
     "app",
     "analyze_gpx_track",
+    "apply_osm_edit",
     "apply_track_road_edit",
     "build_tags_xml",
     "bulk_create_places",
@@ -114,6 +123,7 @@ __all__ = [
     "close_changeset",
     "config",
     "create_changeset",
+    "create_track_selection",
     "create_osm_node",
     "create_osm_relation",
     "create_osm_way",
@@ -131,6 +141,7 @@ __all__ = [
     "get_changeset",
     "get_changeset_history",
     "get_current_user_info",
+    "get_edit_capabilities",
     "get_osm_elements_in_area",
     "get_osm_node",
     "get_osm_relation",
@@ -140,10 +151,13 @@ __all__ = [
     "get_public_client",
     "get_server_info",
     "load_oauth_token",
+    "inspect_map_context",
+    "list_edit_proposals",
     "logger",
     "main",
     "map_business_type_to_tags",
     "map_features_to_tags",
+    "match_track_selection",
     "mcp",
     "osm_client",
     "overpass_literal",
@@ -162,6 +176,7 @@ __all__ = [
     "update_osm_way",
     "validate_coordinates",
     "validate_osm_data",
+    "verify_osm_edit",
 ]
 
 

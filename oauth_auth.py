@@ -13,32 +13,53 @@ Usage:
 """
 
 import asyncio
+import base64
+import hashlib
+import json
 import os
+import secrets
 import sys
 import webbrowser
-from urllib.parse import urlencode, parse_qs, urlparse
-import httpx
-from dotenv import load_dotenv
-import json
-import keyring
 from datetime import datetime, timedelta
+from urllib.parse import parse_qs, urlencode, urlparse
+
+import httpx
+import keyring
+from defusedxml.ElementTree import fromstring as parse_xml
+from dotenv import load_dotenv
+
+from osm_edit_mcp.token_store import save_oauth_token
 
 # Load environment variables
 load_dotenv()
 
+
 class OSMOAuth:
     def __init__(self, use_dev_api=True):
         self.use_dev_api = use_dev_api
+        self.state = secrets.token_urlsafe(32)
+        self.code_verifier = secrets.token_urlsafe(64)
+        self.code_challenge = (
+            base64.urlsafe_b64encode(
+                hashlib.sha256(self.code_verifier.encode("ascii")).digest()
+            )
+            .rstrip(b"=")
+            .decode("ascii")
+        )
 
-                # Get OAuth credentials from environment based on dev/prod setting
+        # Get OAuth credentials from environment based on dev/prod setting
         if self.use_dev_api:
             self.client_id = os.getenv("OSM_DEV_CLIENT_ID")
             self.client_secret = os.getenv("OSM_DEV_CLIENT_SECRET")
-            self.redirect_uri = os.getenv("OSM_DEV_REDIRECT_URI") or "http://localhost:8080/callback"
+            self.redirect_uri = (
+                os.getenv("OSM_DEV_REDIRECT_URI") or "http://localhost:8080/callback"
+            )
         else:
             self.client_id = os.getenv("OSM_PROD_CLIENT_ID")
             self.client_secret = os.getenv("OSM_PROD_CLIENT_SECRET")
-            self.redirect_uri = os.getenv("OSM_PROD_REDIRECT_URI") or "https://localhost:8080/callback"
+            self.redirect_uri = (
+                os.getenv("OSM_PROD_REDIRECT_URI") or "https://localhost:8080/callback"
+            )
 
         if self.use_dev_api:
             # Development API endpoints
@@ -62,8 +83,10 @@ class OSMOAuth:
             "response_type": "code",
             "client_id": self.client_id,
             "redirect_uri": self.redirect_uri,
-            "scope": "read_prefs write_prefs write_api write_changeset_comments",
-            "state": "oauth_flow"
+            "scope": "read_prefs write_api",
+            "state": self.state,
+            "code_challenge": self.code_challenge,
+            "code_challenge_method": "S256",
         }
 
         url = f"{self.auth_url}?{urlencode(params)}"
@@ -77,33 +100,24 @@ class OSMOAuth:
                 "client_id": self.client_id,
                 "client_secret": self.client_secret,
                 "code": authorization_code,
-                "redirect_uri": self.redirect_uri
+                "redirect_uri": self.redirect_uri,
+                "code_verifier": self.code_verifier,
             }
 
             async with httpx.AsyncClient() as client:
                 response = await client.post(
-                    self.token_url,
-                    data=data,
-                    headers={"Accept": "application/json"}
+                    self.token_url, data=data, headers={"Accept": "application/json"}
                 )
 
                 if response.status_code == 200:
                     token_data = response.json()
 
-                    # Save token to keyring
-                    keyring_service = f"osm-edit-mcp-{'dev' if self.use_dev_api else 'prod'}"
-                    keyring.set_password(keyring_service, "access_token", token_data["access_token"])
-
-                    if "refresh_token" in token_data:
-                        keyring.set_password(keyring_service, "refresh_token", token_data["refresh_token"])
-
-                    # Also save token data to a file as backup
-                    token_file = ".osm_token_dev.json" if self.use_dev_api else ".osm_token_prod.json"
-                    with open(token_file, "w") as f:
-                        token_data["expires_at"] = (datetime.now() + timedelta(seconds=token_data.get("expires_in", 3600))).isoformat()
-                        json.dump(token_data, f, indent=2)
-
-                    print(f"✅ Token saved to keyring and {token_file}")
+                    token_data["expires_at"] = (
+                        datetime.now().astimezone()
+                        + timedelta(seconds=token_data.get("expires_in", 3600))
+                    ).isoformat()
+                    save_oauth_token(token_data, use_dev_api=self.use_dev_api)
+                    print("✅ Token saved to the OS keyring")
                     return token_data
                 else:
                     print(f"❌ Token exchange failed: {response.status_code}")
@@ -119,7 +133,11 @@ class OSMOAuth:
         try:
             # Get token from keyring
             keyring_service = f"osm-edit-mcp-{'dev' if self.use_dev_api else 'prod'}"
-            access_token = keyring.get_password(keyring_service, "access_token")
+            serialized = keyring.get_password(keyring_service, "token_json")
+            token_data = json.loads(serialized) if serialized else {}
+            access_token = token_data.get("access_token") or keyring.get_password(
+                keyring_service, "access_token"
+            )
 
             if not access_token:
                 print("❌ No access token found. Please authenticate first.")
@@ -131,16 +149,14 @@ class OSMOAuth:
             async with httpx.AsyncClient() as client:
                 # Test with user details endpoint
                 response = await client.get(
-                    f"{self.api_base}/api/0.6/user/details",
-                    headers=headers
+                    f"{self.api_base}/api/0.6/user/details", headers=headers
                 )
 
                 if response.status_code == 200:
                     print("✅ Authentication successful!")
 
                     # Parse user info from XML
-                    import xml.etree.ElementTree as ET
-                    root = ET.fromstring(response.text)
+                    root = parse_xml(response.text)
                     user = root.find("user")
                     if user is not None:
                         display_name = user.get("display_name")
@@ -157,6 +173,7 @@ class OSMOAuth:
             print(f"❌ Error testing authentication: {e}")
             return False
 
+
 async def main():
     """Main OAuth authentication flow."""
     print("🚀 OSM Edit MCP Server - OAuth Authentication")
@@ -167,12 +184,14 @@ async def main():
 
     # Check command-line arguments
     if len(sys.argv) > 1:
-        if sys.argv[1] in ['--prod', '--production']:
+        if sys.argv[1] in ["--prod", "--production"]:
             use_dev_api = False
-            print("⚠️  WARNING: Using PRODUCTION API - changes will affect real OSM data!")
-        elif sys.argv[1] in ['--dev', '--development']:
+            print(
+                "⚠️  WARNING: Using PRODUCTION API - changes will affect real OSM data!"
+            )
+        elif sys.argv[1] in ["--dev", "--development"]:
             use_dev_api = True
-        elif sys.argv[1] in ['-h', '--help']:
+        elif sys.argv[1] in ["-h", "--help"]:
             print("Usage:")
             print("  python oauth_auth.py              # Development API (default)")
             print("  python oauth_auth.py --dev        # Development API (explicit)")
@@ -194,9 +213,13 @@ async def main():
     if not oauth.client_id or not oauth.client_secret:
         print("❌ Missing OAuth credentials!")
         if use_dev_api:
-            print("Please set OSM_DEV_CLIENT_ID and OSM_DEV_CLIENT_SECRET in your .env file")
+            print(
+                "Please set OSM_DEV_CLIENT_ID and OSM_DEV_CLIENT_SECRET in your .env file"
+            )
         else:
-            print("Please set OSM_PROD_CLIENT_ID and OSM_PROD_CLIENT_SECRET in your .env file")
+            print(
+                "Please set OSM_PROD_CLIENT_ID and OSM_PROD_CLIENT_SECRET in your .env file"
+            )
         return
 
     # Test if we already have valid authentication
@@ -217,9 +240,13 @@ async def main():
         webbrowser.open(auth_url)
         print("🌐 Opening browser automatically...")
     except:
-        print("⚠️  Could not open browser automatically. Please copy and paste the URL above.")
+        print(
+            "⚠️  Could not open browser automatically. Please copy and paste the URL above."
+        )
 
-    print("\n📋 Step 2: After authorizing, you'll be redirected to a URL that starts with:")
+    print(
+        "\n📋 Step 2: After authorizing, you'll be redirected to a URL that starts with:"
+    )
     print(f"   {oauth.redirect_uri}?code=...")
 
     # Get authorization code from user
@@ -235,8 +262,15 @@ async def main():
             print("❌ No authorization code found in URL")
             return
 
+        returned_state = query_params.get("state", [None])[0]
+        if not returned_state or not secrets.compare_digest(
+            returned_state, oauth.state
+        ):
+            print("❌ OAuth state mismatch; refusing the authorization response")
+            return
+
         authorization_code = query_params["code"][0]
-        print(f"✅ Found authorization code: {authorization_code[:20]}...")
+        print("✅ Found authorization code")
 
     except Exception as e:
         print(f"❌ Error parsing redirect URL: {e}")
@@ -252,7 +286,9 @@ async def main():
         # Step 5: Test authentication
         print("\n🧪 Step 5: Testing authentication...")
         if await oauth.test_authentication():
-            print("\n🎉 Authentication complete! You can now use the MCP server with write operations.")
+            print(
+                "\n🎉 Authentication complete! You can now use the MCP server with write operations."
+            )
 
             print("\n📋 Next steps:")
             print("1. Your MCP server is ready for write operations")
@@ -263,6 +299,7 @@ async def main():
             print("❌ Authentication test failed")
     else:
         print("❌ Token exchange failed")
+
 
 if __name__ == "__main__":
     asyncio.run(main())

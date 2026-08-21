@@ -7,26 +7,36 @@ then explicitly apply an unexpired proposal.  Geometry writes use one
 
 import asyncio
 import hashlib
+import html
+import json
 import math
+import os
 import time
 import uuid
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
+import httpx
 from defusedxml.ElementTree import fromstring as parse_xml
+from mcp.server.fastmcp import Context
+from mcp.types import ToolAnnotations
+from pydantic import BaseModel, Field
 
 from .app import mcp
+from .auth import verify_write_identity
 from .config import config
 from .http_client import (
     describe_exception,
     get_authenticated_client,
     get_public_client,
 )
-from .token_store import load_oauth_token
-from .write_tools import close_changeset, create_changeset
-
+from .proposal_store import ProposalStore, ProposalStoreError
+from .token_store import get_current_user_info, load_oauth_token
+from .valhalla import match_track as valhalla_match_track
+from .write_tools import close_changeset
 
 Point = Tuple[float, float]  # (lat, lon)
 MAX_WAY_NODES_FALLBACK = 2_000
@@ -52,9 +62,45 @@ class Proposal:
     created_at: float
     expires_at: float
     payload: Dict[str, Any]
+    digest: str = ""
+    status: str = "PREVIEWED"
+    api_target: str = ""
+    osm_uid: Optional[int] = None
 
 
 _PROPOSALS: Dict[str, Proposal] = {}
+_PROPOSAL_STORE = ProposalStore(config.osm_proposal_db_path)
+
+
+@dataclass(frozen=True)
+class TrackRecord:
+    track_id: str
+    source: str
+    segments: Tuple[TrackSegment, ...]
+
+
+@dataclass(frozen=True)
+class TrackSelection:
+    selection_id: str
+    track_id: str
+    segment_id: str
+    start_point_index: int
+    end_point_index: int
+    points: Tuple[Point, ...]
+    times: Tuple[Optional[str], ...]
+
+
+_TRACKS: Dict[str, TrackRecord] = {}
+_TRACK_SELECTIONS: Dict[str, TrackSelection] = {}
+
+
+class ApplyConfirmation(BaseModel):
+    confirm: bool = Field(
+        description="Confirm the exact proposal digest displayed in the review"
+    )
+    proposal_digest: str = Field(
+        description="The complete SHA-256 proposal digest shown in the review"
+    )
 
 
 def _local_name(tag: str) -> str:
@@ -100,10 +146,20 @@ def _read_track_source(
         raise ValueError("Track file must use the .gpx extension")
     if not resolved.is_file():
         raise ValueError(f"GPX file does not exist: {resolved}")
-    size = resolved.stat().st_size
-    if size > config.osm_track_max_file_bytes:
-        raise ValueError(f"GPX file exceeds {config.osm_track_max_file_bytes} bytes")
-    return resolved.read_text(encoding="utf-8"), str(resolved)
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(resolved, flags)
+    try:
+        with os.fdopen(descriptor, "rb", closefd=False) as handle:
+            raw = handle.read(config.osm_track_max_file_bytes + 1)
+        if len(raw) > config.osm_track_max_file_bytes:
+            raise ValueError(
+                f"GPX file exceeds {config.osm_track_max_file_bytes} bytes"
+            )
+        return raw.decode("utf-8"), str(resolved)
+    finally:
+        os.close(descriptor)
 
 
 def _parse_gpx(xml_text: str) -> Tuple[str, List[TrackSegment]]:
@@ -186,6 +242,11 @@ def _load_track(
 ) -> Tuple[str, str, List[TrackSegment]]:
     xml_text, source = _read_track_source(gpx_xml, gpx_path)
     digest, segments = _parse_gpx(xml_text)
+    _TRACKS[digest] = TrackRecord(
+        track_id=digest,
+        source=source,
+        segments=tuple(segments),
+    )
     return digest, source, segments
 
 
@@ -197,6 +258,63 @@ def _select_segment(segments: Sequence[TrackSegment], segment_id: str) -> TrackS
             return segment
     available = ", ".join(segment.segment_id for segment in segments)
     raise ValueError(f"Unknown segment_id {segment_id!r}; available: {available}")
+
+
+def _parse_gpx_time(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _nearest_time_index(segment: TrackSegment, requested: str) -> int:
+    target = _parse_gpx_time(requested)
+    candidates = [
+        (abs((_parse_gpx_time(value) - target).total_seconds()), index)
+        for index, value in enumerate(segment.times)
+        if value
+    ]
+    if not candidates:
+        raise ValueError("Selected segment has no timestamps")
+    return min(candidates)[1]
+
+
+def _nearest_point_index(segment: TrackSegment, point: Point) -> int:
+    return min(
+        range(len(segment.points)),
+        key=lambda index: _haversine_m(segment.points[index], point),
+    )
+
+
+def _resolve_track_selection(selection_id: str) -> TrackSelection:
+    selection = _TRACK_SELECTIONS.get(selection_id)
+    if selection is None:
+        raise ValueError(
+            "Unknown track selection; analyze the GPX and select the range again"
+        )
+    return selection
+
+
+def _resolve_edit_segment(
+    selection_id: Optional[str],
+    segment_id: Optional[str],
+    gpx_xml: Optional[str],
+    gpx_path: Optional[str],
+) -> Tuple[str, TrackSegment]:
+    if selection_id:
+        if gpx_xml is not None or gpx_path is not None:
+            raise ValueError("selection_id cannot be combined with a GPX source")
+        selection = _resolve_track_selection(selection_id)
+        return selection.track_id, TrackSegment(
+            segment_id=selection.selection_id,
+            name=f"selection from {selection.segment_id}",
+            points=selection.points,
+            times=selection.times,
+        )
+    if not segment_id:
+        raise ValueError("Provide segment_id or selection_id")
+    digest, _, segments = _load_track(gpx_xml, gpx_path)
+    return digest, _select_segment(segments, segment_id)
 
 
 def _haversine_m(a: Point, b: Point) -> float:
@@ -449,6 +567,7 @@ async def _nearby_highways(
                 way_elements[way_id] = {
                     "type": "way",
                     "id": way_id,
+                    "version": int(element.get("version", "0")),
                     "nodes": [int(nd.get("ref", "0")) for nd in element.findall("nd")],
                     "tags": tags,
                 }
@@ -682,19 +801,73 @@ def _purge_proposals() -> None:
     now = time.time()
     for proposal_id in list(_PROPOSALS):
         if _PROPOSALS[proposal_id].expires_at <= now:
+            _PROPOSAL_STORE.expire(proposal_id)
             del _PROPOSALS[proposal_id]
 
 
-def _store_proposal(payload: Dict[str, Any]) -> Proposal:
+def _store_proposal(
+    payload: Dict[str, Any], verified_osm_uid: Optional[int] = None
+) -> Proposal:
     _purge_proposals()
-    created = time.time()
-    proposal = Proposal(
+    user_info = get_current_user_info() or {}
+    raw_user_id = user_info.get("user_id")
+    cached_uid = int(str(raw_user_id)) if raw_user_id not in {None, ""} else None
+    osm_uid = verified_osm_uid if verified_osm_uid is not None else cached_uid
+    stored = _PROPOSAL_STORE.create(
         proposal_id=str(uuid.uuid4()),
-        created_at=created,
-        expires_at=created + config.osm_track_proposal_ttl_seconds,
         payload=payload,
+        api_target=config.current_api_base_url,
+        osm_uid=osm_uid,
+        ttl_seconds=config.osm_track_proposal_ttl_seconds,
+    )
+    proposal = Proposal(
+        proposal_id=stored.proposal_id,
+        created_at=stored.created_at,
+        expires_at=stored.expires_at,
+        payload=stored.payload,
+        digest=stored.digest,
+        status=stored.status,
+        api_target=stored.api_target,
+        osm_uid=stored.osm_uid,
     )
     _PROPOSALS[proposal.proposal_id] = proposal
+    return proposal
+
+
+def _refresh_proposal_digest(proposal: Proposal) -> None:
+    proposal.digest = _PROPOSAL_STORE.replace_preview_payload(
+        proposal.proposal_id,
+        proposal.payload,
+        proposal.api_target,
+        proposal.osm_uid,
+    )
+
+
+def _get_proposal(proposal_id: str) -> Optional[Proposal]:
+    cached = _PROPOSALS.get(proposal_id)
+    if cached is not None:
+        if cached.expires_at <= time.time() and cached.status in {
+            "PREVIEWED",
+            "AWAITING_APPROVAL",
+        }:
+            _PROPOSAL_STORE.expire(proposal_id)
+            del _PROPOSALS[proposal_id]
+            return None
+        return cached
+    stored = _PROPOSAL_STORE.get(proposal_id)
+    if stored is None:
+        return None
+    proposal = Proposal(
+        proposal_id=stored.proposal_id,
+        created_at=stored.created_at,
+        expires_at=stored.expires_at,
+        payload=stored.payload,
+        digest=stored.digest,
+        status=stored.status,
+        api_target=stored.api_target,
+        osm_uid=stored.osm_uid,
+    )
+    _PROPOSALS[proposal_id] = proposal
     return proposal
 
 
@@ -704,10 +877,16 @@ def _proposal_result(
     proposed_geojson: Dict[str, Any],
 ) -> Dict[str, Any]:
     payload = proposal.payload
+    payload["_review"] = {
+        "current_geojson": current_geojson,
+        "proposed_geojson": proposed_geojson,
+    }
+    _PROPOSAL_STORE.update_payload(proposal.proposal_id, payload)
     return {
         "success": not payload["blocking_issues"],
         "data": {
             "proposal_id": proposal.proposal_id,
+            "proposal_digest": proposal.digest,
             "expires_at_unix": proposal.expires_at,
             "action": payload["action"],
             "segment_id": payload["segment_id"],
@@ -724,6 +903,15 @@ def _proposal_result(
             "blocking_issues": payload["blocking_issues"],
             "current_geojson": current_geojson,
             "proposed_geojson": proposed_geojson,
+            "operations": {
+                "create_nodes": payload.get("create_nodes", []),
+                "create_ways": payload.get("create_ways", []),
+                "modify_ways": payload.get("modify_ways", []),
+                "delete_nodes": payload.get("delete_nodes", []),
+            },
+            "api_target": proposal.api_target,
+            "osm_uid": proposal.osm_uid,
+            "preview_uri": f"ui://osm-edit/proposal/{proposal.proposal_id}",
             "confirmation_required": True,
         },
         "message": (
@@ -734,7 +922,14 @@ def _proposal_result(
     }
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=False,
+    )
+)
 async def analyze_gpx_track(
     gpx_xml: Optional[str] = None, gpx_path: Optional[str] = None
 ) -> Dict[str, Any]:
@@ -781,6 +976,7 @@ async def analyze_gpx_track(
         return {
             "success": True,
             "data": {
+                "track_id": digest,
                 "track_hash": digest,
                 "source": source,
                 "segment_count": len(segments),
@@ -797,13 +993,264 @@ async def analyze_gpx_track(
         )
 
 
-@mcp.tool()
-async def suggest_track_road_candidates(
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=False,
+    )
+)
+async def create_track_selection(
+    track_id: str,
     segment_id: str,
+    start_point_index: Optional[int] = None,
+    end_point_index: Optional[int] = None,
+    start_time: Optional[str] = None,
+    end_time: Optional[str] = None,
+    start_lat: Optional[float] = None,
+    start_lon: Optional[float] = None,
+    end_lat: Optional[float] = None,
+    end_lon: Optional[float] = None,
+) -> Dict[str, Any]:
+    """Select one continuous subsection of an analyzed GPX without copying it."""
+    try:
+        record = _TRACKS.get(track_id)
+        if record is None:
+            raise ValueError("Unknown track_id; analyze the GPX again")
+        segment = _select_segment(record.segments, segment_id)
+        modes = [
+            start_point_index is not None or end_point_index is not None,
+            start_time is not None or end_time is not None,
+            any(
+                value is not None for value in (start_lat, start_lon, end_lat, end_lon)
+            ),
+        ]
+        if sum(modes) != 1:
+            raise ValueError(
+                "Choose exactly one range mode: point indexes, timestamps, or coordinates"
+            )
+        if modes[0]:
+            if start_point_index is None or end_point_index is None:
+                raise ValueError(
+                    "Both start_point_index and end_point_index are required"
+                )
+            start_index, end_index = start_point_index, end_point_index
+        elif modes[1]:
+            if start_time is None or end_time is None:
+                raise ValueError("Both start_time and end_time are required")
+            start_index = _nearest_time_index(segment, start_time)
+            end_index = _nearest_time_index(segment, end_time)
+        else:
+            if any(value is None for value in (start_lat, start_lon, end_lat, end_lon)):
+                raise ValueError("Both start and end coordinates are required")
+            assert start_lat is not None and start_lon is not None
+            assert end_lat is not None and end_lon is not None
+            start_index = _nearest_point_index(
+                segment, (float(start_lat), float(start_lon))
+            )
+            end_index = _nearest_point_index(segment, (float(end_lat), float(end_lon)))
+
+        if not 0 <= start_index < len(segment.points):
+            raise ValueError("start point is outside the selected segment")
+        if not 0 <= end_index < len(segment.points):
+            raise ValueError("end point is outside the selected segment")
+        if start_index == end_index:
+            raise ValueError("Track selection must contain at least two points")
+        if start_index < end_index:
+            points = segment.points[start_index : end_index + 1]
+            times = segment.times[start_index : end_index + 1]
+        else:
+            points = tuple(reversed(segment.points[end_index : start_index + 1]))
+            times = tuple(reversed(segment.times[end_index : start_index + 1]))
+        selected_segment = TrackSegment(
+            segment_id="selection",
+            name=segment.name,
+            points=tuple(points),
+            times=tuple(times),
+        )
+        _require_continuous_segment(selected_segment)
+        selection_material = (
+            f"{track_id}:{segment_id}:{start_index}:{end_index}"
+        ).encode("utf-8")
+        selection_id = hashlib.sha256(selection_material).hexdigest()[:32]
+        selection = TrackSelection(
+            selection_id=selection_id,
+            track_id=track_id,
+            segment_id=segment_id,
+            start_point_index=start_index,
+            end_point_index=end_index,
+            points=tuple(points),
+            times=tuple(times),
+        )
+        _TRACK_SELECTIONS[selection_id] = selection
+        return {
+            "success": True,
+            "data": {
+                "selection_id": selection_id,
+                "track_id": track_id,
+                "segment_id": segment_id,
+                "start_point_index": start_index,
+                "end_point_index": end_index,
+                "point_count": len(points),
+                "distance_m": round(_length_m(points), 2),
+                "bounds": _bounds(points),
+                "geojson": _feature_collection(
+                    [_line_feature(points, {"state": "selected_gpx"})]
+                ),
+                "preview_uri": f"ui://osm-edit/track-selection/{selection_id}",
+            },
+            "message": "Selected a continuous GPX range",
+        }
+    except Exception as exc:
+        return _failure(
+            type(exc).__name__,
+            "Failed to select GPX range",
+            detail=describe_exception(exc),
+        )
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=True,
+    )
+)
+async def match_track_selection(
+    selection_id: str, costing: str = "auto"
+) -> Dict[str, Any]:
+    """Map-match a selected GPX subsection using the configured local Valhalla."""
+    try:
+        selection = _resolve_track_selection(selection_id)
+        result = await valhalla_match_track(selection.points, costing=costing)
+        matched_percent = float(result["matched_percent"])
+        if not result["unmatched_spans"] and matched_percent >= 90:
+            classification = "existing"
+        elif matched_percent >= 30:
+            classification = "realign_candidate"
+        else:
+            classification = "unmatched"
+        matched_geometry = result.pop("matched_geometry")
+        return {
+            "success": True,
+            "data": {
+                "selection_id": selection_id,
+                "classification": classification,
+                **result,
+                "matched_geojson": _feature_collection(
+                    [
+                        _line_feature(
+                            matched_geometry,
+                            {"state": "valhalla_match", "evidence": False},
+                        )
+                    ]
+                    if matched_geometry
+                    else []
+                ),
+                "warning": (
+                    "Routing output is diagnostic only and must not be copied as OSM geometry"
+                ),
+            },
+            "message": f"Map matching classified the selection as {classification}",
+        }
+    except Exception as exc:
+        return _failure(
+            type(exc).__name__,
+            "Local Valhalla map matching is unavailable or failed",
+            detail=describe_exception(exc),
+            selection_id=selection_id,
+        )
+
+
+def _map_preview_html(title: str, layers: Dict[str, Dict[str, Any]]) -> str:
+    """Render a dependency-free review map for MCP resource-capable hosts."""
+    serialized = json.dumps(layers, ensure_ascii=False).replace("</", "<\\/")
+    return f"""<!doctype html>
+<html><head><meta charset="utf-8"><title>{html.escape(title)}</title>
+<style>
+body {{ margin:0; font:14px system-ui; background:#101418; color:#eef2f5; }}
+header {{ padding:12px 16px; background:#182028; }}
+canvas {{ width:100%; height:70vh; display:block; background:#e8eee4; }}
+.legend {{ padding:10px 16px; display:flex; gap:18px; }}
+.swatch {{ display:inline-block; width:18px; height:4px; margin-right:6px; }}
+</style></head><body><header><strong>{html.escape(title)}</strong><br>
+Review the exact geometry and warnings in the tool result before approval.</header>
+<canvas id="map" width="1200" height="760"></canvas>
+<div class="legend"><span><i class="swatch" style="background:#637381"></i>Current</span>
+<span><i class="swatch" style="background:#e53935"></i>Proposed/selected</span></div>
+<script>
+const layers={serialized}; const canvas=document.getElementById('map');
+const ctx=canvas.getContext('2d'); const lines=[];
+for (const [name,fc] of Object.entries(layers)) for (const f of (fc.features||[])) {{
+ const g=f.geometry||{{}}; if(g.type==='LineString') lines.push([name,g.coordinates]);
+}}
+const pts=lines.flatMap(x=>x[1]);
+if(pts.length) {{
+ const xs=pts.map(p=>p[0]), ys=pts.map(p=>p[1]);
+ const minX=Math.min(...xs), maxX=Math.max(...xs), minY=Math.min(...ys), maxY=Math.max(...ys);
+ const sx=(canvas.width-80)/Math.max(maxX-minX,1e-9), sy=(canvas.height-80)/Math.max(maxY-minY,1e-9);
+ const scale=Math.min(sx,sy); const project=p=>[40+(p[0]-minX)*scale,canvas.height-40-(p[1]-minY)*scale];
+ for(const [name,line] of lines) {{ ctx.beginPath(); ctx.strokeStyle=name==='current'?'#637381':'#e53935';
+ ctx.lineWidth=name==='current'?7:4; line.forEach((p,i)=>{{const q=project(p); i?ctx.lineTo(...q):ctx.moveTo(...q)}}); ctx.stroke(); }}
+}}
+</script></body></html>"""
+
+
+@mcp.resource(
+    "ui://osm-edit/track-selection/{selection_id}",
+    name="OSM GPX track selection preview",
+    description="Local visual preview of the selected GPX subsection",
+    mime_type="text/html",
+)
+def track_selection_preview_resource(selection_id: str) -> str:
+    selection = _resolve_track_selection(selection_id)
+    return _map_preview_html(
+        "Selected GPX range",
+        {
+            "selected": _feature_collection(
+                [_line_feature(selection.points, {"state": "selected_gpx"})]
+            )
+        },
+    )
+
+
+@mcp.resource(
+    "ui://osm-edit/proposal/{proposal_id}",
+    name="OSM edit proposal preview",
+    description="Current and proposed OSM geometry for human review",
+    mime_type="text/html",
+)
+def proposal_preview_resource(proposal_id: str) -> str:
+    proposal = _get_proposal(proposal_id)
+    if proposal is None:
+        raise ValueError("Unknown or expired proposal")
+    review = proposal.payload.get("_review", {})
+    return _map_preview_html(
+        f"OSM proposal {proposal_id}",
+        {
+            "current": review.get("current_geojson", _feature_collection([])),
+            "proposed": review.get("proposed_geojson", _feature_collection([])),
+        },
+    )
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=True,
+    )
+)
+async def suggest_track_road_candidates(
+    segment_id: Optional[str] = None,
     gpx_xml: Optional[str] = None,
     gpx_path: Optional[str] = None,
     limit: int = 10,
     search_radius_m: float = 30.0,
+    selection_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Suggest nearby OSM highway ways without selecting or modifying any way."""
     try:
@@ -811,8 +1258,9 @@ async def suggest_track_road_candidates(
             raise ValueError("limit must be between 1 and 50")
         if not 1 <= search_radius_m <= 500:
             raise ValueError("search_radius_m must be between 1 and 500")
-        digest, _, segments = _load_track(gpx_xml, gpx_path)
-        segment = _select_segment(segments, segment_id)
+        digest, segment = _resolve_edit_segment(
+            selection_id, segment_id, gpx_xml, gpx_path
+        )
         _require_continuous_segment(segment)
         track = _simplify(segment.points, DEFAULT_SIMPLIFY_TOLERANCE_M)
         ways, _ = await _nearby_highways(track, search_radius_m)
@@ -828,6 +1276,7 @@ async def suggest_track_road_candidates(
             candidates.append(
                 {
                     "way_id": int(way["id"]),
+                    "version": int(way.get("version", 0)),
                     "tags": way.get("tags", {}),
                     "node_ids": [int(item) for item in way.get("nodes", [])],
                     **metrics,
@@ -839,7 +1288,8 @@ async def suggest_track_road_candidates(
             "success": True,
             "data": {
                 "track_hash": digest,
-                "segment_id": segment_id,
+                "segment_id": segment.segment_id,
+                "selection_id": selection_id,
                 "candidates": candidates,
                 "suggested_order": [
                     item["way_id"]
@@ -882,6 +1332,41 @@ def _segments_intersect(a: Point, b: Point, c: Point, d: Point) -> bool:
     )
 
 
+def _grade_separation(tags: Dict[str, str]) -> Tuple[str, bool, bool]:
+    layer = tags.get("layer", "0")
+    bridge = tags.get("bridge", "no").lower() not in {"", "no", "false", "0"}
+    tunnel = tags.get("tunnel", "no").lower() not in {"", "no", "false", "0"}
+    return layer, bridge, tunnel
+
+
+def _connection_grade_issue(
+    proposed_tags: Dict[str, str], existing_tags: Dict[str, str]
+) -> Optional[str]:
+    proposed = _grade_separation(proposed_tags)
+    existing = _grade_separation(existing_tags)
+    if proposed == existing:
+        return None
+    if proposed != ("0", False, False) or existing != ("0", False, False):
+        return (
+            "layer/bridge/tunnel tags are incompatible with the proposed road "
+            f"({proposed}) and connection way ({existing})"
+        )
+    return None
+
+
+def _highway_context_snapshot(
+    ways: Sequence[Dict[str, Any]],
+) -> Dict[str, Dict[str, Any]]:
+    return {
+        str(int(way["id"])): {
+            "version": int(way.get("version", 0)),
+            "node_ids": [int(node_id) for node_id in way.get("nodes", [])],
+            "tags": way.get("tags", {}),
+        }
+        for way in ways
+    }
+
+
 async def _preview_create(
     track_hash: str,
     segment: TrackSegment,
@@ -891,6 +1376,7 @@ async def _preview_create(
     simplify_tolerance_m: float,
     endpoint_snap_tolerance_m: float,
     connect_endpoints_to_ways: bool,
+    verified_osm_uid: int,
 ) -> Dict[str, Any]:
     if not tags.get("highway"):
         raise ValueError("Creating a road requires an explicit highway=* tag")
@@ -920,7 +1406,40 @@ async def _preview_create(
             for point in [points[point_index]]
         )
         if ranked and ranked[0][0] <= endpoint_snap_tolerance_m:
+            if (
+                len(ranked) > 1
+                and ranked[1][0] <= endpoint_snap_tolerance_m
+                and ranked[1][0] - ranked[0][0] < ENDPOINT_WAY_AMBIGUITY_M
+            ):
+                candidate_ids = [item[1] for item in ranked[:5]]
+                blocking.append(
+                    f"{endpoint_name.capitalize()} endpoint is ambiguously close to "
+                    f"multiple highway nodes: {candidate_ids}"
+                )
+                endpoint_snaps.append(
+                    {
+                        "endpoint": endpoint_name,
+                        "status": "ambiguous",
+                        "candidate_node_ids": candidate_ids,
+                    }
+                )
+                continue
             distance, node_id, node = ranked[0]
+            owning_ways = [
+                way for way in nearby_ways if node_id in way.get("nodes", [])
+            ]
+            grade_issues = [
+                (int(way["id"]), issue)
+                for way in owning_ways
+                for issue in [_connection_grade_issue(tags, way.get("tags", {}))]
+                if issue
+            ]
+            if grade_issues:
+                blocking.append(
+                    f"{endpoint_name.capitalize()} endpoint cannot auto-connect to "
+                    f"node {node_id}: {grade_issues[0][1]}"
+                )
+                continue
             snapped_refs[point_index] = node_id
             snapshot_nodes[node_id] = {
                 "id": node_id,
@@ -1053,6 +1572,13 @@ async def _preview_create(
             fetched_connection_ways = {way["id"]: way for way in fetched}
         for point_index, pending in pending_way_connections.items():
             way = fetched_connection_ways[pending["way_id"]]
+            grade_issue = _connection_grade_issue(tags, way.get("tags", {}))
+            if grade_issue:
+                blocking.append(
+                    f"{pending['endpoint'].capitalize()} endpoint cannot auto-connect "
+                    f"to way {way['id']}: {grade_issue}"
+                )
+                continue
             geometry = [
                 (way["nodes"][node_id]["lat"], way["nodes"][node_id]["lon"])
                 for node_id in way["node_ids"]
@@ -1228,6 +1754,9 @@ async def _preview_create(
             if way["id"] in insertions_by_way
         },
         "snapshot_nodes": snapshot_nodes,
+        "context_points": points,
+        "context_radius_m": max(30.0, endpoint_snap_tolerance_m),
+        "context_highways": _highway_context_snapshot(nearby_ways),
         "endpoint_snaps": endpoint_snaps,
         "endpoint_way_connections": endpoint_way_connections,
         "dangling_endpoints": dangling_endpoints,
@@ -1242,7 +1771,7 @@ async def _preview_create(
             "element_operations": operation_count,
         },
     }
-    proposal = _store_proposal(payload)
+    proposal = _store_proposal(payload, verified_osm_uid)
     return _proposal_result(
         proposal,
         _feature_collection(current_features),
@@ -1260,6 +1789,7 @@ async def _preview_update(
     source: str,
     simplify_tolerance_m: float,
     max_alignment_distance_m: float,
+    verified_osm_uid: int,
 ) -> Dict[str, Any]:
     if not target_way_ids:
         raise ValueError("Updating a road requires ordered target_way_ids")
@@ -1506,7 +2036,7 @@ async def _preview_update(
             "element_operations": operation_count,
         },
     }
-    proposal = _store_proposal(payload)
+    proposal = _store_proposal(payload, verified_osm_uid)
     return _proposal_result(
         proposal,
         _feature_collection(current_features),
@@ -1514,12 +2044,19 @@ async def _preview_update(
     )
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=True,
+    )
+)
 async def preview_track_road_edit(
     action: str,
-    segment_id: str,
     changeset_comment: str,
     changeset_source: str,
+    segment_id: Optional[str] = None,
     gpx_xml: Optional[str] = None,
     gpx_path: Optional[str] = None,
     target_way_ids: Optional[List[int]] = None,
@@ -1528,6 +2065,10 @@ async def preview_track_road_edit(
     endpoint_snap_tolerance_m: float = DEFAULT_ENDPOINT_SNAP_M,
     connect_endpoints_to_ways: bool = True,
     max_alignment_distance_m: float = DEFAULT_MAX_ALIGNMENT_M,
+    selection_id: Optional[str] = None,
+    evidence_kind: str = "survey_gpx",
+    evidence_provider: Optional[str] = None,
+    evidence_observed_at: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Build a non-writing GeoJSON and element diff preview for a road edit."""
     try:
@@ -1538,19 +2079,44 @@ async def preview_track_road_edit(
             raise ValueError("changeset_comment must not be empty")
         if not changeset_source.strip():
             raise ValueError("changeset_source must not be empty")
+        source_lower = changeset_source.lower()
+        if "yandex" in source_lower or "google" in source_lower:
+            raise ValueError(
+                "Yandex/Google map geometry is not permitted evidence for OSM tracing"
+            )
+        if evidence_kind not in {"survey_gpx", "local_knowledge", "permitted_imagery"}:
+            raise ValueError("Unsupported evidence_kind")
+        provider = (evidence_provider or "").strip()
+        if any(name in provider.casefold() for name in ("yandex", "google")):
+            raise ValueError(
+                "Yandex/Google map geometry is not permitted evidence for OSM tracing"
+            )
+        if evidence_kind == "permitted_imagery":
+            if not provider:
+                raise ValueError(
+                    "permitted_imagery requires an explicit evidence_provider"
+                )
+            if provider.casefold() not in config.permitted_imagery_sources:
+                raise ValueError(
+                    "Imagery provider is not in OSM_PERMITTED_IMAGERY_SOURCES"
+                )
         if not 0 <= simplify_tolerance_m <= 100:
             raise ValueError("simplify_tolerance_m must be between 0 and 100")
         if not 0 <= endpoint_snap_tolerance_m <= 100:
             raise ValueError("endpoint_snap_tolerance_m must be between 0 and 100")
         if not 1 <= max_alignment_distance_m <= 100:
             raise ValueError("max_alignment_distance_m must be between 1 and 100")
-        digest, _, segments = _load_track(gpx_xml, gpx_path)
-        segment = _select_segment(segments, segment_id)
+        digest, segment = _resolve_edit_segment(
+            selection_id, segment_id, gpx_xml, gpx_path
+        )
         _require_continuous_segment(segment)
+        async with get_authenticated_client() as client:
+            identity = await verify_write_identity(client)
+        verified_osm_uid = int(identity["user_id"])
         if action == "create":
             if target_way_ids:
                 raise ValueError("target_way_ids are not allowed for action=create")
-            return await _preview_create(
+            result = await _preview_create(
                 digest,
                 segment,
                 tags or {},
@@ -1559,18 +2125,40 @@ async def preview_track_road_edit(
                 simplify_tolerance_m,
                 endpoint_snap_tolerance_m,
                 connect_endpoints_to_ways,
+                verified_osm_uid,
             )
-        if tags:
-            raise ValueError("Track updates preserve existing way tags; omit tags")
-        return await _preview_update(
-            digest,
-            segment,
-            target_way_ids or [],
-            changeset_comment.strip(),
-            changeset_source.strip(),
-            simplify_tolerance_m,
-            max_alignment_distance_m,
-        )
+        else:
+            if tags:
+                raise ValueError("Track updates preserve existing way tags; omit tags")
+            result = await _preview_update(
+                digest,
+                segment,
+                target_way_ids or [],
+                changeset_comment.strip(),
+                changeset_source.strip(),
+                simplify_tolerance_m,
+                max_alignment_distance_m,
+                verified_osm_uid,
+            )
+        if result.get("data"):
+            result["data"]["selection_id"] = selection_id
+            proposal_id = result["data"].get("proposal_id")
+            proposal = _PROPOSALS.get(proposal_id)
+            if proposal:
+                proposal.payload["selection_id"] = selection_id
+                proposal.payload["evidence"] = {
+                    "kind": evidence_kind,
+                    "provider": provider or None,
+                    "observed_at": evidence_observed_at,
+                    "license_status": (
+                        "user_survey"
+                        if evidence_kind == "survey_gpx"
+                        else "must_be_reviewed"
+                    ),
+                }
+                _refresh_proposal_digest(proposal)
+                result["data"]["proposal_digest"] = proposal.digest
+        return result
     except Exception as exc:
         return _failure(
             type(exc).__name__,
@@ -1658,6 +2246,18 @@ def _parse_diff_result(xml_text: str) -> List[Dict[str, Any]]:
 
 
 async def _validate_proposal_versions(client: Any, payload: Dict[str, Any]) -> None:
+    context_points = payload.get("context_points")
+    context_highways = payload.get("context_highways")
+    if context_points is not None and context_highways is not None:
+        current_ways, _ = await _nearby_highways(
+            [tuple(point) for point in context_points],
+            float(payload.get("context_radius_m", 30.0)),
+        )
+        if _highway_context_snapshot(current_ways) != context_highways:
+            raise ValueError(
+                "Highway geometry in the affected area changed after preview; "
+                "create a fresh proposal"
+            )
     for way_id_text, snapshot in payload.get("snapshot_ways", {}).items():
         way_id = int(way_id_text)
         current = await _fetch_way_full(client, way_id)
@@ -1693,25 +2293,163 @@ async def _validate_proposal_versions(client: Any, payload: Dict[str, Any]) -> N
             )
 
 
-@mcp.tool()
-async def apply_track_road_edit(
-    proposal_id: str, confirm: bool, changeset_id: Optional[int] = None
-) -> Dict[str, Any]:
-    """Apply an unexpired track preview after an explicit confirmation."""
-    if confirm is not True:
-        return _failure(
-            "Confirmation required",
-            "Set confirm=true only after reviewing the complete preview",
+async def _validate_supplied_changeset(
+    client: Any, changeset_id: int, osm_uid: int
+) -> None:
+    response = await client.get(
+        f"{config.current_api_base_url}/changeset/{changeset_id}"
+    )
+    if response.status_code != 200:
+        raise ValueError(
+            f"Supplied changeset {changeset_id} is not accessible or does not exist"
         )
-    _purge_proposals()
-    proposal = _PROPOSALS.get(proposal_id)
+    root = parse_xml(response.text)
+    element = root.find(".//changeset")
+    if element is None:
+        raise ValueError("OSM changeset response did not contain a changeset")
+    if element.get("open") != "true":
+        raise ValueError(f"Supplied changeset {changeset_id} is closed")
+    owner = element.get("uid") or element.get("user_id")
+    if owner is None or int(owner) != osm_uid:
+        raise ValueError(
+            f"Supplied changeset {changeset_id} belongs to a different OSM account"
+        )
+
+
+async def _create_owned_changeset(client: Any, payload: Dict[str, Any]) -> int:
+    root = ET.Element("osm")
+    changeset = ET.SubElement(root, "changeset")
+    for key, value in {
+        "comment": payload["changeset_comment"],
+        "source": payload["changeset_source"],
+        "created_by": config.default_changeset_created_by,
+    }.items():
+        ET.SubElement(changeset, "tag", {"k": key, "v": str(value)})
+    response = await client.put(
+        f"{config.current_api_base_url}/changeset/create",
+        content=ET.tostring(root, encoding="unicode"),
+        headers={"Content-Type": "text/xml"},
+    )
+    if response.status_code != 200:
+        raise RuntimeError(
+            "OSM changeset creation failed with HTTP "
+            f"{response.status_code}: {response.text}"
+        )
+    return int(response.text.strip())
+
+
+async def _close_owned_changeset(client: Any, changeset_id: int) -> bool:
+    response = await client.put(
+        f"{config.current_api_base_url}/changeset/{changeset_id}/close"
+    )
+    return int(response.status_code) == 200
+
+
+async def _verify_diff_results(
+    client: Any, diff_results: Sequence[Dict[str, Any]]
+) -> Dict[str, Any]:
+    verified: List[Dict[str, Any]] = []
+    failures: List[Dict[str, Any]] = []
+    for item in diff_results:
+        element_type = item["type"]
+        element_id = int(item["new_id"])
+        expected_version = int(item["new_version"])
+        if element_id <= 0 or element_type not in {"node", "way", "relation"}:
+            continue
+        actual_version: Optional[int] = None
+        verification_error: Optional[str] = None
+        try:
+            response = await client.get(
+                f"{config.current_api_base_url}/{element_type}/{element_id}"
+            )
+            if response.status_code == 200:
+                root = parse_xml(response.text)
+                element = root.find(f".//{element_type}")
+                if element is not None:
+                    actual_version = int(element.get("version", "0"))
+            else:
+                verification_error = f"HTTP {response.status_code}"
+        except Exception as exc:
+            verification_error = describe_exception(exc)
+        record = {
+            **item,
+            "url": f"{config.current_web_base_url}/{element_type}/{element_id}",
+            "actual_version": actual_version,
+            "verification_error": verification_error,
+        }
+        if actual_version == expected_version:
+            verified.append(record)
+        else:
+            failures.append(record)
+    return {
+        "status": "verified" if not failures else "verification_incomplete",
+        "verified": verified,
+        "failures": failures,
+    }
+
+
+async def _inspect_changeset_download(changeset_id: int) -> Dict[str, Any]:
+    """Inspect an ambiguous upload outcome without retrying the write."""
+    try:
+        async with get_authenticated_client() as client:
+            response = await client.get(
+                f"{config.current_api_base_url}/changeset/{changeset_id}/download"
+            )
+        if response.status_code != 200:
+            return {
+                "status": "unavailable",
+                "http_status": response.status_code,
+            }
+        root = parse_xml(response.text)
+        elements: List[Dict[str, Any]] = []
+        for section in root:
+            operation = _local_name(section.tag)
+            for element in section:
+                element_type = _local_name(element.tag)
+                if element_type not in {"node", "way", "relation"}:
+                    continue
+                element_id = int(element.get("id", "0"))
+                elements.append(
+                    {
+                        "operation": operation,
+                        "type": element_type,
+                        "id": element_id,
+                        "version": int(element.get("version", "0")),
+                        "url": (
+                            f"{config.current_web_base_url}/{element_type}/{element_id}"
+                        ),
+                    }
+                )
+        return {
+            "status": "changeset_contains_elements" if elements else "empty",
+            "elements": elements,
+        }
+    except Exception as exc:
+        return {
+            "status": "unavailable",
+            "error": describe_exception(exc),
+        }
+
+
+async def _apply_osm_edit_internal(
+    proposal_id: str,
+    proposal_digest: str,
+    changeset_id: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Claim, upload, reconcile and persist a proposal exactly once."""
+    proposal = _get_proposal(proposal_id)
     if proposal is None:
         return _failure(
             "Unknown or expired proposal",
             "Create a fresh preview before applying the road edit",
         )
+    if proposal.digest != proposal_digest:
+        return _failure(
+            "Proposal digest mismatch",
+            "The reviewed proposal changed; review a fresh preview",
+        )
     payload = proposal.payload
-    if payload["blocking_issues"]:
+    if payload.get("blocking_issues"):
         return _failure(
             "Proposal is blocked",
             "Resolve all blocking issues and create a fresh preview",
@@ -1720,69 +2458,246 @@ async def apply_track_road_edit(
     if not load_oauth_token():
         return _failure(
             "Authentication required",
-            "Track edits require OAuth with the write_api scope",
+            "OSM edits require OAuth with the write_api scope",
         )
 
     owned_changeset = changeset_id is None
     active_changeset_id = changeset_id
+    upload_started = False
+    upload_confirmed = False
     try:
         async with get_authenticated_client() as client:
-            await _validate_proposal_versions(client, payload)
-
-        if active_changeset_id is None:
-            created: Dict[str, Any] = await create_changeset(
-                payload["changeset_comment"],
-                {"source": payload["changeset_source"]},
+            identity = await verify_write_identity(client)
+            osm_uid = int(identity["user_id"])
+            claimed = _PROPOSAL_STORE.claim(
+                proposal_id,
+                proposal_digest,
+                config.current_api_base_url,
+                osm_uid,
             )
-            if not created.get("success"):
-                return created
-            active_changeset_id = int(created["data"]["changeset_id"])
+            if claimed.status == "APPLIED" and claimed.receipt:
+                return {
+                    "success": True,
+                    "data": claimed.receipt,
+                    "message": "Proposal was already applied; returning its receipt",
+                }
+            await _validate_proposal_versions(client, payload)
+            if active_changeset_id is not None:
+                await _validate_supplied_changeset(
+                    client, int(active_changeset_id), osm_uid
+                )
+            if active_changeset_id is None:
+                active_changeset_id = await _create_owned_changeset(client, payload)
+            _PROPOSAL_STORE.set_changeset_id(proposal_id, int(active_changeset_id))
 
-        osm_change = _build_osm_change(payload, active_changeset_id)
-        async with get_authenticated_client() as client:
+            osm_change = _build_osm_change(payload, int(active_changeset_id))
+            upload_started = True
             response = await client.post(
                 f"{config.current_api_base_url}/changeset/{active_changeset_id}/upload",
                 content=osm_change,
                 headers={"Content-Type": "text/xml"},
             )
-        if response.status_code != 200:
-            raise RuntimeError(
-                f"OSM diff upload failed with HTTP {response.status_code}: {response.text}"
+            if response.status_code != 200:
+                raise RuntimeError(
+                    "OSM diff upload failed with HTTP "
+                    f"{response.status_code}: {response.text}"
+                )
+            upload_confirmed = True
+            diff_results = _parse_diff_result(response.text)
+            verification = await _verify_diff_results(client, diff_results)
+            changeset_closed = (
+                await _close_owned_changeset(client, int(active_changeset_id))
+                if owned_changeset
+                else False
             )
-        diff_results = _parse_diff_result(response.text)
-        close_result = None
-        if owned_changeset:
-            close_result = await close_changeset(active_changeset_id)
-        del _PROPOSALS[proposal_id]
+        receipt = {
+            "proposal_id": proposal_id,
+            "proposal_digest": proposal_digest,
+            "api_target": config.current_api_base_url,
+            "osm_uid": osm_uid,
+            "changeset_id": int(active_changeset_id),
+            "changeset_url": (
+                f"{config.current_web_base_url}/changeset/{active_changeset_id}"
+            ),
+            "diff_results": diff_results,
+            "verification": verification,
+            "changeset_closed": changeset_closed,
+            "summary": payload["summary"],
+        }
+        _PROPOSAL_STORE.finish(proposal_id, "APPLIED", receipt=receipt)
+        proposal.status = "APPLIED"
         return {
             "success": True,
-            "data": {
-                "proposal_id": proposal_id,
-                "changeset_id": active_changeset_id,
-                "changeset_url": f"{config.current_api_base_url}/changeset/{active_changeset_id}",
-                "diff_results": diff_results,
-                "changeset_closed": bool(close_result and close_result.get("success")),
-                "summary": payload["summary"],
-            },
-            "message": "Track road edit uploaded successfully",
+            "data": receipt,
+            "message": "OSM edit uploaded successfully",
         }
+    except ProposalStoreError as exc:
+        return _failure(
+            type(exc).__name__,
+            "Proposal could not be reserved for upload",
+            detail=str(exc),
+        )
     except Exception as exc:
+        is_ambiguous_upload = upload_confirmed or (
+            upload_started and isinstance(exc, httpx.TransportError)
+        )
+        status = "RECONCILE_REQUIRED" if is_ambiguous_upload else "FAILED"
+        reconciliation: Optional[Dict[str, Any]] = None
+        if is_ambiguous_upload and active_changeset_id is not None:
+            reconciliation = await _inspect_changeset_download(int(active_changeset_id))
+        try:
+            _PROPOSAL_STORE.finish(
+                proposal_id,
+                status,
+                receipt=(
+                    {
+                        "proposal_id": proposal_id,
+                        "proposal_digest": proposal_digest,
+                        "changeset_id": active_changeset_id,
+                        "changeset_url": (
+                            f"{config.current_web_base_url}/changeset/"
+                            f"{active_changeset_id}"
+                        ),
+                        "reconciliation": reconciliation,
+                    }
+                    if reconciliation
+                    else None
+                ),
+                error=describe_exception(exc),
+            )
+        except Exception:
+            pass
         if owned_changeset and active_changeset_id is not None:
             try:
-                await close_changeset(active_changeset_id)
+                await close_changeset(int(active_changeset_id))
             except Exception:
                 pass
         return _failure(
             type(exc).__name__,
-            "Failed to apply track road edit; the osmChange upload is transactional",
+            (
+                "Upload outcome is unknown; do not retry. Reconcile the changeset first"
+                if is_ambiguous_upload
+                else "Failed to apply OSM edit; create a fresh proposal before retrying"
+            ),
             detail=describe_exception(exc),
             changeset_id=active_changeset_id,
+            proposal_status=status,
+            reconciliation=reconciliation,
         )
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=False,
+        destructiveHint=True,
+        idempotentHint=True,
+        openWorldHint=True,
+    )
+)
+async def apply_osm_edit(
+    proposal_id: str,
+    proposal_digest: str,
+    context: Context,
+    changeset_id: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Apply a reviewed proposal after a separate client-host confirmation."""
+    proposal = _get_proposal(proposal_id)
+    if proposal is None:
+        return _failure(
+            "Unknown or expired proposal",
+            "Create and review a fresh proposal",
+        )
+    if proposal.digest != proposal_digest:
+        return _failure(
+            "Proposal digest mismatch",
+            "The exact reviewed digest is required",
+        )
+    if proposal.status == "APPLIED":
+        return await _apply_osm_edit_internal(
+            proposal_id, proposal_digest, changeset_id
+        )
+    if config.osm_require_host_confirmation or not config.osm_use_dev_api:
+        try:
+            _PROPOSAL_STORE.mark_awaiting_approval(proposal_id)
+        except ProposalStoreError as exc:
+            return _failure(
+                type(exc).__name__,
+                "Proposal is not available for confirmation",
+                detail=str(exc),
+            )
+        environment = "DEVELOPMENT" if config.osm_use_dev_api else "PRODUCTION"
+        try:
+            confirmation = await context.elicit(
+                (
+                    f"{environment} OSM WRITE. "
+                    f"Review {proposal.payload.get('summary', {})}. "
+                    f"API: {proposal.api_target}. "
+                    f"OSM UID: {proposal.osm_uid}. "
+                    f"Proposal SHA-256: {proposal.digest}. "
+                    "Confirm only if the map preview and exact element "
+                    "operations are correct."
+                ),
+                ApplyConfirmation,
+            )
+        except Exception as exc:
+            return _failure(
+                "Host confirmation unavailable",
+                "This MCP client cannot safely approve the production write",
+                detail=describe_exception(exc),
+            )
+        if (
+            confirmation.action != "accept"
+            or confirmation.data is None
+            or confirmation.data.confirm is not True
+            or confirmation.data.proposal_digest != proposal.digest
+        ):
+            return _failure(
+                "Confirmation declined",
+                "The host did not approve this exact proposal digest",
+            )
+    return await _apply_osm_edit_internal(proposal_id, proposal_digest, changeset_id)
+
+
+async def apply_track_road_edit(
+    proposal_id: str, confirm: bool, changeset_id: Optional[int] = None
+) -> Dict[str, Any]:
+    """Compatibility apply endpoint; production uses ``apply_osm_edit``."""
+    if confirm is not True:
+        return _failure(
+            "Confirmation required",
+            "Review the complete preview before requesting apply",
+        )
+    if not config.osm_use_dev_api and config.osm_require_host_confirmation:
+        return _failure(
+            "Host confirmation required",
+            "Production edits must use apply_osm_edit with MCP elicitation",
+        )
+    proposal = _get_proposal(proposal_id)
+    if proposal is None:
+        return _failure(
+            "Unknown or expired proposal",
+            "Create a fresh preview before applying the road edit",
+        )
+    return await _apply_osm_edit_internal(proposal_id, proposal.digest, changeset_id)
+
+
+if config.osm_use_dev_api:
+    mcp.tool(
+        annotations=ToolAnnotations(
+            readOnlyHint=False,
+            destructiveHint=True,
+            idempotentHint=True,
+            openWorldHint=True,
+        )
+    )(apply_track_road_edit)
 
 
 __all__ = [
     "analyze_gpx_track",
+    "apply_osm_edit",
     "apply_track_road_edit",
+    "create_track_selection",
+    "match_track_selection",
     "preview_track_road_edit",
     "suggest_track_road_candidates",
 ]

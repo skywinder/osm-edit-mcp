@@ -2,7 +2,9 @@
 
 ## 📚 Complete Documentation Index
 
-Welcome to the comprehensive documentation for the OSM Edit MCP Server. This server enables natural language editing of OpenStreetMap data through the Model Context Protocol.
+The server exposes read/search helpers plus a proposal-based GPX road editor.
+Natural language may describe an intent, but production object selection and
+writes use stable OSM IDs, versions, visual review, and host confirmation.
 
 ## 🚀 Getting Started
 
@@ -49,11 +51,13 @@ The server is built using:
 - **Natural Language Processing**: Convert descriptions to OSM tags
 - **Tag Validation**: Ensure data quality and standards compliance
 
-The Python package is split by responsibility: `config.py`,
-`token_store.py`, `http_client.py`, `xml_models.py`, and
-`natural_language.py` provide the core services; `read_tools.py` and
-`write_tools.py` register MCP tools; and `server.py` preserves the public
-imports and starts the composed server.
+The Python package is split by responsibility: `config.py`, `token_store.py`,
+`auth.py`, `http_client.py`, and `xml_models.py` provide the core services;
+`track_tools.py` plans atomic GPX road edits; `proposal_store.py` provides the
+idempotent SQLite state machine; `valhalla.py` isolates optional local map
+matching; `edit_tools.py` exposes safe inspection/audit tools; and `server.py`
+starts the composed stdio server. Legacy raw write functions are not registered
+in the safe profile.
 
 ### Key Components
 1. **OSM API Client**: Handles communication with OpenStreetMap
@@ -64,9 +68,9 @@ imports and starts the composed server.
 ## 🔧 API Tools Overview
 
 ### Basic Operations
-- **CRUD Operations**: Create, read, update, delete OSM elements
-- **Changeset Management**: Handle OSM changesets safely
-- **Query Tools**: Search and discover existing OSM data
+- **Read and inspect**: Query stable OSM IDs, versions, tags, and geometry
+- **GPX road proposals**: Create roads or reshape selected contiguous way chains
+- **Atomic apply and audit**: Upload one `osmChange`, retain a receipt, and verify it
 
 ### Natural Language Tools
 - **Parse Natural Language**: Convert descriptions to tags
@@ -75,23 +79,23 @@ imports and starts the composed server.
 - **Tag Validation**: Verify against OSM standards
 
 ### Advanced Features
-- **Batch Operations**: Handle multiple edits efficiently
-- **Conflict Resolution**: Merge conflicting tag sets
-- **Documentation Access**: Get OSM wiki information
-- **Related Tag Discovery**: Find complementary tags
+- **Continuous GPX selection**: Crop long histories without sending the full trace
+- **Local Valhalla diagnostics**: Detect likely mapped and unmatched spans
+- **Visual resources**: Review current/proposed GeoJSON through `ui://` resources
+- **Conflict detection**: Re-fetch versions, protected nodes, and write permissions
 
 ## 📋 Common Use Cases
 
-### Adding New Features
+### Adding a surveyed road
 ```
-User: "Add a coffee shop with WiFi"
-System: Creates node with tags: amenity=cafe, internet_access=wlan
+User: "Use points 1240 to 1395 of this GPX and preview a residential road"
+System: Returns a non-writing map preview, exact operations, warnings, and digest
 ```
 
-### Modifying Existing Features
+### Applying the reviewed proposal
 ```
-User: "This restaurant also has takeaway"
-System: Adds tag: takeaway=yes to existing restaurant
+User: "The preview is correct"
+System: The MCP host separately asks approval for the exact production digest
 ```
 
 ### Understanding Map Data
@@ -108,9 +112,9 @@ System: "This is a residential road with bike lanes and speed limit 30 km/h"
 - **Follow OSM community guidelines** for data quality
 
 ### Authentication Security
-- **OAuth 2.0 only** - no password storage
-- **Token management** via secure system keyring
-- **Scoped permissions** for minimal access required
+- **OAuth 2.0 with PKCE and validated state** - no password storage
+- **Token management** via the secure system keyring
+- **Live account and `write_api` verification** before every apply
 
 ### Data Quality
 - **Tag validation** against OSM standards

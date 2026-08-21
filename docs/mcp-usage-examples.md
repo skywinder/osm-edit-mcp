@@ -654,23 +654,28 @@ AI: Nonna's Italian Deli tagged successfully!
 ### GPX Road Geometry Workflow
 
 1. Call `analyze_gpx_track` with inline GPX or a file below
-   `OSM_TRACK_IMPORT_DIR`, then select exactly one returned segment ID.
-2. For an existing road, call `suggest_track_road_candidates` and explicitly
-   choose an ordered contiguous list of way IDs.
-3. Call `preview_track_road_edit` with `action="create"` and explicit road tags,
+   `OSM_TRACK_IMPORT_DIR`.
+2. For a long recording, call `create_track_selection` with start/end point
+   indexes, timestamps, or coordinates. Review the returned GeoJSON or
+   `ui://osm-edit/track-selection/...` resource.
+3. Optionally call `match_track_selection` against local Valhalla. Its result is
+   diagnostic and is never copied into OSM geometry.
+4. Call `suggest_track_road_candidates` and explicitly choose an ordered,
+   contiguous list of way IDs for an update. Suggestions do not select ways.
+5. Call `preview_track_road_edit` with `action="create"` and explicit road tags,
    or `action="update"` with the selected way IDs. Review both GeoJSON layers,
-   endpoint snaps, endpoint-to-way connection plans, dangling endpoints,
-   preserved nodes, conditional deletions, and warnings. New-road previews
-   default to `connect_endpoints_to_ways=true`: an unambiguous nearby way gets a
-   new shared node inserted atomically into the existing and created ways.
-4. Apply only the reviewed proposal with
-   `apply_track_road_edit(proposal_id=..., confirm=True)`.
+   exact operations/tags, endpoint connections, dangling endpoints, preserved
+   nodes, conditional deletions, warnings, API target, and SHA-256 digest.
+6. Pass the exact `proposal_id` and `proposal_digest` to `apply_osm_edit`.
+   Production requires a separate MCP host confirmation showing that digest.
+7. Call `verify_osm_edit` to re-fetch the returned IDs and versions.
 
-The apply call expires after 30 minutes, rejects stale OSM versions, and uses a
+Proposals expire after 30 minutes, are persisted in SQLite, and are atomically
+claimed so concurrent calls cannot upload twice. Apply validates the API,
+OAuth account, live `write_api` permission, and OSM versions before one
 transactional `osmChange` upload. It never auto-connects interior crossings,
-moves existing nodes, guesses between ambiguous endpoint ways, joins separate
-GPX segments, or uploads a public GPS trace. Segments with implausible
-consecutive GPS jumps must be cropped before preview.
+moves existing nodes, guesses between ambiguous endpoint nodes/ways, joins
+separate GPX segments, or uploads a public GPS trace.
 
 ### Core Tools
 - `parse_natural_language_tags()` - Convert descriptions to OSM tags

@@ -5,7 +5,7 @@ services:
     build: .
     container_name: osm-edit-mcp-server
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
       # API Configuration
       - OSM_USE_DEV_API=true
@@ -22,7 +22,8 @@ services:
       # - OSM_PROD_REDIRECT_URI=https://yourdomain.com/callback
       
       # Web Server Configuration
-      - API_KEY=${API_KEY:-your-secure-api-key-here}
+      - API_KEY=${API_KEY:?Set a long random API_KEY before starting the HTTP wrapper}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-}
       
       # Logging
       - LOG_LEVEL=INFO
@@ -47,6 +48,7 @@ services:
   nginx:
     image: nginx:alpine
     container_name: osm-edit-nginx
+    profiles: ["remote-read-only"]
     ports:
       - "443:443"
       - "80:80"

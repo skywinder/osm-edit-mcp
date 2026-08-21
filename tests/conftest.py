@@ -14,11 +14,16 @@ instantiates its configuration singleton at module import, before any fixture
 would get a chance to run. Environment variables take precedence over the
 dotenv file in pydantic-settings, so this wins over ``.env``.
 """
+
 import os
 
 import pytest
 
 os.environ["OSM_USE_DEV_API"] = "true"
+os.environ["OSM_PROPOSAL_DB_PATH"] = (
+    f"/private/tmp/osm-edit-mcp-tests-{os.getpid()}.sqlite3"
+)
+os.environ["OSM_WRITE_PROFILE"] = "safe"
 
 
 @pytest.fixture(autouse=True)
@@ -28,6 +33,11 @@ def isolated_osm_env(monkeypatch):
         if key.startswith("OSM_"):
             monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("OSM_USE_DEV_API", "true")
+    monkeypatch.setenv(
+        "OSM_PROPOSAL_DB_PATH",
+        f"/private/tmp/osm-edit-mcp-tests-{os.getpid()}.sqlite3",
+    )
+    monkeypatch.setenv("OSM_WRITE_PROFILE", "safe")
 
 
 @pytest.fixture
