@@ -123,3 +123,19 @@ async def test_export_osm_xml_escapes_tags(monkeypatch):
     assert result["success"] is True
     root = ET.fromstring(result["data"]["exported_data"])
     assert root.find(".//tag").get("v") == 'A&B "Road"'
+
+
+@pytest.mark.asyncio
+async def test_natural_language_parser_never_suggests_unregistered_writes():
+    result = await read_tools.parse_natural_language_osm_request(
+        "Add a cafe named Survey Stop"
+    )
+
+    assert result["success"] is True
+    suggestions = result["data"]["action_suggestions"]
+    assert "not supported" in suggestions["delete"]
+    assert "safe profile" in suggestions["create"]
+    assert "safe profile" in suggestions["update"]
+    assert "create_place_from_description" not in str(suggestions)
+    assert "find_and_update_place" not in str(suggestions)
+    assert "delete_place_from_description" not in str(suggestions)

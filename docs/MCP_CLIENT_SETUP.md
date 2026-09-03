@@ -1,462 +1,180 @@
-# MCP Client Setup Guide
+# MCP client setup
 
-This guide shows how to use OSM Edit MCP Server with various MCP clients.
+OSM Edit MCP uses the standard local stdio transport. The MCP host owns the
+server process and should launch the released package with `uvx`.
 
-## 📋 Table of Contents
+## Requirements
 
-- [Cursor IDE](#cursor-ide)
-- [Codex / ChatGPT desktop](#codex--chatgpt-desktop)
-- [Claude Desktop](#claude-desktop)
-- [Continue.dev](#continuedev)
-- [Cline (VSCode)](#cline-vscode)
-- [Generic MCP Client](#generic-mcp-client)
+- Python 3.10 or newer;
+- [uv](https://docs.astral.sh/uv/) with `uvx` available to the host;
+- an MCP client that supports local stdio servers;
+- MCP elicitation support for production `apply_osm_edit`.
 
-## 🎯 Cursor IDE
+The examples below force the OSM development API and the `safe` profile.
 
-### Setup Instructions
+## JSON-based clients
 
-1. Open Cursor Settings (⌘/Ctrl + ,)
-2. Search for "MCP" or go to Features → MCP
-3. Add server configuration:
+Claude Desktop, Cursor, Cline, and many other hosts accept this shape:
 
-#### Option 1: Using uv (Recommended)
 ```json
 {
   "mcpServers": {
     "osm-edit": {
-      "command": "uv",
-      "args": ["run", "python", "main.py"],
-      "cwd": "/Users/pk/repo/_mine/osm-edit-mcp",
+      "command": "uvx",
+      "args": ["osm-edit-mcp"],
       "env": {
         "OSM_USE_DEV_API": "true",
-        "LOG_LEVEL": "INFO"
+        "OSM_WRITE_PROFILE": "safe",
+        "OSM_REQUIRE_HOST_CONFIRMATION": "true"
       }
     }
   }
 }
 ```
 
-#### Option 2: Using Python directly
+If the client uses a different outer key, keep the server command, arguments,
+and environment unchanged. Restart the client after editing its configuration.
+
+## Codex
+
+Add this to the Codex configuration:
+
+```toml
+[mcp_servers.osm_edit]
+command = "uvx"
+args = ["osm-edit-mcp"]
+
+[mcp_servers.osm_edit.env]
+OSM_USE_DEV_API = "true"
+OSM_WRITE_PROFILE = "safe"
+OSM_REQUIRE_HOST_CONFIRMATION = "true"
+```
+
+## Local GPX files
+
+The server accepts inline GPX XML or paths below `OSM_TRACK_IMPORT_DIR`.
+Prefer an explicit directory outside the repository:
+
 ```json
 {
   "mcpServers": {
     "osm-edit": {
-      "command": "python",
-      "args": ["/Users/pk/repo/_mine/osm-edit-mcp/main.py"],
+      "command": "uvx",
+      "args": ["osm-edit-mcp"],
       "env": {
-        "PYTHONPATH": "/Users/pk/repo/_mine/osm-edit-mcp"
+        "OSM_USE_DEV_API": "true",
+        "OSM_WRITE_PROFILE": "safe",
+        "OSM_TRACK_IMPORT_DIR": "/absolute/path/to/local-gpx"
       }
     }
   }
 }
 ```
 
-### Alternative: Using Cursor Config File
+The path must be absolute from the host process's point of view. Track files are
+limited by configured size and point-count caps, and path traversal or symlink
+escapes are rejected.
 
-Edit `~/.cursor/config/mcp.json`:
+## Separate development and production entries
 
-```json
-{
-  "servers": {
-    "osm-edit": {
-      "command": "python",
-      "args": ["/Users/YOUR_USERNAME/osm-edit-mcp/main.py"],
-      "enabled": true
-    }
-  }
-}
-```
-
-### Alternative: Using `~/.cursor/mcp.json` (Dev & Prod)
-
-If your Cursor uses `~/.cursor/mcp.json`, you can add both development and production entries. The examples below use the repository's `run_mcp.sh` wrapper, which launches `main.py` via `uv`.
+Do not reuse an OAuth application or configuration entry across environments.
+After completing development-API acceptance, a production-capable host can use:
 
 ```json
 {
   "mcpServers": {
     "osm-edit-dev": {
-      "command": "/Users/pk/repo/_mine/osm-edit-mcp/run_mcp.sh",
-      "args": [],
+      "command": "uvx",
+      "args": ["osm-edit-mcp"],
       "env": {
         "OSM_USE_DEV_API": "true",
-        "OSM_WRITE_PROFILE": "safe",
-        "OSM_REQUIRE_HOST_CONFIRMATION": "true",
-        "LOG_LEVEL": "INFO"
-      },
-      "enabled": false,
-      "_comment": "OSM Edit MCP Server - Development (safe testing with api06.dev.openstreetmap.org)"
+        "OSM_WRITE_PROFILE": "safe"
+      }
     },
     "osm-edit-prod": {
-      "command": "/Users/pk/repo/_mine/osm-edit-mcp/run_mcp.sh",
-      "args": [],
+      "command": "uvx",
+      "args": ["osm-edit-mcp"],
       "env": {
         "OSM_USE_DEV_API": "false",
         "OSM_WRITE_PROFILE": "safe",
-        "OSM_REQUIRE_HOST_CONFIRMATION": "true",
-        "LOG_LEVEL": "INFO"
-      },
-      "enabled": false,
-      "_comment": "OSM Edit MCP Server - Production (uses api.openstreetmap.org). Use with extreme caution; write operations require OAuth and explicit confirmation."
+        "OSM_REQUIRE_HOST_CONFIRMATION": "true"
+      }
     }
   }
 }
 ```
 
-Note:
-- Replace absolute paths with your local path.
-- Keep production disabled until you've configured OAuth and understand the risks. Always prefer dev (`api06.dev.openstreetmap.org`) for testing.
+Keep the production entry disabled until:
 
-### Usage in Cursor
+1. A separate production OAuth app has been registered.
+2. The expected account and `write_api` permission are verified live.
+3. The host is known to implement MCP elicitation.
+4. `get_edit_capabilities` reports the production API, `safe` profile, and
+   digest-bound confirmation.
 
-Once configured, you can use natural language:
+If the host does not support elicitation, production apply must fail closed.
 
-```
-"Find restaurants near Times Square"
-"What amenities are within 500m of 51.5074, -0.1278?"
-"Search for coffee shops in Seattle"
-```
+## Development from a source checkout
 
-### Troubleshooting Cursor
-
-- Ensure Python path is correct
-- Check Cursor logs: View → Output → MCP
-- Restart Cursor after configuration changes
-
-## Codex / ChatGPT Desktop
-
-Codex CLI, the Codex IDE extension, and the ChatGPT desktop app share the same
-local MCP configuration. Add the development server from Terminal:
+Contributors can run the current checkout instead of the released package:
 
 ```bash
-codex mcp add osm-edit-dev \
-  --env OSM_USE_DEV_API=true \
-  --env OSM_WRITE_PROFILE=safe \
-  --env OSM_REQUIRE_HOST_CONFIRMATION=true \
-  --env OSM_TRACK_IMPORT_DIR=/absolute/path/to/osm-edit-mcp/tracks \
-  -- /absolute/path/to/osm-edit-mcp/run_mcp.sh
+uv sync --locked --extra dev
 ```
 
-Then run `codex mcp list`, restart the desktop app or IDE extension, and use
-`/mcp` to confirm that `osm-edit-dev` is connected. Keep the development entry
-separate from any production configuration.
-
-The same server can be added through the desktop UI: Settings → MCP servers →
-Add server → STDIO. Use the absolute `run_mcp.sh` path as the command and add
-the four environment variables above.
-
-After connecting, call `get_edit_capabilities`. Production editing additionally
-requires a client that implements MCP elicitation: `apply_osm_edit` uses it for
-a separate approval of the exact proposal SHA-256. A plain `confirm=true` tool
-argument is not accepted as production confirmation.
-
-## 🖥️ Claude Desktop
-
-### Setup Instructions
-
-1. Locate Claude Desktop config:
-   - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
-   - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
-   - Linux: `~/.config/Claude/claude_desktop_config.json`
-
-2. Edit the configuration:
+Then point the host at that checkout:
 
 ```json
 {
   "mcpServers": {
-    "osm-edit": {
-      "command": "python",
-      "args": ["/Users/pk/repo/_mine/osm-edit-mcp/main.py"],
-      "env": {
-        "PYTHONPATH": "/Users/pk/repo/_mine/osm-edit-mcp",
-        "OSM_USE_DEV_API": "true"
-      }
-    }
-  }
-}
-```
-
-### With Virtual Environment
-
-If using a virtual environment:
-
-```json
-{
-  "mcpServers": {
-    "osm-edit": {
-      "command": "/path/to/osm-edit-mcp/.venv/bin/python",
-      "args": ["/path/to/osm-edit-mcp/main.py"]
-    }
-  }
-}
-```
-
-### Windows Configuration
-
-```json
-{
-  "mcpServers": {
-    "osm-edit": {
-      "command": "C:\\Python311\\python.exe",
-      "args": ["C:\\Users\\USERNAME\\osm-edit-mcp\\main.py"],
-      "env": {
-        "PYTHONPATH": "C:\\Users\\USERNAME\\osm-edit-mcp"
-      }
-    }
-  }
-}
-```
-
-## 🔄 Continue.dev
-
-### Setup Instructions
-
-1. Open Continue settings
-2. Add to `~/.continue/config.json`:
-
-```json
-{
-  "models": [...],
-  "mcpServers": [
-    {
-      "name": "osm-edit",
-      "command": "python",
-      "args": ["/path/to/osm-edit-mcp/main.py"],
-      "env": {
-        "PYTHONPATH": "/path/to/osm-edit-mcp"
-      }
-    }
-  ]
-}
-```
-
-### Usage Example
-
-```
-@mcp What restaurants are near latitude 40.7580, longitude -73.9855?
-@mcp Find hospitals within 1km of Central Park
-```
-
-## 🆚 Cline (VSCode)
-
-### Setup Instructions
-
-1. Install Cline extension in VSCode
-2. Open VSCode settings (Code → Preferences → Settings)
-3. Search for "Cline MCP"
-4. Add configuration:
-
-```json
-{
-  "cline.mcpServers": {
-    "osm-edit": {
-      "command": "python",
-      "args": ["${workspaceFolder}/osm-edit-mcp/main.py"],
-      "env": {
-        "PYTHONPATH": "${workspaceFolder}/osm-edit-mcp"
-      }
-    }
-  }
-}
-```
-
-### Alternative: Workspace Settings
-
-Create `.vscode/settings.json` in your project:
-
-```json
-{
-  "cline.mcpServers": {
-    "osm-edit": {
-      "command": "python",
-      "args": ["./osm-edit-mcp/main.py"],
-      "enabled": true
-    }
-  }
-}
-```
-
-## 🔧 Generic MCP Client
-
-### Basic Configuration
-
-Most MCP clients follow a similar pattern:
-
-```json
-{
-  "servers": {
-    "osm-edit": {
-      "command": "python",
-      "args": ["/path/to/main.py"],
-      "env": {
-        "PYTHONPATH": "/path/to/osm-edit-mcp",
-        "OSM_USE_DEV_API": "true",
-        "LOG_LEVEL": "INFO"
-      }
-    }
-  }
-}
-```
-
-### Using NPX (Node.js)
-
-Some clients support NPX execution:
-
-```json
-{
-  "osm-edit": {
-    "command": "npx",
-    "args": ["-y", "@modelcontextprotocol/server-osm-edit"]
-  }
-}
-```
-
-## 🐳 Docker Configuration
-
-For clients that support Docker:
-
-```json
-{
-  "servers": {
-    "osm-edit": {
-      "command": "docker",
+    "osm-edit-source": {
+      "command": "uv",
       "args": [
         "run",
-        "--rm",
-        "-i",
-        "--env-file", ".env",
-        "osm-edit-mcp:latest"
-      ]
+        "--locked",
+        "--project",
+        "/absolute/path/to/checkout",
+        "osm-edit-mcp"
+      ],
+      "env": {
+        "OSM_USE_DEV_API": "true",
+        "OSM_WRITE_PROFILE": "safe"
+      }
     }
   }
 }
 ```
 
-## ⚙️ Environment Variables
-
-You can pass environment variables through the client:
-
-```json
-{
-  "env": {
-    "OSM_USE_DEV_API": "true",
-    "OSM_DEV_CLIENT_ID": "your_client_id",
-    "OSM_DEV_CLIENT_SECRET": "your_client_secret",
-    "LOG_LEVEL": "DEBUG",
-    "PYTHONPATH": "/path/to/osm-edit-mcp"
-  }
-}
-```
-
-## 🧪 Testing Your Setup
-
-### 1. Check Server is Running
-
-Most clients show server status. Look for:
-- Green indicator next to "osm-edit"
-- No error messages in logs
-- Server responding to requests
-
-### 2. Test Basic Command
-
-Try these in your client:
-
-```
-"What MCP tools are available?"
-"Get server info"
-"Validate coordinates 51.5074, -0.1278"
-```
-
-### 3. View Logs
-
-- **Cursor**: View → Output → MCP
-- **VSCode**: Output panel → Cline
-- **Claude Desktop**: Check system logs
-- **Continue**: View logs in settings
-
-## 🚨 Common Issues
-
-### Issue: "Command not found"
-
-**Solution**: Use absolute paths
-
-```json
-{
-  "command": "/usr/bin/python3",
-  "args": ["/home/user/osm-edit-mcp/main.py"]
-}
-```
-
-### Issue: "Module not found"
-
-**Solution**: Set PYTHONPATH
-
-```json
-{
-  "env": {
-    "PYTHONPATH": "/path/to/osm-edit-mcp:$PYTHONPATH"
-  }
-}
-```
-
-### Issue: "Permission denied"
-
-**Solution**: Make script executable
+Source checkout mode is also currently required for the OAuth bootstrap script:
 
 ```bash
-chmod +x /path/to/osm-edit-mcp/main.py
+install -m 600 .env.example .env
+export OSM_EDIT_MCP_ENV_FILE="$PWD/.env"
+uv run python oauth_auth.py --dev
 ```
 
-### Issue: "Server not responding"
+Do not authenticate against production until representative development-server
+create and update acceptance has succeeded.
 
-**Solution**: Check Python dependencies
+## Verify the connection
 
-```bash
-cd /path/to/osm-edit-mcp
-pip install -r requirements.txt
-```
+After reconnecting:
 
-## 📝 Example Queries
+1. Call `get_server_info`.
+2. Call `get_edit_capabilities`.
+3. Confirm the API target and write profile.
+4. Inspect the tool list: raw direct-write tools must be absent in `safe`.
+5. Optionally run the real read-only client in
+   [examples/quick_start.py](../examples/quick_start.py).
 
-Once configured, try these queries in your MCP client:
+## Host limitations
 
-### Basic Searches
-- "Find Italian restaurants near the Colosseum"
-- "What's at coordinates 40.7580, -73.9855?"
-- "Search for hospitals in downtown Seattle"
+- A client that cannot open `ui://` resources can still inspect the returned
+  GeoJSON.
+- A client that cannot perform elicitation can preview proposals but cannot
+  apply them to production.
+- The server communicates over stdio. Do not configure a TCP port, daemon, or
+  HTTP URL for the normal MCP transport.
 
-### Area Exploration
-- "What amenities are within 500m of Big Ben?"
-- "Find all cafes in Central Park area"
-- "List tourist attractions near Eiffel Tower"
-
-### Validation
-- "Validate these coordinates: 51.5074, -0.1278"
-- "Is 91.0, 181.0 a valid coordinate?"
-- "Get location info for 48.8584, 2.2945"
-
-### Natural Language
-- "Add a coffee shop called Bean There at 44.8, 20.5"
-- "Find places to eat lunch near Times Square"
-- "What museums are near my location?"
-
-## 🔗 Additional Resources
-
-- [MCP Specification](https://modelcontextprotocol.io/docs)
-- [OSM Edit MCP Docs](../README.md)
-- [Troubleshooting Guide](../README.md#-troubleshooting)
-
-## 💡 Tips
-
-1. **Use absolute paths** to avoid path resolution issues
-2. **Check logs** when debugging connection problems
-3. **Test with simple queries** first before complex operations
-4. **Enable debug logging** when troubleshooting:
-   ```json
-   "env": {
-     "LOG_LEVEL": "DEBUG"
-   }
-   ```
-
----
-
-Need help? Open an issue on [GitHub](https://github.com/skywinder/osm-edit-mcp/issues)!
+See [troubleshooting](MCP_TROUBLESHOOTING.md) if the process exits or tools do
+not appear.

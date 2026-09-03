@@ -15,12 +15,21 @@ from .config import config, logger
 
 
 def _keyring_service(use_dev_api: Optional[bool] = None) -> str:
-    selected = config.osm_use_dev_api if use_dev_api is None else use_dev_api
+    if use_dev_api is None:
+        if config.api_environment == "custom":
+            raise ValueError("OAuth token storage is disabled for custom API targets")
+        selected = config.is_development_api
+    else:
+        selected = use_dev_api
     return f"osm-edit-mcp-{'dev' if selected else 'prod'}"
 
 
 def _legacy_token_path() -> str:
-    return ".osm_token_dev.json" if config.osm_use_dev_api else ".osm_token_prod.json"
+    if config.api_environment == "custom":
+        raise ValueError("OAuth token files are disabled for custom API targets")
+    return (
+        ".osm_token_dev.json" if config.is_development_api else ".osm_token_prod.json"
+    )
 
 
 def save_oauth_token(
@@ -40,6 +49,9 @@ def save_oauth_token(
 
 def load_oauth_token() -> Optional[Dict[str, Any]]:
     """Load OAuth data from keyring, with an explicit secure-file fallback."""
+    if config.api_environment == "custom":
+        logger.debug("OAuth token loading is disabled for custom API targets")
+        return None
     if config.use_keyring:
         try:
             serialized = keyring.get_password(_keyring_service(), "token_json")

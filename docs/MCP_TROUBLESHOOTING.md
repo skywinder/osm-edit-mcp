@@ -1,248 +1,128 @@
-# MCP Client Troubleshooting Guide
+# MCP troubleshooting
 
-## 🔍 Diagnosing Connection Issues
+Start with the package-based development configuration:
 
-### 1. Test Server Directly
-
-First, verify the server works standalone:
-
-```bash
-cd /path/to/osm-edit-mcp
-python main.py
-```
-
-You should see:
-```
-OSM Edit MCP Server v0.1.0
-API Mode: Development
-Starting OSM Edit MCP Server...
-```
-
-If this fails, fix server issues first.
-
-### 2. Check Client Logs
-
-#### Cursor
-- View → Output → Select "MCP" from dropdown
-- Look for connection errors or Python exceptions
-
-#### Claude Desktop
-- macOS: `~/Library/Logs/Claude/mcp.log`
-- Windows: `%LOCALAPPDATA%\Claude\logs\mcp.log`
-
-#### VSCode (Cline)
-- Output panel → Select "Cline" or "MCP"
-- Developer Tools: Help → Toggle Developer Tools → Console
-
-#### Continue.dev
-- Click gear icon → View Logs
-- Check `~/.continue/logs/`
-
-### 3. Common Error Messages
-
-#### "Command not found: python"
-
-**Problem**: Python not in PATH or wrong command
-
-**Solutions**:
-```json
-// Try python3
-"command": "python3"
-
-// Use full path
-"command": "/usr/bin/python3"
-
-// Windows
-"command": "C:\\Python311\\python.exe"
-```
-
-#### "ModuleNotFoundError: No module named 'mcp'"
-
-**Problem**: Dependencies not installed
-
-**Solution**:
-```bash
-cd /path/to/osm-edit-mcp
-pip install -r requirements.txt
-```
-
-#### "No module named 'osm_edit_mcp'"
-
-**Problem**: PYTHONPATH not set correctly
-
-**Solution**:
-```json
-"env": {
-  "PYTHONPATH": "/absolute/path/to/osm-edit-mcp"
-}
-```
-
-#### "Permission denied"
-
-**Problem**: Script not executable
-
-**Solution**:
-```bash
-chmod +x /path/to/osm-edit-mcp/main.py
-```
-
-#### "Connection refused" or "Server not responding"
-
-**Problem**: Server crashed or not starting
-
-**Debug steps**:
-1. Run server manually and check for errors
-2. Check Python version (needs 3.10+)
-3. Verify all dependencies installed
-4. Check .env file exists
-
-## 🧪 Testing Tools
-
-### Quick Connection Test
-
-Create `test_mcp.py`:
-
-```python
-import asyncio
-from src.osm_edit_mcp.server import get_server_info
-
-async def test():
-    result = await get_server_info()
-    print(f"Server response: {result}")
-
-asyncio.run(test())
-```
-
-Run: `python test_mcp.py`
-
-### MCP Protocol Test
-
-Some clients support testing:
-
-```bash
-# Test with MCP CLI (if available)
-mcp test /path/to/osm-edit-mcp/main.py
-
-# Test with npx
-npx @modelcontextprotocol/cli test python /path/to/main.py
-```
-
-## 🔧 Platform-Specific Issues
-
-### macOS
-
-**Issue**: "xcrun: error: invalid active developer path"
-
-**Solution**: Install Xcode Command Line Tools
-```bash
-xcode-select --install
-```
-
-**Issue**: Python SSL certificate errors
-
-**Solution**:
-```bash
-pip install --upgrade certifi
-```
-
-### Windows
-
-**Issue**: Path separators in config
-
-**Solution**: Use forward slashes or escape backslashes
-```json
-// Good
-"args": ["C:/Users/Name/osm-edit-mcp/main.py"]
-
-// Also good
-"args": ["C:\\Users\\Name\\osm-edit-mcp\\main.py"]
-```
-
-**Issue**: Virtual environment not activating
-
-**Solution**: Use full path to venv Python
-```json
-"command": "C:/path/to/osm-edit-mcp/.venv/Scripts/python.exe"
-```
-
-### Linux
-
-**Issue**: Python version conflicts
-
-**Solution**: Specify exact Python version
-```json
-"command": "/usr/bin/python3.11"
-```
-
-## 📋 Debug Checklist
-
-- [ ] Server runs standalone without errors
-- [ ] Python version is 3.10 or higher
-- [ ] All dependencies installed (`pip install -r requirements.txt`)
-- [ ] Using absolute paths in configuration
-- [ ] PYTHONPATH includes project directory
-- [ ] .env file exists (even if empty)
-- [ ] No syntax errors in client config JSON
-- [ ] Client has permissions to execute Python
-- [ ] No firewall blocking local connections
-- [ ] Restarted client after config changes
-
-## 🚀 Working Configurations
-
-### Minimal Working Config
 ```json
 {
   "mcpServers": {
     "osm-edit": {
-      "command": "python",
-      "args": ["/absolute/path/to/main.py"]
-    }
-  }
-}
-```
-
-### Full Debug Config
-```json
-{
-  "mcpServers": {
-    "osm-edit": {
-      "command": "/usr/bin/python3",
-      "args": ["/home/user/osm-edit-mcp/main.py"],
+      "command": "uvx",
+      "args": ["osm-edit-mcp"],
       "env": {
-        "PYTHONPATH": "/home/user/osm-edit-mcp",
         "OSM_USE_DEV_API": "true",
-        "LOG_LEVEL": "DEBUG",
-        "PYTHONUNBUFFERED": "1"
-      },
-      "enabled": true,
-      "timeout": 30000
+        "OSM_WRITE_PROFILE": "safe",
+        "LOG_LEVEL": "DEBUG"
+      }
     }
   }
 }
 ```
 
-## 💡 Pro Tips
+Restart the MCP host after every configuration change.
 
-1. **Always use absolute paths** - Relative paths often fail
-2. **Test incrementally** - Start with minimal config
-3. **Check client version** - Ensure MCP support is available
-4. **Use debug logging** - Set `LOG_LEVEL=DEBUG`
-5. **Monitor both logs** - Check client AND server logs
+## `uvx` is not found
 
-## 🆘 Still Having Issues?
+Run `uvx --version` in a normal terminal. If it works there but not in the
+host, the graphical application likely has a different PATH. Configure the
+absolute path to the `uvx` executable as `command`, or launch the host from
+an environment where uv is available.
 
-1. Run the diagnostic script:
-   ```bash
-   python status_check.py
-   ```
+## The package cannot be installed
 
-2. Collect debug info:
-   - Client name and version
-   - Operating system
-   - Python version (`python --version`)
-   - Error messages from logs
-   - Your configuration (remove secrets)
+Confirm network access and package availability:
 
-3. Open an issue: https://github.com/skywinder/osm-edit-mcp/issues
+```bash
+uvx --refresh osm-edit-mcp
+```
 
-Include all debug info for fastest resolution!
+Remove no caches or credentials before recording the complete error. Package
+resolution, Python compatibility, and a server protocol error are different
+failure classes.
+
+## The server exits during startup
+
+Use the MCP Inspector to separate host configuration from server startup:
+
+```bash
+npx -y @modelcontextprotocol/inspector uvx osm-edit-mcp
+```
+
+Check stderr for a Python traceback. MCP stdout must contain protocol messages
+only; wrappers that print banners to stdout will break initialization.
+
+## No tools appear
+
+1. Confirm the host completed MCP initialization.
+2. Call `tools/list` in the Inspector.
+3. Check that the configured command is `uvx` and the single argument is
+   `osm-edit-mcp`.
+4. Remove stale `cwd`, `PYTHONPATH`, and script-path settings left from an
+   older source-checkout configuration.
+5. Restart the host.
+
+## The wrong tools appear
+
+Call `get_edit_capabilities` and inspect `write_profile`. In the recommended
+`safe` profile, raw direct-write tools are not registered.
+
+If expert tools appear unexpectedly, remove `OSM_WRITE_PROFILE=expert` and
+reconnect. Expert mode is development-API-only.
+
+## Authentication is unavailable
+
+Read-only inspection does not require OAuth. Production editing does.
+
+OAuth bootstrap currently runs from an existing source checkout:
+
+```bash
+uv sync --locked --extra dev
+install -m 600 .env.example .env
+export OSM_EDIT_MCP_ENV_FILE="$PWD/.env"
+uv run python oauth_auth.py --dev
+```
+
+Use a separate OAuth application for production. Never paste tokens into an
+issue, chat, MCP configuration, or debug log.
+
+## Production apply is refused
+
+This is expected when any production safety gate is missing. Check that:
+
+- the host supports MCP elicitation;
+- `OSM_REQUIRE_HOST_CONFIRMATION=true`;
+- `get_edit_capabilities` reports the production API and expected OSM account;
+- the live account has `write_api`;
+- the proposal has not expired or already been claimed;
+- the exact proposal digest is supplied;
+- referenced OSM versions still match.
+
+Do not bypass a failed gate by enabling raw write tools.
+
+## A GPX path is rejected
+
+- Set `OSM_TRACK_IMPORT_DIR` to an absolute directory visible to the host.
+- Place the file below that directory.
+- Do not use symlinks that escape the directory.
+- Check the configured 10 MiB and 100,000-point defaults.
+- A history export with discontinuities should be split and narrowed before use.
+
+## A preview resource does not open
+
+Some hosts do not render `ui://` resources. Inspect the returned
+`current_geojson` and `proposed_geojson` fields instead. Lack of resource UI
+support does not authorize skipping review.
+
+## Collecting a useful issue report
+
+Include:
+
+- operating system and MCP host/version;
+- the redacted server configuration;
+- whether package or source-checkout mode is used;
+- output from `get_server_info` and `get_edit_capabilities`;
+- the initialization or stderr error;
+- whether the failure occurs before or after `tools/list`.
+
+Remove OAuth tokens, client secrets, private GPX paths/content, and personal
+location data. Report issues at
+[github.com/skywinder/osm-edit-mcp/issues](https://github.com/skywinder/osm-edit-mcp/issues).

@@ -1,88 +1,69 @@
-# OSM Edit MCP Setup Flow
-
-## Visual Setup Guide
+# Setup flow
 
 ```mermaid
-graph TD
-    A[Start] --> B[Clone Repository]
-    B --> C[Install Dependencies]
-    C --> D[Copy .env.example]
-    D --> E{Need Write Access?}
-    
-    E -->|No| F[Run Server]
-    F --> G[Ready for Read Operations!]
-    
-    E -->|Yes| H[Create Dev Account]
-    H --> I[Create OAuth App]
-    I --> J[Add Credentials to .env]
-    J --> K[Run oauth_auth.py]
-    K --> L[Run Server]
-    L --> M[Ready for All Operations!]
-    
-    style A fill:#e1f5e1
-    style G fill:#c8e6c9
-    style M fill:#a5d6a7
+flowchart TD
+    A[Install uv] --> B[Configure host: uvx osm-edit-mcp]
+    B --> C[Force development API and safe profile]
+    C --> D[Initialize MCP and list tools]
+    D --> E[Read and inspect OSM]
+    E --> F{Review a local GPX?}
+    F -->|No| G[Remain read-only]
+    F -->|Yes| H[Select one continuous segment]
+    H --> I[Review local selection preview]
+    I --> J{Build an edit proposal?}
+    J -->|No| K[Remain local and read-only]
+    J -->|Yes| L[Configure dev OAuth and verify identity]
+    L --> M[Compare and build non-writing proposal]
+    M --> N{Production apply needed?}
+    N -->|No| O[Keep proposal local or test on dev API]
+    N -->|Yes| P[Complete dev acceptance and configure production OAuth]
+    P --> Q[Host confirms exact digest]
+    Q --> R[Atomic OSM changeset]
 ```
 
-## Step-by-Step with Commands
+## Read-only setup
 
-### 🟢 Basic Setup (Read-Only)
-```bash
-# Takes 2 minutes
-git clone https://github.com/skywinder/osm-edit-mcp
-cd osm-edit-mcp
-pip install -r requirements.txt
-cp .env.example .env
-python main.py
+Add the released server to a JSON-based MCP host:
+
+```json
+{
+  "mcpServers": {
+    "osm-edit": {
+      "command": "uvx",
+      "args": ["osm-edit-mcp"],
+      "env": {
+        "OSM_USE_DEV_API": "true",
+        "OSM_WRITE_PROFILE": "safe"
+      }
+    }
+  }
+}
 ```
-✅ You can now search, validate, and read OSM data!
 
-### 🔵 Full Setup (Read + Write)
-```bash
-# Additional 5 minutes
-# 1. Create account at https://api06.dev.openstreetmap.org
-# 2. Create OAuth app (see README)
-# 3. Edit .env with credentials
-python oauth_auth.py
-python test_comprehensive.py
-python main.py
-```
-✅ You can now also create and edit OSM data!
+Restart the host and call `get_server_info`. This path does not need OAuth and
+does not expose raw write tools.
 
-## What Each Step Does
+## GPX review setup
 
-| Step | Purpose | Time |
-|------|---------|------|
-| Clone | Get the code | 30s |
-| Install | Python dependencies | 1m |
-| Configure | Basic settings | 30s |
-| OAuth | Enable editing | 3m |
-| Test | Verify setup | 1m |
+Add `OSM_TRACK_IMPORT_DIR` pointing to an absolute local directory outside the
+repository. Then:
 
-## Quick Decision Tree
+1. Analyze the GPX.
+2. Select one continuous surveyed section.
+3. Review the local selection preview and optional Valhalla diagnostics.
+4. To build an edit proposal, authenticate a development OSM account; the
+   non-writing proposal is bound to that verified identity and API target.
+5. Compare with current OSM, then review warnings, topology, operations, tags,
+   and the digest.
 
-**Just want to search OSM data?**
-→ Basic setup is enough (2 minutes)
+Stopping here creates no OSM changeset.
 
-**Need to add/edit map features?**
-→ Full setup with OAuth (7 minutes)
+## Production setup
 
-**Using with Claude Desktop?**
-→ Either setup works, depends on your needs
+Production is not a quick-start option. It requires separate development and
+production OAuth applications, representative development-server acceptance,
+the `safe` profile, live account and permission checks, and an MCP host that
+supports digest-bound elicitation.
 
-## Common Paths
-
-### 🔍 Data Analyst Path
-1. Basic setup
-2. Use search and statistics tools
-3. Export data for analysis
-
-### ✏️ Map Editor Path
-1. Full setup with OAuth
-2. Create changesets
-3. Add/update map features
-
-### 🤖 AI Assistant Path
-1. Either setup
-2. Configure Claude Desktop
-3. Natural language queries
+See [MCP client setup](MCP_CLIENT_SETUP.md) and the
+[main README](../README.md#oauth-and-production-use).

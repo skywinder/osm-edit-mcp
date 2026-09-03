@@ -57,6 +57,8 @@ def has_write_api_permission(permissions: Iterable[str]) -> bool:
 
 async def verify_write_identity(client: Any) -> Dict[str, Any]:
     """Verify the live OSM account and write scope before every apply."""
+    if config.api_environment == "custom":
+        raise PermissionError("OAuth writes are disabled for custom API targets")
     token = load_oauth_token()
     if not token or not token.get("access_token"):
         raise PermissionError("Authentication required")

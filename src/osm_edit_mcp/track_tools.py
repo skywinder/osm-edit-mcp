@@ -1548,15 +1548,17 @@ async def _preview_create(
                     f"HTTP {response.status_code}"
                 )
             root = parse_xml(response.text)
-            node = root.find(".//node")
-            if node is None or node.get("version") is None:
+            node_element = root.find(".//node")
+            if node_element is None or node_element.get("version") is None:
                 raise ValueError(
                     f"Could not determine version for snapped endpoint node {node_id}"
                 )
-            snapshot_nodes[node_id]["version"] = int(node.get("version", "0"))
+            snapshot_nodes[node_id]["version"] = int(
+                node_element.get("version", "0")
+            )
             authoritative_point = (
-                float(node.get("lat", "0")),
-                float(node.get("lon", "0")),
+                float(node_element.get("lat", "0")),
+                float(node_element.get("lon", "0")),
             )
             for point_index, snapped_node_id in snapped_refs.items():
                 if snapped_node_id == node_id:
@@ -2586,6 +2588,51 @@ async def _apply_osm_edit_internal(
         )
 
 
+async def _request_host_confirmation(
+    proposal: Proposal, context: Context
+) -> Optional[Dict[str, Any]]:
+    """Request a separate host confirmation bound to one exact proposal."""
+    try:
+        _PROPOSAL_STORE.mark_awaiting_approval(proposal.proposal_id)
+    except ProposalStoreError as exc:
+        return _failure(
+            type(exc).__name__,
+            "Proposal is not available for confirmation",
+            detail=str(exc),
+        )
+    environment = config.api_environment.upper()
+    try:
+        confirmation = await context.elicit(
+            (
+                f"{environment} OSM WRITE. "
+                f"Review {proposal.payload.get('summary', {})}. "
+                f"API: {proposal.api_target}. "
+                f"OSM UID: {proposal.osm_uid}. "
+                f"Proposal SHA-256: {proposal.digest}. "
+                "Confirm only if the map preview and exact element "
+                "operations are correct."
+            ),
+            ApplyConfirmation,
+        )
+    except Exception as exc:
+        return _failure(
+            "Host confirmation unavailable",
+            "This MCP client cannot safely approve the requested write",
+            detail=describe_exception(exc),
+        )
+    if (
+        confirmation.action != "accept"
+        or confirmation.data is None
+        or confirmation.data.confirm is not True
+        or confirmation.data.proposal_digest != proposal.digest
+    ):
+        return _failure(
+            "Confirmation declined",
+            "The host did not approve this exact proposal digest",
+        )
+    return None
+
+
 @mcp.tool(
     annotations=ToolAnnotations(
         readOnlyHint=False,
@@ -2616,61 +2663,30 @@ async def apply_osm_edit(
         return await _apply_osm_edit_internal(
             proposal_id, proposal_digest, changeset_id
         )
-    if config.osm_require_host_confirmation or not config.osm_use_dev_api:
-        try:
-            _PROPOSAL_STORE.mark_awaiting_approval(proposal_id)
-        except ProposalStoreError as exc:
-            return _failure(
-                type(exc).__name__,
-                "Proposal is not available for confirmation",
-                detail=str(exc),
-            )
-        environment = "DEVELOPMENT" if config.osm_use_dev_api else "PRODUCTION"
-        try:
-            confirmation = await context.elicit(
-                (
-                    f"{environment} OSM WRITE. "
-                    f"Review {proposal.payload.get('summary', {})}. "
-                    f"API: {proposal.api_target}. "
-                    f"OSM UID: {proposal.osm_uid}. "
-                    f"Proposal SHA-256: {proposal.digest}. "
-                    "Confirm only if the map preview and exact element "
-                    "operations are correct."
-                ),
-                ApplyConfirmation,
-            )
-        except Exception as exc:
-            return _failure(
-                "Host confirmation unavailable",
-                "This MCP client cannot safely approve the production write",
-                detail=describe_exception(exc),
-            )
-        if (
-            confirmation.action != "accept"
-            or confirmation.data is None
-            or confirmation.data.confirm is not True
-            or confirmation.data.proposal_digest != proposal.digest
-        ):
-            return _failure(
-                "Confirmation declined",
-                "The host did not approve this exact proposal digest",
-            )
+    if config.osm_require_host_confirmation or not config.is_development_api:
+        confirmation_failure = await _request_host_confirmation(proposal, context)
+        if confirmation_failure is not None:
+            return confirmation_failure
     return await _apply_osm_edit_internal(proposal_id, proposal_digest, changeset_id)
 
 
 async def apply_track_road_edit(
-    proposal_id: str, confirm: bool, changeset_id: Optional[int] = None
+    proposal_id: str,
+    proposal_digest: str,
+    confirm: bool,
+    context: Context,
+    changeset_id: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """Compatibility apply endpoint; production uses ``apply_osm_edit``."""
+    """Apply an exact dev-API digest after separate host confirmation."""
+    if not config.is_development_api:
+        return _failure(
+            "Development API required",
+            "Non-development targets must use apply_osm_edit with MCP elicitation",
+        )
     if confirm is not True:
         return _failure(
             "Confirmation required",
             "Review the complete preview before requesting apply",
-        )
-    if not config.osm_use_dev_api and config.osm_require_host_confirmation:
-        return _failure(
-            "Host confirmation required",
-            "Production edits must use apply_osm_edit with MCP elicitation",
         )
     proposal = _get_proposal(proposal_id)
     if proposal is None:
@@ -2678,10 +2694,19 @@ async def apply_track_road_edit(
             "Unknown or expired proposal",
             "Create a fresh preview before applying the road edit",
         )
-    return await _apply_osm_edit_internal(proposal_id, proposal.digest, changeset_id)
+    if proposal.digest != proposal_digest:
+        return _failure(
+            "Proposal digest mismatch",
+            "The exact reviewed digest is required",
+        )
+    if proposal.status != "APPLIED":
+        confirmation_failure = await _request_host_confirmation(proposal, context)
+        if confirmation_failure is not None:
+            return confirmation_failure
+    return await _apply_osm_edit_internal(proposal_id, proposal_digest, changeset_id)
 
 
-if config.osm_use_dev_api:
+if config.is_development_api:
     mcp.tool(
         annotations=ToolAnnotations(
             readOnlyHint=False,

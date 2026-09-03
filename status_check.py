@@ -1,91 +1,84 @@
 #!/usr/bin/env python3
-"""
-OSM Edit MCP Server - Setup Status Check
-========================================
+"""Report source-checkout readiness without exposing OAuth material."""
 
-Quick verification script to check if your setup is complete and working.
-
-Usage:
-    python status_check.py
-"""
+from __future__ import annotations
 
 import os
-import json
-from dotenv import load_dotenv
+from pathlib import Path
 
-def check_setup_status():
-    """Quick status check for OSM Edit MCP Server setup"""
-    load_dotenv()
+from osm_edit_mcp.config import config
+from osm_edit_mcp.token_store import get_current_user_info
 
-    print("🔍 OSM Edit MCP Server - Setup Status Check")
-    print("=" * 50)
+ROOT = Path(__file__).resolve().parent
 
-    # Check environment file
-    if os.path.exists('.env'):
-        print("✅ .env file exists")
-    else:
-        print("❌ .env file missing - copy from .env.example")
-        return
 
-    # Check API mode
-    use_dev = os.getenv('OSM_USE_DEV_API', 'true').lower() == 'true'
-    print(f"✅ API Mode: {'Development' if use_dev else 'Production'}")
+def check_setup_status() -> int:
+    """Check the package, explicit configuration, and optional authentication."""
+    print("OSM Edit MCP Server - Setup Status Check")
+    print("=" * 48)
 
-    # Check OAuth credentials
-    if use_dev:
-        client_id = os.getenv('OSM_DEV_CLIENT_ID')
-        client_secret = os.getenv('OSM_DEV_CLIENT_SECRET')
-        print(f"✅ Dev OAuth ID: {'Set' if client_id else '❌ Missing'}")
-        print(f"✅ Dev OAuth Secret: {'Set' if client_secret else '❌ Missing'}")
-    else:
-        client_id = os.getenv('OSM_PROD_CLIENT_ID')
-        client_secret = os.getenv('OSM_PROD_CLIENT_SECRET')
-        print(f"✅ Prod OAuth ID: {'Set' if client_id else '❌ Missing'}")
-        print(f"✅ Prod OAuth Secret: {'Set' if client_secret else '❌ Missing'}")
-
-    # Check authentication token
-    token_file = '.osm_token_dev.json' if use_dev else '.osm_token_prod.json'
-    if os.path.exists(token_file):
-        try:
-            with open(token_file) as f:
-                token_data = json.load(f)
-            print(f"✅ Authentication: Token saved for user ID {token_data.get('user_id', 'unknown')}")
-            print(f"   Username: {token_data.get('username', 'unknown')}")
-            print(f"   Token expires: {token_data.get('expires_at', 'unknown')}")
-        except Exception as e:
-            print(f"❌ Authentication: Token file corrupted - {e}")
-    else:
-        print("❌ Authentication: No token found - run 'python oauth_auth.py'")
-
-    # Check if server files exist
-    server_files = [
-        'src/osm_edit_mcp/server.py',
-        'main.py',
-        'test_comprehensive.py',
-        'oauth_auth.py'
-    ]
-
-    missing_files = []
-    for file in server_files:
-        if os.path.exists(file):
-            print(f"✅ {file}")
+    has_error = False
+    configured_env = os.environ.get("OSM_EDIT_MCP_ENV_FILE")
+    if configured_env:
+        env_path = Path(configured_env).expanduser()
+        if env_path.is_file():
+            print("OK  Explicit dotenv configuration exists")
         else:
-            missing_files.append(file)
-            print(f"❌ {file} missing")
-
-    print("\n🎯 Next Steps:")
-    if not os.path.exists('.env'):
-        print("1. Copy .env.example to .env")
-    elif missing_files:
-        print("1. Restore missing files from repository")
-    elif not client_id or not client_secret:
-        print("1. Set up OAuth credentials (see README setup guide)")
-    elif not os.path.exists(token_file):
-        print("1. Run authentication: python oauth_auth.py")
+            print("ERR OSM_EDIT_MCP_ENV_FILE does not point to a file")
+            has_error = True
     else:
-        print("1. ✅ Setup complete! Run: python test_comprehensive.py")
-        print("2. ✅ Start server: python main.py")
-        print("3. ✅ Check your changesets: https://api06.dev.openstreetmap.org/user/[username]/history")
+        print("OK  No dotenv selected; documented safe defaults are active")
+
+    environment = config.api_environment.title()
+    print(f"OK  API mode: {environment}")
+    print(f"OK  API target: {config.current_api_base_url}")
+    print(f"OK  Write profile: {config.osm_write_profile}")
+
+    client_id = config.current_client_id
+    client_secret = config.current_client_secret
+    oauth_configured = bool(client_id and client_secret)
+    print(
+        "OK  OAuth application credentials: configured"
+        if oauth_configured
+        else "INFO OAuth credentials are absent; read-only inspection remains available"
+    )
+
+    user_info = get_current_user_info()
+    if user_info:
+        user_label = user_info.get("username") or user_info.get("user_id") or "unknown"
+        print(f"OK  Authentication token is available for: {user_label}")
+    else:
+        print("INFO No OAuth token found in the configured secure token store")
+
+    required_files = (
+        "pyproject.toml",
+        "uv.lock",
+        "src/osm_edit_mcp/server.py",
+        "oauth_auth.py",
+    )
+    for relative_path in required_files:
+        if (ROOT / relative_path).is_file():
+            print(f"OK  {relative_path}")
+        else:
+            print(f"ERR Missing required source file: {relative_path}")
+            has_error = True
+
+    print("\nNext steps:")
+    if has_error:
+        print("1. Fix the errors above, then run this check again.")
+    elif not oauth_configured:
+        print("1. Read-only setup is ready: start through an MCP host with uvx.")
+        print(
+            "2. Configure OAuth only if you intend to prepare authenticated previews."
+        )
+    elif not user_info:
+        print("1. Run: uv run --locked python oauth_auth.py")
+        print("2. Start through an MCP host with: uv run --locked osm-edit-mcp")
+    else:
+        print("1. Setup is ready. Start through an MCP host with uvx osm-edit-mcp.")
+
+    return 1 if has_error else 0
+
 
 if __name__ == "__main__":
-    check_setup_status()
+    raise SystemExit(check_setup_status())

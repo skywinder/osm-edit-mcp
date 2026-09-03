@@ -11,7 +11,7 @@ from .token_store import load_oauth_token
 def get_authenticated_client() -> httpx.AsyncClient:
     """Get HTTP client with OAuth authentication if available"""
     config.assert_safe_api_target(config.current_api_base_url)
-    token_data = load_oauth_token()
+    token_data = None if config.api_environment == "custom" else load_oauth_token()
     if token_data and token_data.get("access_token"):
         headers = {
             "Authorization": f"Bearer {token_data['access_token']}",

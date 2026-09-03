@@ -211,7 +211,7 @@ async def get_server_info() -> Dict[str, Any]:
                 "server_name": "OSM Edit MCP Server",
                 "version": config.mcp_server_version,
                 "api_base_url": config.current_api_base_url,
-                "api_mode": "Development" if config.osm_use_dev_api else "Production",
+                "api_mode": config.api_environment.title(),
                 "authentication_status": auth_status,
                 "available_safe_edit_operations": [
                     "get_edit_capabilities",
@@ -290,7 +290,7 @@ async def check_authentication() -> Dict[str, Any]:
             "authenticated": True,
             "data": {
                 **identity,
-                "api_mode": ("Development" if config.osm_use_dev_api else "Production"),
+                "api_mode": config.api_environment.title(),
                 "api_url": config.current_api_base_url,
                 "token_status": "valid",
                 "permissions": permissions,
@@ -660,9 +660,15 @@ async def parse_natural_language_osm_request(request: str) -> Dict[str, Any]:
                 "parsed_request": parsed,
                 "suggested_tags": suggested_tags,
                 "action_suggestions": {
-                    "create": "Use create_place_from_description()",
-                    "update": "Use find_and_update_place()",
-                    "delete": "Use delete_place_from_description()",
+                    "create": (
+                        "No natural-language create tool is registered in the safe "
+                        "profile; GPX road geometry must use the review-first prompt"
+                    ),
+                    "update": (
+                        "No natural-language update tool is registered in the safe "
+                        "profile; choose exact OSM IDs through the review workflow"
+                    ),
+                    "delete": "Natural-language deletion is not supported",
                     "find": "Use search_osm_elements() or find_nearby_amenities()",
                 },
             },

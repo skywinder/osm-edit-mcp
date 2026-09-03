@@ -1,10 +1,12 @@
 {
   "mcpServers": {
     "osm-edit": {
-      "command": "python",
-      "args": ["/Users/YOUR_USERNAME/osm-edit-mcp/main.py"],
+      "command": "uvx",
+      "args": ["osm-edit-mcp"],
       "env": {
-        "PYTHONPATH": "/Users/YOUR_USERNAME/osm-edit-mcp"
+        "OSM_USE_DEV_API": "true",
+        "OSM_WRITE_PROFILE": "safe",
+        "OSM_REQUIRE_HOST_CONFIRMATION": "true"
       }
     }
   }

@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y \
 # Copy dependency files
 COPY pyproject.toml ./
 COPY README.md ./
+COPY LICENSE ./
 COPY src/ ./src/
 
 # Install Python dependencies

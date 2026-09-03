@@ -65,7 +65,7 @@ async def lifespan(app: FastAPI):
     if not API_KEY:
         raise RuntimeError("Refusing to start HTTP API without API_KEY")
     logger.info(f"Starting OSM Edit Web API")
-    logger.info(f"API Mode: {'Development' if config.is_development else 'Production'}")
+    logger.info("API environment: %s", config.api_environment)
     logger.info(f"API Base URL: {config.current_api_base_url}")
     yield
     logger.info("Shutting down OSM Edit Web API")
@@ -150,7 +150,7 @@ async def health_check():
     """Health check endpoint"""
     return {
         "status": "healthy",
-        "api_mode": "development" if config.is_development else "production",
+        "api_mode": config.api_environment,
         "version": "1.0.0",
     }
 

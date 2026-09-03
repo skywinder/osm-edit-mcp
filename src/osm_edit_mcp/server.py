@@ -34,6 +34,7 @@ from .natural_language import (
     parse_natural_language_request,
     parse_opening_hours,
 )
+from .prompts import review_gpx_road_edit
 from .read_tools import (
     check_authentication,
     export_osm_data,
@@ -88,12 +89,13 @@ osm_client = None
 
 def main() -> None:
     """Run the FastMCP server using its default stdio transport."""
+    setup_logging()
     logger.info("Starting OSM Edit MCP Server...")
     logger.info("Python version: %s", sys.version)
     logger.info("Server version: %s", config.mcp_server_version)
     logger.info(
         "API mode: %s",
-        "Development" if config.is_development else "Production",
+        config.api_environment.title(),
     )
 
     try:
@@ -167,6 +169,7 @@ __all__ = [
     "parse_opening_hours",
     "parse_osm_xml",
     "preview_track_road_edit",
+    "review_gpx_road_edit",
     "search_osm_elements",
     "setup_logging",
     "smart_geocode",

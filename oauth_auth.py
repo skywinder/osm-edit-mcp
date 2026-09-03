@@ -10,10 +10,13 @@ Usage:
     python oauth_auth.py              # Development API (default)
     python oauth_auth.py --prod       # Production API
     python oauth_auth.py --dev        # Development API (explicit)
+
+Set OSM_EDIT_MCP_ENV_FILE=/absolute/path/to/.env to load dotenv credentials.
 """
 
 import asyncio
 import base64
+import getpass
 import hashlib
 import json
 import os
@@ -25,13 +28,65 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
 import keyring
-from defusedxml.ElementTree import fromstring as parse_xml
 from dotenv import load_dotenv
 
+from osm_edit_mcp.auth import (
+    _parse_identity,
+    _parse_permissions,
+    has_write_api_permission,
+)
+from osm_edit_mcp.config import validated_env_file
 from osm_edit_mcp.token_store import save_oauth_token
 
-# Load environment variables
-load_dotenv()
+# Dotenv loading is explicit so importing this helper never mutates the process
+# from an unrelated working-directory .env.
+_configured_env_file = os.environ.get("OSM_EDIT_MCP_ENV_FILE")
+if _configured_env_file:
+    load_dotenv(validated_env_file(_configured_env_file))
+
+
+def _trusted_user_id(token_data):
+    """Return a locally persisted OSM user id only when it is unambiguous."""
+    value = token_data.get("user_id")
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        user_id = value
+    elif isinstance(value, str) and value.strip().isdigit():
+        user_id = int(value.strip())
+    else:
+        return None
+    return user_id if user_id > 0 else None
+
+
+def _replacement_account_gate(
+    *, has_existing_record, stored_token, live_identity, allow_account_change
+):
+    """Choose the account constraint before starting a replacement OAuth flow."""
+    if allow_account_change:
+        return True, None
+
+    if live_identity is not None:
+        live_user_id = _trusted_user_id(live_identity)
+        if live_user_id is not None:
+            return True, live_user_id
+
+    stored_user_id = _trusted_user_id(stored_token)
+    if stored_user_id is not None:
+        return True, stored_user_id
+
+    if has_existing_record:
+        return False, None
+    return True, None
+
+
+def _prompt_for_redirect_url():
+    """Read a redirect URL without surfacing a traceback on terminal cancellation."""
+    try:
+        return getpass.getpass("Redirect URL (hidden): ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print("\n❌ Authorization cancelled; the existing token is unchanged")
+        return None
 
 
 class OSMOAuth:
@@ -52,7 +107,7 @@ class OSMOAuth:
             self.client_id = os.getenv("OSM_DEV_CLIENT_ID")
             self.client_secret = os.getenv("OSM_DEV_CLIENT_SECRET")
             self.redirect_uri = (
-                os.getenv("OSM_DEV_REDIRECT_URI") or "http://localhost:8080/callback"
+                os.getenv("OSM_DEV_REDIRECT_URI") or "https://localhost:8080/callback"
             )
         else:
             self.client_id = os.getenv("OSM_PROD_CLIENT_ID")
@@ -74,7 +129,7 @@ class OSMOAuth:
 
         print(f"🔧 Using {'Development' if self.use_dev_api else 'Production'} API")
         print(f"📡 API Base: {self.api_base}")
-        print(f"🔑 Client ID: {self.client_id}")
+        print(f"🔑 Client ID: {'configured' if self.client_id else 'missing'}")
         print(f"🔄 Redirect URI: {self.redirect_uri}")
 
     def get_authorization_url(self):
@@ -104,7 +159,7 @@ class OSMOAuth:
                 "code_verifier": self.code_verifier,
             }
 
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(
                     self.token_url, data=data, headers={"Accept": "application/json"}
                 )
@@ -116,62 +171,124 @@ class OSMOAuth:
                         datetime.now().astimezone()
                         + timedelta(seconds=token_data.get("expires_in", 3600))
                     ).isoformat()
-                    save_oauth_token(token_data, use_dev_api=self.use_dev_api)
-                    print("✅ Token saved to the OS keyring")
                     return token_data
                 else:
                     print(f"❌ Token exchange failed: {response.status_code}")
-                    print(f"Response: {response.text}")
                     return None
 
         except Exception as e:
-            print(f"❌ Error during token exchange: {e}")
+            print(f"❌ Error during token exchange: {type(e).__name__}")
             return None
 
-    async def test_authentication(self):
-        """Test if the current authentication works."""
+    async def validate_access_token(self, access_token, expected_user_id=None):
+        """Validate a candidate token against live identity and permissions."""
         try:
-            # Get token from keyring
-            keyring_service = f"osm-edit-mcp-{'dev' if self.use_dev_api else 'prod'}"
-            serialized = keyring.get_password(keyring_service, "token_json")
-            token_data = json.loads(serialized) if serialized else {}
-            access_token = token_data.get("access_token") or keyring.get_password(
-                keyring_service, "access_token"
-            )
-
-            if not access_token:
-                print("❌ No access token found. Please authenticate first.")
-                return False
-
-            # Test API call with authentication
             headers = {"Authorization": f"Bearer {access_token}"}
-
-            async with httpx.AsyncClient() as client:
-                # Test with user details endpoint
-                response = await client.get(
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                details = await client.get(
                     f"{self.api_base}/api/0.6/user/details", headers=headers
                 )
+                permissions_response = await client.get(
+                    f"{self.api_base}/api/0.6/permissions", headers=headers
+                )
 
-                if response.status_code == 200:
-                    print("✅ Authentication successful!")
+            if details.status_code != 200:
+                print(f"❌ Identity verification failed: HTTP {details.status_code}")
+                return None
+            if permissions_response.status_code != 200:
+                print(
+                    "❌ Permission verification failed: "
+                    f"HTTP {permissions_response.status_code}"
+                )
+                return None
 
-                    # Parse user info from XML
-                    root = parse_xml(response.text)
-                    user = root.find("user")
-                    if user is not None:
-                        display_name = user.get("display_name")
-                        user_id = user.get("id")
-                        print(f"👤 Logged in as: {display_name} (ID: {user_id})")
+            identity = _parse_identity(details.text)
+            permissions = _parse_permissions(permissions_response.text)
+            if expected_user_id is not None and identity["user_id"] != expected_user_id:
+                print("❌ OAuth account changed; refusing to replace the existing token")
+                return None
+            if not has_write_api_permission(permissions):
+                print("❌ OAuth token does not grant write_api")
+                return None
 
-                    return True
-                else:
-                    print(f"❌ Authentication test failed: {response.status_code}")
-                    print(f"Response: {response.text}")
-                    return False
+            print("✅ Authentication and write_api permission verified")
+            print(
+                f"👤 Logged in as: {identity['username']} "
+                f"(ID: {identity['user_id']})"
+            )
+            return {**identity, "permissions": sorted(permissions)}
 
         except Exception as e:
-            print(f"❌ Error testing authentication: {e}")
-            return False
+            print(f"❌ Error testing authentication: {type(e).__name__}")
+            return None
+
+    def load_existing_token_record(self):
+        """Load keyring token metadata while retaining conservative record state."""
+        keyring_service = f"osm-edit-mcp-{'dev' if self.use_dev_api else 'prod'}"
+        token_data = {}
+        has_existing_record = False
+
+        try:
+            serialized = keyring.get_password(keyring_service, "token_json")
+            if serialized is not None:
+                has_existing_record = True
+                try:
+                    parsed = json.loads(serialized)
+                except (json.JSONDecodeError, TypeError):
+                    print("⚠️  Existing token metadata is unreadable")
+                else:
+                    if isinstance(parsed, dict):
+                        token_data = parsed
+                    else:
+                        print("⚠️  Existing token metadata has an invalid format")
+        except Exception as e:
+            print(f"❌ Could not read the existing token: {type(e).__name__}")
+            # A read failure cannot prove that the entry is absent. Treat it as
+            # existing so account replacement requires explicit authorization.
+            has_existing_record = True
+
+        if not token_data.get("access_token"):
+            try:
+                legacy_access_token = keyring.get_password(
+                    keyring_service, "access_token"
+                )
+                if legacy_access_token:
+                    has_existing_record = True
+                    token_data["access_token"] = legacy_access_token
+            except Exception as e:
+                print(f"❌ Could not read the legacy token: {type(e).__name__}")
+                has_existing_record = True
+
+        return token_data, has_existing_record
+
+    async def test_authentication(self, token_data=None):
+        """Validate the currently stored token without changing keyring state."""
+        if token_data is None:
+            token_data, _ = self.load_existing_token_record()
+        access_token = token_data.get("access_token")
+        if not access_token:
+            print("❌ No access token found. Please authenticate first.")
+            return None
+        return await self.validate_access_token(access_token)
+
+    async def validate_and_save_token(self, token_data, expected_user_id=None):
+        """Persist a replacement only after live account and scope validation."""
+        access_token = token_data.get("access_token")
+        if not access_token:
+            print("❌ Token response did not contain an access token")
+            return None
+        identity = await self.validate_access_token(access_token, expected_user_id)
+        if identity is None:
+            print("❌ Candidate token was not saved; the existing token is unchanged")
+            return None
+        token_data.update(identity)
+        try:
+            save_oauth_token(token_data, use_dev_api=self.use_dev_api)
+        except Exception as e:
+            print(f"❌ Could not save the validated token: {type(e).__name__}")
+            return None
+        print("✅ Validated token saved to the OS keyring")
+        return identity
 
 
 async def main():
@@ -179,29 +296,59 @@ async def main():
     print("🚀 OSM Edit MCP Server - OAuth Authentication")
     print("=" * 50)
 
+    args = set(sys.argv[1:])
+    valid_args = {
+        "--prod",
+        "--production",
+        "--dev",
+        "--development",
+        "--reauthorize",
+        "--allow-account-change",
+        "--no-browser",
+        "-h",
+        "--help",
+    }
+    unknown_args = args - valid_args
+    if unknown_args:
+        print(f"Unknown argument: {sorted(unknown_args)[0]}")
+        print("Use --help for usage information")
+        return
+
+    if "-h" in args or "--help" in args:
+        print("Usage:")
+        print("  python oauth_auth.py              # Development API (default)")
+        print("  python oauth_auth.py --dev        # Development API (explicit)")
+        print("  python oauth_auth.py --prod       # Production API")
+        print("  python oauth_auth.py --reauthorize  # Replace a token safely")
+        print(
+            "  python oauth_auth.py --reauthorize --allow-account-change"
+            "  # Intentionally change OSM account"
+        )
+        print("  python oauth_auth.py --no-browser   # Print URL without opening it")
+        return
+
+    prod_requested = bool(args & {"--prod", "--production"})
+    dev_requested = bool(args & {"--dev", "--development"})
+    if prod_requested and dev_requested:
+        print("Choose either --prod or --dev, not both")
+        return
+
+    force_reauthorize = "--reauthorize" in args
+    allow_account_change = "--allow-account-change" in args
+    open_browser = "--no-browser" not in args
+    if allow_account_change and not force_reauthorize:
+        print("--allow-account-change requires --reauthorize")
+        return
+
     # Determine which API to use
     use_dev_api = True  # Default to dev for safety
 
     # Check command-line arguments
-    if len(sys.argv) > 1:
-        if sys.argv[1] in ["--prod", "--production"]:
-            use_dev_api = False
-            print(
-                "⚠️  WARNING: Using PRODUCTION API - changes will affect real OSM data!"
-            )
-        elif sys.argv[1] in ["--dev", "--development"]:
-            use_dev_api = True
-        elif sys.argv[1] in ["-h", "--help"]:
-            print("Usage:")
-            print("  python oauth_auth.py              # Development API (default)")
-            print("  python oauth_auth.py --dev        # Development API (explicit)")
-            print("  python oauth_auth.py --prod       # Production API")
-            print("  python oauth_auth.py --help       # Show this help")
-            return
-        else:
-            print(f"Unknown argument: {sys.argv[1]}")
-            print("Use --help for usage information")
-            return
+    if prod_requested:
+        use_dev_api = False
+        print("⚠️  WARNING: Using PRODUCTION API - changes affect real OSM data!")
+    elif dev_requested:
+        use_dev_api = True
     # Check environment variable as fallback
     elif os.getenv("OSM_USE_PROD_API", "").lower() in ["true", "1", "yes"]:
         use_dev_api = False
@@ -224,8 +371,29 @@ async def main():
 
     # Test if we already have valid authentication
     print("\n📋 Testing existing authentication...")
-    if await oauth.test_authentication():
+    stored_token, has_existing_record = oauth.load_existing_token_record()
+    existing_identity = await oauth.test_authentication(stored_token)
+    if not force_reauthorize and existing_identity:
         print("🎉 You're already authenticated! Ready to use the MCP server.")
+        return
+    if force_reauthorize:
+        print("♻️  Reauthorization requested; preserving the existing token until exchange")
+
+    replacement_allowed, expected_user_id = _replacement_account_gate(
+        has_existing_record=has_existing_record,
+        stored_token=stored_token,
+        live_identity=existing_identity,
+        allow_account_change=allow_account_change,
+    )
+    if not replacement_allowed:
+        print(
+            "❌ The existing token cannot be tied to a trusted OSM account; "
+            "it will not be replaced"
+        )
+        print(
+            "To intentionally authorize another account, rerun with "
+            "--reauthorize --allow-account-change"
+        )
         return
 
     print("\n🔐 Starting OAuth authentication flow...")
@@ -236,13 +404,15 @@ async def main():
     print(f"🔗 {auth_url}")
 
     # Try to open URL in browser
-    try:
-        webbrowser.open(auth_url)
-        print("🌐 Opening browser automatically...")
-    except:
-        print(
-            "⚠️  Could not open browser automatically. Please copy and paste the URL above."
-        )
+    if open_browser:
+        try:
+            webbrowser.open(auth_url)
+            print("🌐 Opening browser automatically...")
+        except Exception:
+            print(
+                "⚠️  Could not open browser automatically. "
+                "Please copy and paste the URL above."
+            )
 
     print(
         "\n📋 Step 2: After authorizing, you'll be redirected to a URL that starts with:"
@@ -251,7 +421,9 @@ async def main():
 
     # Get authorization code from user
     print("\n📝 Step 3: Please paste the full redirect URL here:")
-    redirect_url = input("Redirect URL: ").strip()
+    redirect_url = _prompt_for_redirect_url()
+    if redirect_url is None:
+        return
 
     # Parse authorization code
     try:
@@ -283,20 +455,21 @@ async def main():
     if token_data:
         print("✅ Token exchange successful!")
 
-        # Step 5: Test authentication
-        print("\n🧪 Step 5: Testing authentication...")
-        if await oauth.test_authentication():
+        # Step 5: Validate the candidate before replacing a working token.
+        print("\n🧪 Step 5: Validating identity and write_api permission...")
+        if await oauth.validate_and_save_token(token_data, expected_user_id):
             print(
-                "\n🎉 Authentication complete! You can now use the MCP server with write operations."
+                "\n🎉 Authentication complete. The server can now prepare "
+                "identity-bound edit proposals."
             )
 
             print("\n📋 Next steps:")
-            print("1. Your MCP server is ready for write operations")
-            print("2. You can create changesets and edit OSM data")
-            print("3. Try running: python test_comprehensive.py")
+            print("1. Verify get_edit_capabilities reports the intended account")
+            print("2. Prepare and review a preview without writing to OSM")
+            print("3. Apply only after exact digest and MCP host confirmation")
 
         else:
-            print("❌ Authentication test failed")
+            print("❌ Authentication validation failed")
     else:
         print("❌ Token exchange failed")
 

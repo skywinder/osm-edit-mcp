@@ -68,7 +68,7 @@ async def get_edit_capabilities() -> Dict[str, Any]:
     return {
         "success": True,
         "data": {
-            "environment": ("development" if config.osm_use_dev_api else "production"),
+            "environment": config.api_environment,
             "api_target": config.current_api_base_url,
             "web_target": config.current_web_base_url,
             "write_profile": config.osm_write_profile,

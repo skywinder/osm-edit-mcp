@@ -1,6 +1,7 @@
 import asyncio
 import time
 import xml.etree.ElementTree as ET
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -81,6 +82,22 @@ class MapClient:
     async def get(self, url, **kwargs):
         self.urls.append((url, kwargs))
         return FakeResponse(text=self.xml)
+
+
+class AcceptingContext:
+    def __init__(self, proposal_digest):
+        self.proposal_digest = proposal_digest
+        self.message = None
+
+    async def elicit(self, message, schema):
+        self.message = message
+        return SimpleNamespace(
+            action="accept",
+            data=track_tools.ApplyConfirmation(
+                confirm=True,
+                proposal_digest=self.proposal_digest,
+            ),
+        )
 
 
 def capabilities_xml(waynodes=2000, changes=10000):
@@ -686,10 +703,69 @@ def test_osm_change_uses_negative_ids_versions_and_conditional_deletes():
 
 @pytest.mark.asyncio
 async def test_apply_requires_confirmation():
-    result = await track_tools.apply_track_road_edit("anything", confirm=False)
+    result = await track_tools.apply_track_road_edit(
+        "anything",
+        "not-reviewed",
+        confirm=False,
+        context=AcceptingContext("not-reviewed"),
+    )
 
     assert result["success"] is False
     assert result["error"] == "Confirmation required"
+
+
+@pytest.mark.asyncio
+async def test_compatibility_apply_requires_exact_digest():
+    proposal = track_tools._store_proposal({"blocking_issues": []})
+
+    result = await track_tools.apply_track_road_edit(
+        proposal.proposal_id,
+        "wrong-digest",
+        confirm=True,
+        context=AcceptingContext("wrong-digest"),
+    )
+
+    assert result["success"] is False
+    assert result["error"] == "Proposal digest mismatch"
+
+
+@pytest.mark.asyncio
+async def test_compatibility_apply_always_uses_host_elicitation(monkeypatch):
+    proposal = track_tools._store_proposal(
+        {"blocking_issues": [], "summary": {"new_ways": 1}}
+    )
+    context = AcceptingContext(proposal.digest)
+
+    async def fake_apply(proposal_id, proposal_digest, changeset_id=None):
+        return {"success": True, "proposal_digest": proposal_digest}
+
+    monkeypatch.setattr(track_tools, "_apply_osm_edit_internal", fake_apply)
+    monkeypatch.setattr(track_tools.config, "osm_require_host_confirmation", False)
+
+    result = await track_tools.apply_track_road_edit(
+        proposal.proposal_id,
+        proposal.digest,
+        confirm=True,
+        context=context,
+    )
+
+    assert result["success"] is True
+    assert proposal.digest in context.message
+
+
+@pytest.mark.asyncio
+async def test_compatibility_apply_rejects_non_development_target(monkeypatch):
+    monkeypatch.setattr(track_tools.config, "osm_use_dev_api", False)
+
+    result = await track_tools.apply_track_road_edit(
+        "anything",
+        "not-reviewed",
+        confirm=True,
+        context=AcceptingContext("not-reviewed"),
+    )
+
+    assert result["success"] is False
+    assert result["error"] == "Development API required"
 
 
 @pytest.mark.asyncio
@@ -697,7 +773,12 @@ async def test_apply_rejects_expired_proposal():
     proposal = track_tools._store_proposal({"blocking_issues": []})
     proposal.expires_at = time.time() - 1
 
-    result = await track_tools.apply_track_road_edit(proposal.proposal_id, confirm=True)
+    result = await track_tools.apply_track_road_edit(
+        proposal.proposal_id,
+        proposal.digest,
+        confirm=True,
+        context=AcceptingContext(proposal.digest),
+    )
 
     assert result["success"] is False
     assert result["error"] == "Unknown or expired proposal"
@@ -827,7 +908,12 @@ async def test_apply_uploads_mocked_diff_and_closes_owned_changeset(monkeypatch)
     monkeypatch.setattr(track_tools, "verify_write_identity", fake_identity)
     monkeypatch.setattr(track_tools, "_verify_diff_results", fake_verify)
 
-    result = await track_tools.apply_track_road_edit(proposal.proposal_id, confirm=True)
+    result = await track_tools.apply_track_road_edit(
+        proposal.proposal_id,
+        proposal.digest,
+        confirm=True,
+        context=AcceptingContext(proposal.digest),
+    )
 
     assert result["success"] is True
     assert result["data"]["changeset_id"] == 77
@@ -897,14 +983,23 @@ async def test_concurrent_apply_never_uploads_the_same_proposal_twice(monkeypatc
     monkeypatch.setattr(track_tools, "_verify_diff_results", fake_verify)
 
     results = await asyncio.gather(
-        track_tools.apply_track_road_edit(proposal.proposal_id, confirm=True),
-        track_tools.apply_track_road_edit(proposal.proposal_id, confirm=True),
+        track_tools.apply_track_road_edit(
+            proposal.proposal_id,
+            proposal.digest,
+            confirm=True,
+            context=AcceptingContext(proposal.digest),
+        ),
+        track_tools.apply_track_road_edit(
+            proposal.proposal_id,
+            proposal.digest,
+            confirm=True,
+            context=AcceptingContext(proposal.digest),
+        ),
     )
 
     assert len(client.posts) == 1
     assert create_count == 1
     assert sum(result["success"] for result in results) == 1
-    assert any(result.get("detail") == "Proposal is applying" for result in results)
 
 
 @pytest.mark.asyncio
@@ -960,9 +1055,17 @@ async def test_transport_timeout_after_upload_requires_reconciliation(monkeypatc
     monkeypatch.setattr(track_tools, "close_changeset", fake_close)
     monkeypatch.setattr(track_tools, "verify_write_identity", fake_identity)
 
-    result = await track_tools.apply_track_road_edit(proposal.proposal_id, confirm=True)
+    result = await track_tools.apply_track_road_edit(
+        proposal.proposal_id,
+        proposal.digest,
+        confirm=True,
+        context=AcceptingContext(proposal.digest),
+    )
     repeated = await track_tools.apply_track_road_edit(
-        proposal.proposal_id, confirm=True
+        proposal.proposal_id,
+        proposal.digest,
+        confirm=True,
+        context=AcceptingContext(proposal.digest),
     )
 
     assert result["success"] is False

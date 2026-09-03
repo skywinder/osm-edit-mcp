@@ -1,98 +1,58 @@
 # OSM Edit MCP
 
-A local Model Context Protocol server for inspecting OpenStreetMap and turning a
-selected part of a GPX survey into reviewed OSM road geometry.
+[![MCP Badge](https://lobehub.com/badge/mcp/pk-osm-edit-mcp)](https://lobehub.com/mcp/pk-osm-edit-mcp)
 
-The default profile is deliberately narrow: an agent may inspect data and build
-previews, but a production write can happen only through a persistent proposal,
-a separate MCP host confirmation, fresh OSM version/permission checks, and one
-atomic `osmChange` upload.
+A review-first Model Context Protocol server for inspecting OpenStreetMap and
+turning a selected part of a local GPX survey into a previewed road-edit proposal.
 
-## What is supported
+> **Alpha software.** It does not autonomously edit OpenStreetMap. The normal
+> profile can inspect data and prepare proposals, but a production write requires
+> an exact preview, a separate MCP host confirmation of its SHA-256 digest, fresh
+> OSM identity/version checks, and one atomic `osmChange` upload.
 
-- Read OSM nodes, ways, relations, changesets, and small map areas.
-- Analyze GPX 1.0/1.1 without uploading the trace to OSM.
-- Crop one continuous range by point indexes, timestamps, or endpoint coordinates.
-- Run optional map matching against a local Valhalla instance.
-- Suggest nearby `highway=*` ways without selecting one automatically.
-- Preview a new road or reshape a selected contiguous chain of existing ways.
-- Display current/proposed GeoJSON through `ui://` MCP preview resources.
-- Apply one reviewed proposal atomically and return real OSM IDs, versions, and links.
-- Re-fetch an applied edit for verification.
+## Why this server
 
-This release does not publish GPS traces, infer at-grade crossings, delete roads,
-restructure relations, or copy geometry from restricted map providers.
+Most OpenStreetMap MCP servers focus on search, geocoding, or routing. OSM Edit
+MCP focuses on the risky last mile: helping a mapper review a narrowly selected
+survey before any road geometry reaches OSM.
 
-## Safety model
-
-The normal `safe` profile enforces the following:
-
-1. A preview contains the exact node/way operations, tags, warnings, topology
-   decisions, API target, expiry, and a SHA-256 digest.
-2. Proposals live in a local SQLite state machine and are atomically claimed.
-   Concurrent or repeated apply calls cannot upload the same proposal twice.
-3. Production `apply_osm_edit` asks the MCP host to confirm the exact digest.
-   The old `confirm=true` endpoint refuses production writes.
-4. Apply verifies the live OAuth identity and `write_api` permission, binds the
-   proposal to the API/account, and re-fetches every referenced OSM version.
-5. All creates, way modifications, and `if-unused` cleanup are sent in one
-   transactional `POST /changeset/{id}/upload`.
-6. A network failure after upload begins is marked `RECONCILE_REQUIRED`; the
-   server never retries an ambiguous upload blindly.
-7. Raw node/way and natural-language direct-write tools are not registered in
-   the safe profile. They can only be exposed with `OSM_WRITE_PROFILE=expert`
-   while targeting the development API.
-
-A GPS trace can be offset or noisy. Always review it against independent,
-permitted evidence. Personal labels and private location history do not belong
-in public OSM tags.
-
-## Install
-
-Requirements: Python 3.10+ and an MCP host that supports stdio. MCP elicitation
-support is required for production apply.
-
-```bash
-git clone https://github.com/skywinder/osm-edit-mcp
-cd osm-edit-mcp
-uv sync --dev
-cp .env.example .env
+```text
+local GPX → selected segment → current/proposed preview
+          → exact digest confirmation → OSM changeset
 ```
 
-The example configuration targets the OSM development server. Keep
-`OSM_USE_DEV_API=true` until the entire workflow has been tested there.
+The safe profile can:
 
-## OAuth
+- read OSM nodes, ways, relations, changesets, and small map areas;
+- analyze GPX 1.0/1.1 locally without publishing the trace;
+- select one continuous range by index, time, or endpoint coordinates;
+- optionally compare it with local Valhalla map matching;
+- suggest nearby `highway=*` ways without choosing one automatically;
+- preview a new road or a selected contiguous chain of existing ways;
+- expose current/proposed GeoJSON through an MCP `ui://` resource;
+- apply one confirmed proposal atomically and return OSM links and versions;
+- re-fetch a completed edit for later verification.
 
-Register separate OAuth applications for development and production. Grant only:
+It does **not** upload GPS traces, infer crossings, delete roads, restructure
+relations, copy geometry from restricted providers, or authorize a production
+edit from natural-language consent alone.
 
-- `read_prefs`
-- `write_api`
+## Quick start
 
-Put the corresponding client ID, client secret, and loopback redirect URI in
-`.env`, then authenticate:
+Requirements:
 
-```bash
-uv run python oauth_auth.py --dev
-# production, only after dev acceptance:
-uv run python oauth_auth.py --prod
-```
+- Python 3.10 or newer;
+- [uv](https://docs.astral.sh/uv/);
+- an MCP host that supports local stdio servers.
 
-OAuth uses PKCE and a random validated state. Tokens are stored in the operating
-system keyring. Plaintext `.osm_token_*.json` files are ignored unless the
-explicit compatibility setting is enabled and the file mode is `0600`.
-
-## Connect an MCP host
-
-Use an absolute repository path. A typical stdio configuration is:
+Add this server to a JSON-based MCP host:
 
 ```json
 {
   "mcpServers": {
-    "osm-edit-dev": {
-      "command": "uv",
-      "args": ["run", "osm-edit-mcp"],
-      "cwd": "/absolute/path/to/osm-edit-mcp",
+    "osm-edit": {
+      "command": "uvx",
+      "args": ["osm-edit-mcp"],
       "env": {
         "OSM_USE_DEV_API": "true",
         "OSM_WRITE_PROFILE": "safe"
@@ -102,49 +62,36 @@ Use an absolute repository path. A typical stdio configuration is:
 }
 ```
 
-Create a separate production entry; do not reuse the dev OAuth application:
+Restart the host, then call `get_server_info` or `get_edit_capabilities`.
+The first `uvx` launch installs the released package in an isolated environment.
+The development API is the default in this example; no OAuth credentials are
+needed for read-only inspection.
 
-```json
-{
-  "mcpServers": {
-    "osm-edit-prod": {
-      "command": "uv",
-      "args": ["run", "osm-edit-mcp"],
-      "cwd": "/absolute/path/to/osm-edit-mcp",
-      "env": {
-        "OSM_USE_DEV_API": "false",
-        "OSM_WRITE_PROFILE": "safe",
-        "OSM_REQUIRE_HOST_CONFIRMATION": "true"
-      }
-    }
-  }
-}
-```
+For client-specific formats, including Codex TOML, see
+[MCP client setup](docs/MCP_CLIENT_SETUP.md). A real read-only protocol smoke
+client is available at [examples/quick_start.py](examples/quick_start.py).
 
-After reconnecting, call `get_edit_capabilities`. Check the environment, API
-target, live verified OAuth account/permissions, write profile, confirmation
-mechanism, and Valhalla status before asking the agent to edit anything.
+MCP hosts can also start the guided `review_gpx_road_edit` prompt with a local
+GPX path and edit goal. It requires explicit segment and target choices, builds
+a non-writing preview, and stops at review of the complete proposal digest. It
+never calls `apply_osm_edit`.
 
-See [MCP client setup](docs/MCP_CLIENT_SETUP.md) for client-specific locations.
+## Review workflow
 
-## GPX road workflow
+Keep private tracks outside the repository. Set `OSM_TRACK_IMPORT_DIR` to a
+directory you control, or provide inline GPX XML. Files are limited to 10 MiB
+and 100,000 raw points; path traversal and symlink escapes are rejected.
 
-Put a GPX file below `OSM_TRACK_IMPORT_DIR` (default `./tracks`) or pass inline
-XML. Path traversal and symlink escapes are rejected. Files are capped at 10 MiB
-and 100,000 raw points.
-
-### 1. Analyze
+### 1. Analyze the track
 
 ```text
 analyze_gpx_track(gpx_path="survey.gpx")
 ```
 
-The result returns `track_id`, stable segment IDs, point counts, times, bounds,
-distance, and discontinuity warnings. Separate recording segments are never joined.
+The result identifies stable track/segment IDs, bounds, distance, timestamps,
+and discontinuities. Separate GPX segments are never joined implicitly.
 
-### 2. Select only the surveyed road
-
-For a long history, keep the raw GPX local and select a short continuous range:
+### 2. Select only the surveyed section
 
 ```text
 create_track_selection(
@@ -155,23 +102,27 @@ create_track_selection(
 )
 ```
 
-Timestamp and start/end-coordinate selection are also supported. Open the returned
-`preview_uri` if the MCP host supports resource previews; GeoJSON is always included
-as a fallback.
+Timestamp and endpoint-coordinate selection are also supported. Review the
+returned `preview_uri` or its GeoJSON fallback.
 
-### 3. Compare with current roads
+### 3. Compare with current OSM
 
 ```text
 match_track_selection(selection_id="<selection_id>", costing="auto")
 suggest_track_road_candidates(selection_id="<selection_id>")
 ```
 
-Valhalla output is diagnostic only. It identifies likely already-mapped and
-unmatched spans but is never copied into OSM geometry.
+Valhalla output is diagnostic only. Candidate discovery never selects the target
+way on the mapper's behalf.
 
-### 4. Preview
+### 4. Build a non-writing preview
 
-Create a new road with explicit classification:
+Track analysis, segment selection, and the selection preview work without OAuth.
+`preview_track_road_edit` still requires an authenticated OSM identity because
+the proposal is bound to that exact account and API target, even though this
+step does not write to OSM.
+
+For a new road:
 
 ```text
 preview_track_road_edit(
@@ -184,69 +135,105 @@ preview_track_road_edit(
 )
 ```
 
-Or reshape an explicitly selected, ordered, contiguous chain:
+For an existing contiguous chain:
 
 ```text
 preview_track_road_edit(
   selection_id="<selection_id>",
   action="update",
   target_way_ids=[123456, 123457],
-  changeset_comment="Realign road from GPS survey",
+  changeset_comment="Realign road from local survey",
   changeset_source="survey",
   evidence_kind="survey_gpx"
 )
 ```
 
-Updates preserve each existing way ID and its full tag set. Shared, tagged,
-relation-member, anchor, and chain-boundary nodes are preserved. A protected node
-more than the alignment tolerance from the survey blocks the proposal.
+Review the current/proposed GeoJSON, exact operations and tags, preserved nodes,
+endpoint connections, warnings, blocking issues, API target, expiry, and
+`proposal_digest`. Ambiguous topology is reported rather than invented.
 
-For new roads, endpoints may reuse a nearby highway node or insert one shared node
-into exactly one unambiguous nearby way. The planner blocks ambiguous nodes/ways and
-incompatible `layer`, `bridge`, or `tunnel` connections. It reports dangling
-endpoints and interior crossings instead of inventing connectivity.
+### 5. Confirm and apply
 
-Review all of these fields:
+`apply_osm_edit` accepts the exact proposal ID and digest. In production, the
+MCP host must display a separate elicitation request for that digest. Apply then
+checks the live OSM account, `write_api` permission, referenced versions, and
+affected highways before sending one transactional upload.
 
-- `preview_uri`, `current_geojson`, and `proposed_geojson`
-- exact `operations` and public tags
-- `endpoint_snaps`, `endpoint_way_connections`, and `dangling_endpoints`
-- `preserved_nodes` and conditional deletions
-- warnings, blocking issues, API target, expiry, and `proposal_digest`
+A network failure after an upload starts becomes `RECONCILE_REQUIRED`; the
+server does not blindly retry an ambiguous write.
 
-### 5. Apply through the host
-
-Pass the exact returned ID and digest to `apply_osm_edit`. The MCP host must show a
-separate confirmation request for that digest. The apply result includes a public
-changeset link, element links, real IDs/versions, close status, and post-write
-verification.
-
-The compatibility tool `apply_track_road_edit(confirm=true)` remains usable against
-the development API for older clients. It cannot publish to production when host
-confirmation is required.
-
-### 6. Verify later
+### 6. Verify
 
 ```text
 verify_osm_edit(proposal_id="<proposal_id>")
 list_edit_proposals(status="APPLIED")
 ```
 
-## Local Valhalla
+## Safety model
 
-Set `OSM_VALHALLA_URL` to a Valhalla service bound to loopback, normally
-`http://127.0.0.1:8002`. Remote hostnames are rejected so a private GPX is not sent
-to a third party. Build Valhalla tiles from an appropriately licensed regional OSM
-extract, then confirm availability with `get_edit_capabilities`.
+The normal `safe` profile enforces:
 
-Map matching is optional; candidate suggestion and manual preview still work without it.
+1. Exact, expiring proposals stored in a local SQLite state machine.
+2. Atomic proposal claims that block concurrent or repeated upload.
+3. API-target, account, permission, OSM-version, and content binding.
+4. MCP elicitation bound to the proposal SHA-256 for production.
+5. One transactional `osmChange` upload for creates and modifications.
+6. Durable receipts and explicit reconciliation after ambiguous failures.
+7. No registration of raw direct-write or natural-language write tools.
 
-## Tool groups
+Raw write tools are available only in the explicit `expert` profile while
+targeting the OSM development API.
 
-Safe editing and review:
+GPX accuracy is not ground truth. Review every proposal against independent,
+permitted evidence and local knowledge. Follow OpenStreetMap's mapping,
+licensing, import, and automated-edit policies; systematic edits may require
+community discussion even when this software requires per-proposal review.
 
+## OAuth and production use
+
+The package quick start is intentionally safe for inspection. Production setup
+is an advanced operator workflow:
+
+1. Register separate development and production OAuth applications with only
+   `read_prefs` and `write_api`.
+2. From an existing source checkout, create a private `.env`, configure the
+   development application, then authenticate it:
+
+   ```bash
+   install -m 600 .env.example .env
+   uv sync --locked --extra dev
+   export OSM_EDIT_MCP_ENV_FILE="$PWD/.env"
+   uv run python oauth_auth.py --dev
+   ```
+
+3. Complete representative create/update preview and apply acceptance against
+   the OSM development API.
+4. Only after that development acceptance, configure and authenticate the
+   separate production app:
+
+   ```bash
+   export OSM_EDIT_MCP_ENV_FILE="$PWD/.env"
+   uv run python oauth_auth.py --prod
+   ```
+
+Tokens are keyring-first. Plaintext compatibility files are disabled by default
+and, when explicitly enabled, must have mode `0600`.
+
+Do not switch to `OSM_USE_DEV_API=false` unless
+`get_edit_capabilities` reports the expected account, production target,
+`safe` profile, and digest-bound host confirmation.
+
+## Main tools
+
+Inspection:
+
+- `get_server_info`
 - `get_edit_capabilities`
 - `inspect_map_context`
+- read/search/validation tools for OSM elements and tags
+
+Review and editing:
+
 - `analyze_gpx_track`
 - `create_track_selection`
 - `match_track_selection`
@@ -256,43 +243,34 @@ Safe editing and review:
 - `list_edit_proposals`
 - `verify_osm_edit`
 
-The existing read/search/validation tools remain available. The parser may turn
-natural language into a suggested intent, but it does not receive production write
-authority and must not choose an ambiguous OSM object by itself.
+Guided prompt:
 
-## Production checklist
+- `review_gpx_road_edit(gpx_path, edit_goal)`
 
-Before changing `OSM_USE_DEV_API=false`:
+## Development
 
-1. Complete create and partial multi-way update acceptance on the dev API.
-2. Confirm `get_edit_capabilities` reports `safe`, production confirmation, and
-   the expected account/API target.
-3. Review the exact GPX subsection locally; do not send an entire private history.
-4. Use only your own survey, local knowledge, or imagery permitted for OSM tracing.
-   Permitted imagery must be explicitly listed in
-   `OSM_PERMITTED_IMAGERY_SOURCES`; Yandex and Google geometry are rejected.
-5. Open the proposal map and exact operations before approving.
-
-## Tests
-
-Unit tests are network-mocked and force the development API at import time:
+From an existing source checkout:
 
 ```bash
-uv run pytest
-uv run pytest --cov=src/osm_edit_mcp --cov-report=term-missing
+uv sync --locked --extra dev
+uv run --locked --extra dev pytest
+uv run --locked --extra dev pytest --cov=src/osm_edit_mcp --cov-report=term-missing
 ```
 
-Development-API acceptance is intentionally opt-in and must never be pointed at
-production. It should analyze a representative GPX, create a road, reshape a partial
-multi-way chain, then verify IDs, tags, intersections, versions, and changeset history.
+Unit tests mock the network and force the development API at import time.
+Development-API acceptance is separate and opt-in; it must never point at
+production.
 
-## Legacy HTTP wrapper
+More documentation:
 
-`web_server.py` is not the write transport. It binds to loopback by default, refuses
-startup without an explicit API key, uses an exact CORS allowlist, and all former
-direct-write routes return HTTP 410. Use stdio MCP for proposal-based edits.
+- [Quick start](docs/quick-start-guide.md)
+- [MCP client setup](docs/MCP_CLIENT_SETUP.md)
+- [Safe usage examples](docs/mcp-usage-examples.md)
+- [Troubleshooting](docs/MCP_TROUBLESHOOTING.md)
+- [Security policy](SECURITY.md)
+- [Contributing](CONTRIBUTING.md)
 
 ## License
 
-MIT. OSM edits are also subject to OpenStreetMap contributor terms, mapping
-guidelines, and source licensing requirements.
+MIT. OpenStreetMap edits are also subject to the OSM contributor terms,
+community guidelines, and source-licensing requirements.

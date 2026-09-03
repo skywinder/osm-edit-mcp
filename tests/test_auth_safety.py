@@ -3,7 +3,7 @@ import time
 
 import pytest
 
-from src.osm_edit_mcp import auth, token_store
+from src.osm_edit_mcp import auth, http_client, token_store
 
 
 class Response:
@@ -108,3 +108,48 @@ def test_secure_plaintext_fallback_only_when_explicitly_enabled(monkeypatch, tmp
 
     token_path.chmod(0o644)
     assert token_store.load_oauth_token() is None
+
+
+@pytest.mark.asyncio
+async def test_custom_target_never_receives_official_oauth_token(
+    monkeypatch, config_factory
+):
+    custom_config = config_factory(
+        osm_use_dev_api=True,
+        osm_api_base_url="https://custom.example/api/0.6",
+        osm_allow_custom_api_base=True,
+        use_keyring=True,
+        allow_plaintext_token_file=True,
+    )
+    keyring_calls = []
+
+    def record_keyring_call(*args):
+        keyring_calls.append(args)
+        return "must-not-be-read"
+
+    monkeypatch.setattr(token_store, "config", custom_config)
+    monkeypatch.setattr(token_store.keyring, "get_password", record_keyring_call)
+
+    assert token_store.load_oauth_token() is None
+    assert keyring_calls == []
+
+    monkeypatch.setattr(http_client, "config", custom_config)
+    monkeypatch.setattr(
+        http_client,
+        "load_oauth_token",
+        lambda: pytest.fail("custom target must not load an official OSM token"),
+    )
+    client = http_client.get_authenticated_client()
+    try:
+        assert "Authorization" not in client.headers
+    finally:
+        await client.aclose()
+
+    monkeypatch.setattr(auth, "config", custom_config)
+    monkeypatch.setattr(
+        auth,
+        "load_oauth_token",
+        lambda: pytest.fail("custom target must fail before token loading"),
+    )
+    with pytest.raises(PermissionError, match="custom API targets"):
+        await auth.verify_write_identity(Client(Response(200, ""), Response(200, "")))

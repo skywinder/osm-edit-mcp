@@ -9,8 +9,8 @@ alwaysApply: true
 - **[.env](mdc:mcp:.env)** - Active environment configuration (never commit with real credentials)
 - **[.env.example](mdc:mcp:.env.example)** - Configuration template with all options documented
 
-### Configuration Class in server.py
-The `OSMConfig` class in [server.py](mdc:mcp:src/osm_edit_mcp/server.py) uses Pydantic BaseSettings for type-safe configuration management.
+### Configuration Class
+The `OSMConfig` class in [config.py](mdc:mcp:src/osm_edit_mcp/config.py) uses Pydantic BaseSettings for type-safe configuration management.
 
 ## Core Configuration Sections
 
@@ -30,9 +30,12 @@ OSM_API_BASE_URL=https://api06.dev.openstreetmap.org/api/0.6
 
 ### OAuth 2.0 Credentials
 ```bash
-OSM_CLIENT_ID=your_oauth_client_id
-OSM_CLIENT_SECRET=your_oauth_client_secret
-OSM_REDIRECT_URI=https://localhost:8080/callback
+OSM_DEV_CLIENT_ID=your_development_oauth_client_id
+OSM_DEV_CLIENT_SECRET=your_development_oauth_client_secret
+OSM_DEV_REDIRECT_URI=https://localhost:8080/callback
+OSM_PROD_CLIENT_ID=your_production_oauth_client_id
+OSM_PROD_CLIENT_SECRET=your_production_oauth_client_secret
+OSM_PROD_REDIRECT_URI=https://localhost:8080/callback
 ```
 
 ### Logging Configuration
@@ -116,7 +119,7 @@ Uses Pydantic BaseSettings features:
 
 ### Configuration Security
 - Never log OAuth tokens or secrets
-- Store sensitive data in [.env](mdc:mcp:.env) only
+- Load dotenv only through `OSM_EDIT_MCP_ENV_FILE`; require a regular non-symlink file with mode `0600`
 - Use field aliases for backward compatibility
 - Support system keyring for credential storage
 
@@ -125,7 +128,7 @@ Uses Pydantic BaseSettings features:
 ### Development Setup (Safe)
 ```bash
 # Copy template and customize
-cp .env.example .env
+install -m 600 .env.example .env
 
 # Edit .env for development
 OSM_USE_DEV_API=true
@@ -149,13 +152,13 @@ MAX_CHANGESET_SIZE=50
 Test configuration changes:
 ```bash
 # Verify current configuration
-python -c "from src.osm_edit_mcp.server import config; print(f'API: {config.current_api_base_url}'); print(f'Dev Mode: {config.is_development}')"
+uv run --locked python -c "from osm_edit_mcp.server import config; print(config.current_api_base_url)"
 
 # Test dev mode
-OSM_USE_DEV_API=true python -c "from src.osm_edit_mcp.server import config; print(config.current_api_base_url)"
+OSM_USE_DEV_API=true uv run --locked python -c "from osm_edit_mcp.server import config; print(config.current_api_base_url)"
 
 # Test prod mode (careful!)
-OSM_USE_DEV_API=false python -c "from src.osm_edit_mcp.server import config; print(config.current_api_base_url)"
+OSM_USE_DEV_API=false uv run --locked python -c "from osm_edit_mcp.server import config; print(config.current_api_base_url)"
 ```
 
 ## Logging Configuration
@@ -193,10 +196,10 @@ The configuration system maintains backward compatibility:
 
 ### Future Configuration Additions
 When adding new configuration options:
-1. Add to `OSMConfig` class in [server.py](mdc:mcp:src/osm_edit_mcp/server.py)
+1. Add to `OSMConfig` class in [config.py](mdc:mcp:src/osm_edit_mcp/config.py)
 2. Update [.env.example](mdc:mcp:.env.example) with documentation
 3. Update [README.md](mdc:mcp:README.md) configuration section
-4. Add tests to [test_comprehensive.py](mdc:mcp:test_comprehensive.py)
+4. Add focused tests under [tests](mdc:mcp:tests)
 5. Maintain backward compatibility where possible
 
 ## Configuration Best Practices

@@ -3,39 +3,224 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
+
+permissions:
+  contents: read
+
+env:
+  UV_VERSION: "0.7.3"
 
 jobs:
-  release:
+  provenance:
+    name: Verify tag provenance
     runs-on: ubuntu-latest
-    
+
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-    
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install build twine
-    
-    - name: Build package
-      run: python -m build
-    
-    - name: Publish to PyPI
-      env:
-        TWINE_USERNAME: __token__
-        TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-      run: |
-        twine upload dist/*
-    
-    - name: Create GitHub Release
-      uses: softprops/action-gh-release@v1
-      with:
-        files: dist/*
-        draft: false
-        prerelease: false
-        generate_release_notes: true
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Require the tagged commit to belong to main
+        shell: bash
+        run: |
+          git fetch --no-tags origin \
+            +refs/heads/main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/main; then
+            echo "::error::Release tags must point to a commit contained in main"
+            exit 1
+          fi
+
+  verify:
+    name: Verify tagged source on Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    needs: provenance
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - name: Install locked dependencies
+        run: uv sync --locked --extra dev --python "${{ matrix.python-version }}"
+
+      - name: Verify tag, lock, and package definition
+        shell: bash
+        run: |
+          uv lock --check
+          uv run --locked --extra dev python scripts/check_release_artifacts.py \
+            --tag "${GITHUB_REF_NAME}"
+          test ! -e setup.py
+          test ! -e requirements.txt
+          if git ls-files --error-unmatch .env >/dev/null 2>&1; then
+            echo "::error::.env must not be tracked or published"
+            exit 1
+          fi
+
+      - name: Lint syntax and undefined names
+        run: >-
+          uv run --locked --extra dev flake8
+          src tests main.py oauth_auth.py status_check.py web_server.py
+          --count --select=E9,F63,F7,F82 --show-source --statistics
+
+      - name: Type check
+        run: uv run --locked --extra dev mypy src/osm_edit_mcp
+
+      - name: Run tests
+        run: >-
+          uv run --locked --extra dev pytest
+          --cov=src/osm_edit_mcp
+          --cov-report=term-missing
+
+      - name: Scan source for high-severity issues
+        if: matrix.python-version == '3.11'
+        run: uv run --locked --extra dev bandit -r src/osm_edit_mcp -lll
+
+      - name: Export the locked runtime environment
+        if: matrix.python-version == '3.11'
+        run: >-
+          uv export --locked --no-dev --no-emit-project
+          --format requirements-txt
+          --output-file "${RUNNER_TEMP}/runtime-requirements.txt"
+
+      - name: Audit locked runtime dependencies
+        if: matrix.python-version == '3.11'
+        run: >-
+          uv run --locked --extra dev pip-audit
+          --disable-pip
+          --require-hashes
+          --requirement "${RUNNER_TEMP}/runtime-requirements.txt"
+
+  build:
+    runs-on: ubuntu-latest
+    needs: verify
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - name: Install locked dependencies
+        run: uv sync --locked --extra dev --python 3.11
+
+      - name: Build wheel and source distribution
+        run: uv build --no-build-isolation --wheel --sdist --out-dir dist
+
+      - name: Build the public source archive
+        run: >-
+          git archive --format=tar --prefix=osm-edit-mcp-source/
+          --output="${RUNNER_TEMP}/source.tar" HEAD
+
+      - name: Validate release artifacts
+        run: |
+          uv run --locked --extra dev twine check dist/*
+          uv run --locked --extra dev python scripts/check_release_artifacts.py \
+            --dist dist \
+            --archive "${RUNNER_TEMP}/source.tar"
+
+      - name: Install locked wheel and sdist environments
+        shell: bash
+        run: |
+          uv export --locked --no-dev --no-emit-project \
+            --format requirements-txt \
+            --output-file "${RUNNER_TEMP}/runtime-requirements.txt"
+          uv venv "${RUNNER_TEMP}/package-smoke" --python 3.11
+          uv pip install \
+            --python "${RUNNER_TEMP}/package-smoke/bin/python" \
+            --require-hashes \
+            --requirement "${RUNNER_TEMP}/runtime-requirements.txt"
+          wheel_path="$(find dist -maxdepth 1 -name '*.whl' -print -quit)"
+          uv pip install \
+            --python "${RUNNER_TEMP}/package-smoke/bin/python" \
+            --no-deps \
+            "${wheel_path}"
+
+          uv venv "${RUNNER_TEMP}/sdist-smoke" --python 3.11
+          uv pip install \
+            --python "${RUNNER_TEMP}/sdist-smoke/bin/python" \
+            --require-hashes \
+            --requirement "${RUNNER_TEMP}/runtime-requirements.txt"
+          sdist_path="$(find dist -maxdepth 1 -name '*.tar.gz' -print -quit)"
+          uv pip install \
+            --python "${RUNNER_TEMP}/sdist-smoke/bin/python" \
+            --no-deps \
+            "${sdist_path}"
+
+      - name: Smoke-test installed wheel and sdist console scripts
+        shell: bash
+        run: |
+          "${RUNNER_TEMP}/package-smoke/bin/python" \
+            scripts/smoke_test_mcp_package.py \
+            --command "${RUNNER_TEMP}/package-smoke/bin/osm-edit-mcp"
+          "${RUNNER_TEMP}/sdist-smoke/bin/python" \
+            scripts/smoke_test_mcp_package.py \
+            --command "${RUNNER_TEMP}/sdist-smoke/bin/osm-edit-mcp"
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: python-package-distributions
+          path: dist/
+          if-no-files-found: error
+
+  publish-pypi:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    needs: build
+    environment:
+      name: pypi
+      url: https://pypi.org/p/osm-edit-mcp
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: python-package-distributions
+          path: dist/
+
+      - name: Publish with PyPI Trusted Publishing
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          packages-dir: dist/
+
+  github-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build, publish-pypi]
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download the same release artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: python-package-distributions
+          path: dist/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
+        with:
+          files: dist/*
+          generate_release_notes: true
