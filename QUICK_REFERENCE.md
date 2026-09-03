@@ -2,38 +2,31 @@
 
 ## 🚀 Installation & Setup
 
-### Using uv (Fast!)
+### Released package
+
+Configure the MCP client to launch the package directly:
+
+```bash
+uvx osm-edit-mcp
+```
+
+### Local development checkout
+
 ```bash
 # 1. Clone and install
 git clone https://github.com/skywinder/osm-edit-mcp
 cd osm-edit-mcp
-uv sync
+uv sync --locked --extra dev
 
 # 2. Configure
-cp .env.example .env
+install -m 600 .env.example .env
+export OSM_EDIT_MCP_ENV_FILE="$PWD/.env"
 
 # 3. Test setup
 uv run python status_check.py
 
 # 4. Configure in MCP client (see docs/MCP_CLIENT_SETUP.md)
 # To test: uv run python test_comprehensive.py
-```
-
-### Using pip
-```bash
-# 1. Clone and install
-git clone https://github.com/skywinder/osm-edit-mcp
-cd osm-edit-mcp
-pip install -r requirements.txt
-
-# 2. Configure
-cp .env.example .env
-
-# 3. Test setup
-python status_check.py
-
-# 4. Configure in MCP client (see docs/MCP_CLIENT_SETUP.md)
-# To test: python test_comprehensive.py
 ```
 
 ## 🔐 OAuth Setup (for write operations)
@@ -45,18 +38,18 @@ python status_check.py
    OSM_DEV_CLIENT_ID=your_id
    OSM_DEV_CLIENT_SECRET=your_secret
    ```
-4. Run: `python oauth_auth.py`
+4. Export `OSM_EDIT_MCP_ENV_FILE="$PWD/.env"` and run
+   `uv run python oauth_auth.py --dev` from the development checkout.
 
 ## 🛠️ Common Commands
 
-### With uv
 | Command | Purpose |
 |---------|---------|
 | Configure in MCP client | Server runs via client (see setup below) |
+| `uvx osm-edit-mcp` | Run the released MCP package over stdio |
 | `uv run python status_check.py` | Check configuration |
 | `uv run python oauth_auth.py` | Authenticate with OSM |
-| `uv run python test_comprehensive.py` | Run all tests |
-| `uv run python quick_test.py` | Quick functionality test |
+| `uv run python test_comprehensive.py` | Run the dev-API integration suite |
 
 ### Understanding MCP Servers
 ```bash
@@ -65,21 +58,11 @@ python status_check.py
 
 # To test server functionality:
 uv run python test_comprehensive.py
-uv run python quick_test.py
 
 # To use the server:
 # 1. Configure in your MCP client (Cursor, Claude Desktop, etc.)
 # 2. The client will start/stop the server automatically
 ```
-
-### With pip/python
-| Command | Purpose |
-|---------|---------|
-| Configure in MCP client | Server runs via client (see setup below) |
-| `python status_check.py` | Check configuration |
-| `python oauth_auth.py` | Authenticate with OSM |
-| `python test_comprehensive.py` | Run all tests |
-| `python quick_test.py` | Quick functionality test |
 
 ## 📍 Most Used Tools
 
@@ -105,6 +88,39 @@ validate_coordinates(51.5074, -0.1278)
 search_osm_elements("coffee shop", "node")
 ```
 
+### Add or Realign a Road from GPX
+```python
+# GPX paths are relative to OSM_TRACK_IMPORT_DIR (default: ./tracks)
+analyze_gpx_track(gpx_path="survey-road.gpx")
+create_track_selection(
+    track_id="<track_id>",
+    segment_id="trk-0-seg-0",
+    start_point_index=1240,
+    end_point_index=1395,
+)
+suggest_track_road_candidates(
+    selection_id="<selection_id>"
+)
+preview_track_road_edit(
+    action="create",
+    selection_id="<selection_id>",
+    tags={"highway": "track", "surface": "gravel"},
+    changeset_comment="Add surveyed track",
+    changeset_source="survey",
+)
+# Review GeoJSON, warnings, element counts, and the complete digest before calling:
+apply_osm_edit(proposal_id="...", proposal_digest="...")
+```
+
+For existing roads use `action="update"`, omit `tags`, and provide the explicitly
+selected ordered `target_way_ids`. One segment is handled per preview. Applying
+also requires the MCP host to confirm the same exact proposal digest.
+
+Crop a long history export to the one surveyed path first. On macOS, use JOSM to
+compare the GPX with OSM, gpx.studio to crop/split, GPXSee for quick GPX/KML
+viewing, or Google Earth Pro for KMZ. Save the selected result under `tracks/`;
+that directory's contents are intentionally ignored by Git.
+
 ## 🔍 Amenity Types
 
 - **Food**: restaurant, cafe, bar, pub, fast_food
@@ -123,17 +139,19 @@ search_osm_elements("coffee shop", "node")
 
 Coverage by category:
 - Read operations: work without auth
-- Write operations: require OAuth; limited to changesets and nodes
-- Way/relation edits and deletes: not implemented, not exposed as tools
-- Natural language: always works
+- Write operations: require OAuth; changesets, nodes, and ways are supported
+- GPX road edits: preview plus explicit confirmed transactional apply
+- Relation edits and deletes: not implemented, not exposed as tools
+- Natural-language parsing and search work without auth; the safe profile does
+  not expose natural-language write shortcuts
 
 ## 🆘 Quick Fixes
 
 | Problem | Solution |
 |---------|----------|
-| 401 Error | `python oauth_auth.py` |
-| Import Error | `pip install -r requirements.txt` |
-| No .env | `cp .env.example .env` |
+| 401 Error | `uv run python oauth_auth.py` |
+| Import Error | `uv sync --locked --extra dev` |
+| No dotenv configuration | `install -m 600 .env.example .env && export OSM_EDIT_MCP_ENV_FILE="$PWD/.env"` |
 | Tests fail | Check internet connection |
 
 ## 🌐 Important URLs
@@ -149,8 +167,8 @@ Coverage by category:
 {
   "mcpServers": {
     "osm-edit": {
-      "command": "python",
-      "args": ["/path/to/osm-edit-mcp/main.py"]
+      "command": "uvx",
+      "args": ["osm-edit-mcp"]
     }
   }
 }
@@ -161,8 +179,11 @@ Coverage by category:
 - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
 - Linux: `~/.config/Claude/claude_desktop_config.json`
 
-### VSCode (Cline)
-Add to `.vscode/settings.json`
+### VS Code (Cline)
+
+Open Cline → MCP Servers → Configure MCP Servers and add the top-level
+`mcpServers` object from `examples/cline_settings.json`. This is Cline's MCP
+settings file, not `.vscode/settings.json`.
 
 ## 📝 Example Requests (Any MCP Client)
 
@@ -170,4 +191,4 @@ Add to `.vscode/settings.json`
 - "What's at coordinates 40.7580, -73.9855?"
 - "Search for hospitals in downtown Seattle"
 - "Validate these coordinates: 51.5074, -0.1278"
-- "Add a coffee shop called Bean There at 44.8, 20.5"
+- "Analyze this local GPX and show a selected-segment preview"

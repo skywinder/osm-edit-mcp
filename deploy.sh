@@ -1,7 +1,7 @@
 #!/bin/bash
 # OSM Edit MCP Server Deployment Script
 
-set -e
+set -eu
 
 echo "🚀 OSM Edit MCP Server Deployment Script"
 echo "========================================"
@@ -12,16 +12,22 @@ if ! command -v docker &> /dev/null; then
     exit 1
 fi
 
-# Check if docker-compose is installed
-if ! command -v docker-compose &> /dev/null; then
-    echo "❌ docker-compose is not installed. Please install docker-compose first."
+# Prefer the current Docker Compose plugin, while retaining compatibility with
+# hosts that still provide the standalone docker-compose command.
+if docker compose version > /dev/null 2>&1; then
+    COMPOSE=(docker compose)
+elif command -v docker-compose &> /dev/null; then
+    COMPOSE=(docker-compose)
+else
+    echo "❌ Docker Compose is not installed. Please install it first."
     exit 1
 fi
+COMPOSE_DISPLAY="${COMPOSE[*]}"
 
 # Check if .env file exists
 if [ ! -f .env ]; then
     echo "📝 Creating .env file from .env.example..."
-    cp .env.example .env
+    install -m 600 .env.example .env
     echo "⚠️  Please edit .env file with your actual credentials before proceeding."
     echo "   You need to set:"
     echo "   - OSM_DEV_CLIENT_ID and OSM_DEV_CLIENT_SECRET"
@@ -30,48 +36,46 @@ if [ ! -f .env ]; then
     read -p "Press Enter after you've updated .env file..."
 fi
 
-# Generate SSL certificates for development
-if [ ! -d "ssl" ]; then
-    echo "🔐 Generating self-signed SSL certificates for development..."
-    mkdir -p ssl
-    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-        -keyout ssl/key.pem -out ssl/cert.pem \
-        -subj "/C=US/ST=State/L=City/O=Organization/CN=localhost"
-fi
-
-# Build and start services
+# Build and start the loopback-bound read-only HTTP wrapper. The Nginx service
+# remains an explicit remote-read-only profile and is not exposed by default.
 echo "🔨 Building Docker images..."
-docker-compose build
+"${COMPOSE[@]}" build osm-edit-mcp
 
-echo "🚀 Starting services..."
-docker-compose up -d
+echo "🚀 Starting loopback service..."
+"${COMPOSE[@]}" up -d osm-edit-mcp
 
 # Wait for services to be ready
 echo "⏳ Waiting for services to start..."
-sleep 10
+healthy=false
+for _ in {1..30}; do
+    if curl -fsS http://127.0.0.1:8000/health > /dev/null 2>&1; then
+        healthy=true
+        break
+    fi
+    sleep 1
+done
 
 # Check service health
 echo "🏥 Checking service health..."
-if curl -k -s https://localhost/health > /dev/null; then
+if [ "$healthy" = true ]; then
     echo "✅ Services are running!"
     echo ""
     echo "🌐 Access your OSM Edit MCP Server at:"
-    echo "   - HTTPS: https://localhost (with Nginx)"
-    echo "   - HTTP: http://localhost:8000 (direct)"
+    echo "   - HTTP: http://127.0.0.1:8000"
     echo ""
-    echo "📚 API Documentation: http://localhost:8000/docs"
+    echo "📚 API Documentation: http://127.0.0.1:8000/docs"
     echo ""
     echo "🔑 Remember to use your API_KEY in the Authorization header:"
     echo "   Authorization: Bearer your-api-key-here"
 else
     echo "❌ Service health check failed!"
-    echo "Check logs with: docker-compose logs"
+    echo "Check logs with: $COMPOSE_DISPLAY logs osm-edit-mcp"
     exit 1
 fi
 
 echo ""
 echo "📋 Useful commands:"
-echo "   - View logs: docker-compose logs -f"
-echo "   - Stop services: docker-compose down"
-echo "   - Restart services: docker-compose restart"
-echo "   - Update and restart: git pull && docker-compose build && docker-compose up -d"
+echo "   - View logs: $COMPOSE_DISPLAY logs -f osm-edit-mcp"
+echo "   - Stop services: $COMPOSE_DISPLAY down"
+echo "   - Restart services: $COMPOSE_DISPLAY restart osm-edit-mcp"
+echo "   - Update and restart: git pull && $COMPOSE_DISPLAY up -d --build osm-edit-mcp"

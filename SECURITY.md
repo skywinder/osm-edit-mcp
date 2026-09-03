@@ -1,147 +1,109 @@
-# Security Policy
+# Security policy
 
-## Supported Versions
+## Supported versions
 
-Currently supported versions for security updates:
+Security fixes are provided for the current release line:
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 0.1.x   | :white_check_mark: |
+| Version | Supported |
+| --- | --- |
+| 0.2.x | Yes |
+| < 0.2 | No |
 
-## Reporting a Vulnerability
+## Report a vulnerability privately
 
-We take security vulnerabilities seriously. If you discover a security issue, please follow these steps:
+Do not open a public issue for a suspected vulnerability. Email
+right.crew7885@fastmail.com with:
 
-### 1. **Do NOT** create a public GitHub issue
+- the affected version and environment;
+- a description and reproducible steps;
+- the expected impact;
+- a proposed fix, if available.
 
-Security vulnerabilities should not be reported publicly to avoid exploitation.
+Remove OAuth tokens, client secrets, private GPX content, personal locations,
+and other sensitive values from the report.
 
-### 2. Report privately
+Response targets are an initial reply within 48 hours, a status update within
+7 days, and a resolution target within 30 days for a confirmed critical issue.
 
-Send an email to: right.crew7885@fastmail.com
+## Authentication and credentials
 
-Include:
-- Description of the vulnerability
-- Steps to reproduce
-- Potential impact
-- Suggested fix (if available)
+- Register separate OAuth applications for the OSM development and production
+  services. Request only `read_prefs` and `write_api`.
+- OAuth bootstrap uses Authorization Code with PKCE and validates a random
+  `state` value. It verifies the candidate token against the selected OSM
+  service before replacing a previously stored token.
+- Complete tokens are stored in the operating-system keyring by default.
+- Legacy JSON token files are plaintext compatibility files, not encrypted
+  backups. They are ignored unless `ALLOW_PLAINTEXT_TOKEN_FILE=true`, and files
+  with permissions broader than `0600` are refused.
+- Expired tokens fail closed. The server does not refresh them automatically;
+  run the OAuth bootstrap again for the intended environment.
+- Keep `.env`, `.osm_token_*.json`, and callback URLs containing authorization
+  codes out of commits, issues, chats, and shared logs.
 
-### 3. Response timeline
+Create a private source-checkout configuration with:
 
-- **Initial response**: Within 48 hours
-- **Status update**: Within 7 days
-- **Resolution target**: Within 30 days for critical issues
+```bash
+install -m 600 .env.example .env
+export OSM_EDIT_MCP_ENV_FILE="$PWD/.env"
+```
 
-## Security Best Practices
+Dotenv loading is explicit: a working-directory `.env` is not loaded unless
+`OSM_EDIT_MCP_ENV_FILE` points to it. The file must have mode `0600`.
 
-When using OSM Edit MCP Server:
+## Write-safety boundaries
 
-### Authentication
+The default `safe` profile exposes proposal-based editing, not raw mutation
+tools. A production apply requires all of the following:
 
-1. **Never share OAuth tokens**
-   - Tokens are stored securely in your system keyring
-   - Don't commit token files to version control
+1. A non-expired proposal for the selected API target and verified OSM account.
+2. Review of the exact operations, tags, warnings, current/proposed geometry,
+   and complete SHA-256 proposal digest.
+3. A later call containing that exact proposal ID and digest.
+4. A separate MCP-host elicitation confirming the same complete digest.
+5. Fresh OSM identity, `write_api` permission, element-version, and affected-map
+   checks immediately before one atomic `osmChange` upload.
 
-2. **Use development API for testing**
-   - Always test with `OSM_USE_DEV_API=true`
-   - Only use production API when necessary
+Raw direct-write tools are registered only when the explicit `expert` profile
+targets the known OSM development API. Custom API targets do not enable OAuth
+writes or development-only raw tools.
 
-3. **Rotate credentials regularly**
-   - Revoke and regenerate OAuth apps periodically
-   - Update tokens if compromise is suspected
+An ambiguous network result after upload begins is recorded as
+`RECONCILE_REQUIRED`; the server does not blindly retry it.
 
-### Configuration
+## Data and network boundaries
 
-1. **Environment variables**
-   ```bash
-   # Never commit .env files
-   # Use .env.example as template
-   cp .env.example .env
-   ```
+- GPX paths are restricted to `OSM_TRACK_IMPORT_DIR`; traversal and symlink
+  escapes are rejected. Input also has configured file-size and point-count
+  limits. Keep personal tracks outside the repository.
+- Remote OSM, Overpass, and Nominatim requests use HTTPS with certificate
+  verification. Optional Valhalla map matching is restricted to loopback and
+  may use local HTTP.
+- Bearer credentials are attached only to the configured, validated OSM API
+  origin. Public-service clients do not receive the OAuth token.
+- The server does not implement a general client-side request-rate limiter.
+  Keep requests narrow and follow each upstream service's current usage policy.
+- Natural-language parsing is local and advisory. It does not select an OSM
+  object or authorize a write.
+- Restricted imagery providers are rejected. Any other imagery source must be
+  explicitly allowlisted by the operator and still reviewed for OSM-compatible
+  terms.
 
-2. **Secure file permissions**
-   ```bash
-   chmod 600 .env
-   chmod 600 .osm_token_*.json
-   ```
+## Operator checklist
 
-### API Usage
+Before enabling an editing workflow:
 
-1. **Rate limiting**
-   - Respect OSM API rate limits
-   - Default: 60 requests per minute
-   - Configure in .env if needed
+- [ ] Keep `.env`, token files, GPX files, SQLite proposal state, and private
+      settings untracked.
+- [ ] Run `uv run --locked --extra dev python scripts/security_audit.py`.
+- [ ] Run the test, Bandit, and dependency-audit gates used by CI.
+- [ ] Use separate least-privilege OAuth applications for development and
+      production.
+- [ ] Complete representative create and update acceptance on the development
+      API before configuring production.
+- [ ] Verify `get_edit_capabilities` reports the intended account, API target,
+      `safe` profile, and digest-bound confirmation mechanism.
+- [ ] Confirm the MCP host supports elicitation before any production apply.
+- [ ] Redact credentials, private paths, and location data before sharing logs.
 
-2. **Input validation**
-   - All inputs are validated before API calls
-   - Coordinate ranges are checked
-   - Tag values are sanitized
-
-3. **Error handling**
-   - Errors don't expose sensitive data
-   - API keys are never logged
-   - Stack traces are sanitized
-
-## Security Features
-
-### Built-in protections
-
-1. **OAuth 2.0 authentication**
-   - Industry-standard authentication
-   - Secure token storage with keyring
-   - Automatic token refresh
-
-2. **HTTPS only**
-   - All API calls use HTTPS
-   - Certificate verification enabled
-   - No fallback to HTTP
-
-3. **Development/Production separation**
-   - Separate OAuth apps for dev/prod
-   - Different API endpoints
-   - Clear mode indicators
-
-4. **Audit logging**
-   - User actions are logged
-   - Changeset tracking
-   - No sensitive data in logs
-
-### Security checklist
-
-Before deploying:
-
-- [ ] Review all environment variables
-- [ ] Ensure .gitignore includes sensitive files
-- [ ] Run security audit: `python scripts/security_audit.py`
-- [ ] Test with development API first
-- [ ] Review OAuth app permissions
-- [ ] Enable rate limiting
-- [ ] Configure secure logging
-
-## Known Security Considerations
-
-1. **Token storage**
-   - Tokens are stored locally
-   - Use system keyring when available
-   - Fallback to encrypted JSON files
-
-2. **API limitations**
-   - OSM API has public read access
-   - Write operations require authentication
-   - Some operations need special permissions
-
-3. **Natural language processing**
-   - User input is parsed locally
-   - No data sent to external NLP services
-   - Sanitization before API calls
-
-## Security Updates
-
-Subscribe to security updates:
-- Watch the GitHub repository
-- Check releases for security patches
-- Follow [@skywinder](https://github.com/skywinder) for announcements
-
-## Acknowledgments
-
-Thanks to the security researchers who help keep this project secure through responsible disclosure.
+Watch the GitHub repository and release notes for security updates.

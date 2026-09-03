@@ -52,7 +52,7 @@ Based on [.env.example](mdc:.env.example) configuration:
 3. **User Authorization**: User approves application
 4. **Token Exchange**: Server exchanges code for access token
 5. **Token Storage**: Securely store in keyring
-6. **Token Refresh**: Automatic refresh when expired
+6. **Token Rotation**: Reauthorize an expired token without overwriting a valid token before validation
 
 ### Authentication State Management
 - Check token validity before each API operation
@@ -76,10 +76,10 @@ OSM_API_BASE_URL = "https://api.openstreetmap.org"
    - Search within bounding box
    - Get changeset information
 
-2. **Write Operations**: ⚠️ REQUIRE USER CONFIRMATION
-   - Create/update/delete elements
-   - Open/close changesets
-   - Upload GPS traces
+2. **Write Operations**: ⚠️ REQUIRE EXACT PROPOSAL CONFIRMATION
+   - Use the review-first GPX proposal workflow in the safe profile
+   - Bind production confirmation to the exact proposal digest
+   - Keep raw element tools restricted to expert mode on the development API
 
 ### Rate Limiting
 - Maximum 10,000 API calls per hour per IP
@@ -88,18 +88,20 @@ OSM_API_BASE_URL = "https://api.openstreetmap.org"
 
 ## Configuration Management
 
-### Environment Variables ([.env](mdc:.env))
+### Environment Variables ([.env.example](mdc:.env.example))
 ```bash
-OSM_CLIENT_ID=your_oauth_client_id
-OSM_CLIENT_SECRET=your_oauth_client_secret
-OSM_REDIRECT_URI=https://localhost:8080/callback
-OSM_API_BASE_URL=https://api06.dev.openstreetmap.org
+OSM_USE_DEV_API=true
+OSM_DEV_CLIENT_ID=your_oauth_client_id
+OSM_DEV_CLIENT_SECRET=your_oauth_client_secret
+OSM_DEV_REDIRECT_URI=https://localhost:8080/callback
+OSM_DEV_API_BASE=https://api06.dev.openstreetmap.org/api/0.6
+OSM_WRITE_PROFILE=safe
 LOG_LEVEL=INFO
 ```
 
-### Dependencies ([requirements.txt](mdc:requirements.txt))
+### Dependencies ([pyproject.toml](mdc:pyproject.toml))
 Key packages:
-- `mcp>=1.2.0` - MCP server framework
+- `mcp>=1.10,<2` - MCP server framework
 - `httpx` - Async HTTP client
 - `authlib` - OAuth 2.0 implementation
 - `keyring` - Secure credential storage
@@ -109,15 +111,12 @@ Key packages:
 
 ### 1. Setup Development Environment
 ```bash
-# Install with uv (recommended)
-uv pip install -e .
-
-# Or with pip
-pip install -r requirements.txt -e .
+# Install the exact locked development environment
+uv sync --locked --extra dev
 ```
 
 ### 2. Configuration
-- Copy [.env.example](mdc:.env.example) to `.env`
+- Create `.env` privately with `install -m 600 .env.example .env`
 - Set up OAuth application on OSM
 - Configure development API endpoint
 
@@ -129,8 +128,8 @@ pip install -r requirements.txt -e .
 
 ### 4. MCP Client Testing
 ```bash
-# Run MCP server
-python main.py
+# Run MCP server from the locked environment
+uv run --locked osm-edit-mcp
 
 # Connect with MCP client
 # Test tool discovery and execution

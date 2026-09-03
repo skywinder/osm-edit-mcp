@@ -1,54 +1,62 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+All notable changes to this project are documented here.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-03
+
 ### Added
-- Comprehensive CI/CD pipeline with GitHub Actions
-- Unit tests for configuration and XML parsing
-- Contributing guidelines and code of conduct
-- Security scanning with Bandit and Safety
-- Type hints throughout the codebase
-- Improved error handling and logging
-- Rate limiting configuration
-- Cache configuration options
+
+- Review-first GPX road workflow: local track analysis, continuous subsection
+  selection, nearby-way suggestions, and current/proposed GeoJSON previews.
+- Optional loopback-only Valhalla map matching for diagnostic matched and
+  unmatched spans.
+- Persistent SQLite proposals with expiry, canonical SHA-256 digests, atomic
+  claims, durable receipts, and explicit ambiguous-upload reconciliation.
+- Safe capability, map-context, proposal-listing, and post-write verification
+  tools.
+- A `review_gpx_road_edit` MCP prompt that guides explicit GPX segment and OSM
+  target selection, builds a non-writing preview, and stops before apply.
+- New-road endpoint planning and partial/multi-way realignment that preserve
+  existing way IDs, tags, and topology-critical nodes.
+- Focused coverage for OAuth identity and scope checks, proposal concurrency,
+  duplicate apply, selection, map matching, topology, and upload failures.
 
 ### Changed
-- Enhanced OAuth token security with keyring integration
-- Improved documentation with badges and better structure
-- Updated dependencies to latest stable versions
-- Better separation of dev/prod configurations
+
+- The default `safe` profile exposes reviewed proposal workflows instead of raw
+  direct-write tools.
+- Production apply now requires MCP host elicitation bound to the exact proposal
+  digest. The legacy compatibility path remains development-only and also
+  requires both the exact proposal digest and a separate host elicitation.
+- Preview and apply bind to the configured API target, verified OSM account and
+  permissions, referenced element versions, and the affected map context.
+- All approved creates and modifications are reconciled into one transactional
+  `osmChange` upload.
+- The legacy HTTP wrapper is read-only and loopback-bound by default; its old
+  mutation endpoints remain only as disabled HTTP 410 tombstones.
+- Documentation and examples now use package-first `uvx` setup and explicitly
+  distinguish inspection, preview, confirmation, and apply.
 
 ### Security
-- OAuth tokens now stored securely with keyring
-- Added .gitignore entries for all sensitive files
-- Implemented security best practices for API calls
 
-## [0.1.0] - 2024-01-01
+- OAuth uses PKCE, random validated state, least-privilege scopes, live
+  `write_api` verification, and keyring-first token storage.
+- Bearer tokens are restricted to allowlisted OSM API origins unless an operator
+  explicitly configures a custom target.
+- Safety gates classify the normalized API target itself: contradictory
+  development/production settings are rejected, and custom targets never enable
+  development-only write tools.
+- Restricted imagery sources are rejected and permitted imagery requires an
+  explicit operator allowlist.
+- GPX paths are constrained to the configured import directory with file-size,
+  point-count, traversal, and symlink protections.
+- Production writes fail closed when the host cannot provide digest-bound
+  elicitation.
 
-### Added
-- Initial release with 31 MCP tools
-- Core OSM operations (read/write nodes, ways, relations)
-- Changeset management
-- OAuth 2.0 authentication support
-- Natural language processing features
-- Bulk operations support
-- Development/Production API switching
-- Comprehensive test suite
-- Claude Desktop integration
-- Detailed documentation and examples
-
-### Features
-- **Core Operations**: Get, create, update, delete OSM elements
-- **Search Tools**: Find nearby amenities, search by text, smart geocoding
-- **Changeset Management**: Create, close, and query changesets
-- **Natural Language**: Parse requests, create places from descriptions
-- **Utility Tools**: Validate coordinates, export data, get statistics
-- **Safety**: Development API by default, rate limiting, user confirmation
-
-[Unreleased]: https://github.com/skywinder/osm-edit-mcp/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/skywinder/osm-edit-mcp/releases/tag/v0.1.0
+[Unreleased]: https://github.com/skywinder/osm-edit-mcp/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/skywinder/osm-edit-mcp/releases/tag/v0.2.0

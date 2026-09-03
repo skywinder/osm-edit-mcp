@@ -51,7 +51,7 @@ Uses Pydantic BaseSettings for type-safe configuration with:
 
 ## Development Workflow
 
-1. **Configuration**: Copy [.env.example](mdc:.env.example) to [.env](mdc:.env) and customize
+1. **Configuration**: Create [.env](mdc:.env) with `install -m 600 .env.example .env` and customize it
 2. **Testing**: Run [test_comprehensive.py](mdc:test_comprehensive.py) for validation
 3. **Development**: Use development API (`OSM_USE_DEV_API=true`) for safe testing
 4. **Documentation**: Update [README.md](mdc:README.md) for any new features

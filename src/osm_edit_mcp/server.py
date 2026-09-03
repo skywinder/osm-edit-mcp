@@ -8,7 +8,13 @@ the FastAPI wrapper, scripts, and third-party callers.
 import sys
 
 from .app import app, mcp
-from .config import OSMConfig, USER_AGENT, config, logger, setup_logging
+from .config import USER_AGENT, OSMConfig, config, logger, setup_logging
+from .edit_tools import (
+    get_edit_capabilities,
+    inspect_map_context,
+    list_edit_proposals,
+    verify_osm_edit,
+)
 from .http_client import (
     PUBLIC_API_TIMEOUT,
     describe_exception,
@@ -28,6 +34,7 @@ from .natural_language import (
     parse_natural_language_request,
     parse_opening_hours,
 )
+from .prompts import review_gpx_road_edit
 from .read_tools import (
     check_authentication,
     export_osm_data,
@@ -48,6 +55,15 @@ from .read_tools import (
     validate_osm_data,
 )
 from .token_store import get_current_user_info, load_oauth_token
+from .track_tools import (
+    analyze_gpx_track,
+    apply_osm_edit,
+    apply_track_road_edit,
+    create_track_selection,
+    match_track_selection,
+    preview_track_road_edit,
+    suggest_track_road_candidates,
+)
 from .write_tools import (
     bulk_create_places,
     close_changeset,
@@ -67,19 +83,19 @@ from .write_tools import (
 )
 from .xml_models import build_tags_xml, parse_osm_xml
 
-
 # Retained for callers that imported the legacy placeholder.
 osm_client = None
 
 
 def main() -> None:
     """Run the FastMCP server using its default stdio transport."""
+    setup_logging()
     logger.info("Starting OSM Edit MCP Server...")
     logger.info("Python version: %s", sys.version)
     logger.info("Server version: %s", config.mcp_server_version)
     logger.info(
         "API mode: %s",
-        "Development" if config.is_development else "Production",
+        config.api_environment.title(),
     )
 
     try:
@@ -100,12 +116,16 @@ __all__ = [
     "PUBLIC_API_TIMEOUT",
     "USER_AGENT",
     "app",
+    "analyze_gpx_track",
+    "apply_osm_edit",
+    "apply_track_road_edit",
     "build_tags_xml",
     "bulk_create_places",
     "check_authentication",
     "close_changeset",
     "config",
     "create_changeset",
+    "create_track_selection",
     "create_osm_node",
     "create_osm_relation",
     "create_osm_way",
@@ -123,6 +143,7 @@ __all__ = [
     "get_changeset",
     "get_changeset_history",
     "get_current_user_info",
+    "get_edit_capabilities",
     "get_osm_elements_in_area",
     "get_osm_node",
     "get_osm_relation",
@@ -132,10 +153,13 @@ __all__ = [
     "get_public_client",
     "get_server_info",
     "load_oauth_token",
+    "inspect_map_context",
+    "list_edit_proposals",
     "logger",
     "main",
     "map_business_type_to_tags",
     "map_features_to_tags",
+    "match_track_selection",
     "mcp",
     "osm_client",
     "overpass_literal",
@@ -144,14 +168,18 @@ __all__ = [
     "parse_natural_language_request",
     "parse_opening_hours",
     "parse_osm_xml",
+    "preview_track_road_edit",
+    "review_gpx_road_edit",
     "search_osm_elements",
     "setup_logging",
     "smart_geocode",
+    "suggest_track_road_candidates",
     "update_osm_node",
     "update_osm_relation",
     "update_osm_way",
     "validate_coordinates",
     "validate_osm_data",
+    "verify_osm_edit",
 ]
 
 

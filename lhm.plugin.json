@@ -1,0 +1,1482 @@
+{
+  "author": "skywinder",
+  "authorUrl": "https://github.com/skywinder",
+  "description": "Review-first MCP server for turning selected local GPX surveys into previewed, version-checked OpenStreetMap road edits.",
+  "homepage": "https://github.com/skywinder/osm-edit-mcp",
+  "identifier": "pk-osm-edit-mcp",
+  "name": "OSM Edit MCP Server",
+  "prompts": [
+    {
+      "name": "review_gpx_road_edit",
+      "title": "Review a GPX road edit",
+      "description": "Prepare a non-writing GPX-to-OSM road-edit proposal for explicit human review.",
+      "arguments": [
+        {
+          "name": "gpx_path",
+          "required": true
+        },
+        {
+          "name": "edit_goal",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "resources": [
+    {
+      "name": "OSM GPX track selection preview",
+      "uriTemplate": "ui://osm-edit/track-selection/{selection_id}",
+      "description": "Local visual preview of the selected GPX subsection",
+      "mimeType": "text/html"
+    },
+    {
+      "name": "OSM edit proposal preview",
+      "uriTemplate": "ui://osm-edit/proposal/{proposal_id}",
+      "description": "Current and proposed OSM geometry for human review",
+      "mimeType": "text/html"
+    }
+  ],
+  "tools": [
+    {
+      "name": "get_osm_node",
+      "description": "Get an OSM node by ID.\n\nArgs:\n    node_id: The ID of the node to retrieve\n\nReturns:\n    Dictionary containing node data including coordinates and tags\n",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "node_id": {
+            "title": "Node Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "node_id"
+        ],
+        "title": "get_osm_nodeArguments"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "get_osm_nodeOutput"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "get_osm_way",
+      "description": "Get an OSM way by ID.\n\nArgs:\n    way_id: The ID of the way to retrieve\n\nReturns:\n    Dictionary containing way data including nodes and tags\n",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "way_id": {
+            "title": "Way Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "way_id"
+        ],
+        "title": "get_osm_wayArguments"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "get_osm_wayOutput"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "get_osm_relation",
+      "description": "Get an OSM relation by ID.\n\nArgs:\n    relation_id: The ID of the relation to retrieve\n\nReturns:\n    Dictionary containing relation data including members and tags\n",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "relation_id": {
+            "title": "Relation Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "relation_id"
+        ],
+        "title": "get_osm_relationArguments"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "get_osm_relationOutput"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "get_osm_elements_in_area",
+      "description": "Get OSM elements within a bounding box.\n\nArgs:\n    bbox: Bounding box as \"min_lon,min_lat,max_lon,max_lat\"\n\nReturns:\n    Dictionary containing all elements in the area\n",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "bbox": {
+            "title": "Bbox",
+            "type": "string"
+          }
+        },
+        "required": [
+          "bbox"
+        ],
+        "title": "get_osm_elements_in_areaArguments"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "get_osm_elements_in_areaOutput"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "get_changeset",
+      "description": "Get information about a changeset.\n\nArgs:\n    changeset_id: The ID of the changeset to retrieve\n\nReturns:\n    Dictionary containing changeset information\n",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "changeset_id": {
+            "title": "Changeset Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "changeset_id"
+        ],
+        "title": "get_changesetArguments"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "get_changesetOutput"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "get_server_info",
+      "description": "Get information about the OSM Edit MCP server.\n\nReturns:\n    Dictionary containing server configuration and status\n",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "title": "get_server_infoArguments"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "get_server_infoOutput"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "check_authentication",
+      "description": "Check authentication status and get current user information.\n\nReturns:\n    Dictionary containing authentication status and user info\n",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "title": "check_authenticationArguments"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "check_authenticationOutput"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "find_nearby_amenities",
+      "description": "Find nearby amenities around a location using Overpass API.\n\nArgs:\n    lat: Latitude coordinate\n    lon: Longitude coordinate\n    radius_meters: Search radius in meters (default: 1000)\n    amenity_type: Type of amenity to search for (restaurant, cafe, hospital, etc.)\n\nReturns:\n    Dictionary containing nearby amenities with their details\n",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "lat": {
+            "title": "Lat",
+            "type": "number"
+          },
+          "lon": {
+            "title": "Lon",
+            "type": "number"
+          },
+          "radius_meters": {
+            "default": 1000,
+            "title": "Radius Meters",
+            "type": "integer"
+          },
+          "amenity_type": {
+            "default": "restaurant",
+            "title": "Amenity Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lat",
+          "lon"
+        ],
+        "title": "find_nearby_amenitiesArguments"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "find_nearby_amenitiesOutput"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "validate_coordinates",
+      "description": "Validate coordinates and provide information about the location.\n\nArgs:\n    lat: Latitude coordinate\n    lon: Longitude coordinate\n\nReturns:\n    Dictionary containing validation results and location information\n",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "lat": {
+            "title": "Lat",
+            "type": "number"
+          },
+          "lon": {
+            "title": "Lon",
+            "type": "number"
+          }
+        },
+        "required": [
+          "lat",
+          "lon"
+        ],
+        "title": "validate_coordinatesArguments"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "validate_coordinatesOutput"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "get_place_info",
+      "description": "Get information about a place by name using OSM Nominatim.\n\nArgs:\n    place_name: Name of the place to search for\n\nReturns:\n    Dictionary containing place information and coordinates\n",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "place_name": {
+            "title": "Place Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "place_name"
+        ],
+        "title": "get_place_infoArguments"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "get_place_infoOutput"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "search_osm_elements",
+      "description": "Search for OSM elements using Overpass API with a text query.\n\nArgs:\n    query: Search query (e.g., \"coffee shop\", \"hospital\", \"park\")\n    element_type: Type of element to search for (node, way, relation, or all)\n\nReturns:\n    Dictionary containing search results\n",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "title": "Query",
+            "type": "string"
+          },
+          "element_type": {
+            "default": "all",
+            "title": "Element Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "title": "search_osm_elementsArguments"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "search_osm_elementsOutput"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "parse_natural_language_osm_request",
+      "description": "Parse a natural language request into structured OSM data.\n\nArgs:\n    request: Natural language request for OSM operations\n\nReturns:\n    Dictionary containing parsed components of the request\n",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "title": "Request",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request"
+        ],
+        "title": "parse_natural_language_osm_requestArguments"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "parse_natural_language_osm_requestOutput"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "validate_osm_data",
+      "description": "Validate OSM data for quality assurance before uploading.\n\nArgs:\n    data: Dictionary containing OSM data to validate (tags, coordinates, etc.)\n\nReturns:\n    Dictionary containing validation results and suggestions\n",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "additionalProperties": true,
+            "title": "Data",
+            "type": "object"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "validate_osm_dataArguments"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "validate_osm_dataOutput"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "get_changeset_history",
+      "description": "Get changeset history for analysis and tracking.\n\nArgs:\n    user_id: Optional user ID to filter changesets\n    limit: Maximum number of changesets to return\n\nReturns:\n    Dictionary containing changeset history\n",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "User Id"
+          },
+          "limit": {
+            "default": 20,
+            "title": "Limit",
+            "type": "integer"
+          }
+        },
+        "title": "get_changeset_historyArguments"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "get_changeset_historyOutput"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "export_osm_data",
+      "description": "Export OSM data from a bounding box in various formats.\n\nArgs:\n    bbox: Bounding box as \"min_lon,min_lat,max_lon,max_lat\"\n    format: Export format (json, xml, geojson)\n    include_metadata: Whether to include metadata like changeset info\n\nReturns:\n    Dictionary containing exported data\n",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "bbox": {
+            "title": "Bbox",
+            "type": "string"
+          },
+          "format": {
+            "default": "json",
+            "title": "Format",
+            "type": "string"
+          },
+          "include_metadata": {
+            "default": true,
+            "title": "Include Metadata",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "bbox"
+        ],
+        "title": "export_osm_dataArguments"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "export_osm_dataOutput"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "get_osm_statistics",
+      "description": "Get statistics and analytics for OSM data in a bounding box.\n\nArgs:\n    bbox: Bounding box as \"min_lon,min_lat,max_lon,max_lat\"\n\nReturns:\n    Dictionary containing comprehensive statistics\n",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "bbox": {
+            "title": "Bbox",
+            "type": "string"
+          }
+        },
+        "required": [
+          "bbox"
+        ],
+        "title": "get_osm_statisticsArguments"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "get_osm_statisticsOutput"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "smart_geocode",
+      "description": "Enhanced geocoding with address parsing and multiple search strategies.\n\nArgs:\n    address_or_description: Full address or location description\n\nReturns:\n    Dictionary containing geocoding results with multiple candidates\n",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "address_or_description": {
+            "title": "Address Or Description",
+            "type": "string"
+          }
+        },
+        "required": [
+          "address_or_description"
+        ],
+        "title": "smart_geocodeArguments"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "smart_geocodeOutput"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "analyze_gpx_track",
+      "description": "Inspect a GPX file and list its independently selectable track segments.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "gpx_xml": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Gpx Xml"
+          },
+          "gpx_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Gpx Path"
+          }
+        },
+        "title": "analyze_gpx_trackArguments"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "analyze_gpx_trackOutput"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "create_track_selection",
+      "description": "Select one continuous subsection of an analyzed GPX without copying it.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "track_id": {
+            "title": "Track Id",
+            "type": "string"
+          },
+          "segment_id": {
+            "title": "Segment Id",
+            "type": "string"
+          },
+          "start_point_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Start Point Index"
+          },
+          "end_point_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "End Point Index"
+          },
+          "start_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Start Time"
+          },
+          "end_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "End Time"
+          },
+          "start_lat": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Start Lat"
+          },
+          "start_lon": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Start Lon"
+          },
+          "end_lat": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "End Lat"
+          },
+          "end_lon": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "End Lon"
+          }
+        },
+        "required": [
+          "track_id",
+          "segment_id"
+        ],
+        "title": "create_track_selectionArguments"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "create_track_selectionOutput"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "match_track_selection",
+      "description": "Map-match a selected GPX subsection using the configured local Valhalla.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "selection_id": {
+            "title": "Selection Id",
+            "type": "string"
+          },
+          "costing": {
+            "default": "auto",
+            "title": "Costing",
+            "type": "string"
+          }
+        },
+        "required": [
+          "selection_id"
+        ],
+        "title": "match_track_selectionArguments"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "match_track_selectionOutput"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "suggest_track_road_candidates",
+      "description": "Suggest nearby OSM highway ways without selecting or modifying any way.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "segment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Segment Id"
+          },
+          "gpx_xml": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Gpx Xml"
+          },
+          "gpx_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Gpx Path"
+          },
+          "limit": {
+            "default": 10,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "search_radius_m": {
+            "default": 30,
+            "title": "Search Radius M",
+            "type": "number"
+          },
+          "selection_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Selection Id"
+          }
+        },
+        "title": "suggest_track_road_candidatesArguments"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "suggest_track_road_candidatesOutput"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "preview_track_road_edit",
+      "description": "Build a non-writing GeoJSON and element diff preview for a road edit.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "changeset_comment": {
+            "title": "Changeset Comment",
+            "type": "string"
+          },
+          "changeset_source": {
+            "title": "Changeset Source",
+            "type": "string"
+          },
+          "segment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Segment Id"
+          },
+          "gpx_xml": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Gpx Xml"
+          },
+          "gpx_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Gpx Path"
+          },
+          "target_way_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Target Way Ids"
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Tags"
+          },
+          "simplify_tolerance_m": {
+            "default": 3,
+            "title": "Simplify Tolerance M",
+            "type": "number"
+          },
+          "endpoint_snap_tolerance_m": {
+            "default": 10,
+            "title": "Endpoint Snap Tolerance M",
+            "type": "number"
+          },
+          "connect_endpoints_to_ways": {
+            "default": true,
+            "title": "Connect Endpoints To Ways",
+            "type": "boolean"
+          },
+          "max_alignment_distance_m": {
+            "default": 20,
+            "title": "Max Alignment Distance M",
+            "type": "number"
+          },
+          "selection_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Selection Id"
+          },
+          "evidence_kind": {
+            "default": "survey_gpx",
+            "title": "Evidence Kind",
+            "type": "string"
+          },
+          "evidence_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Evidence Provider"
+          },
+          "evidence_observed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Evidence Observed At"
+          }
+        },
+        "required": [
+          "action",
+          "changeset_comment",
+          "changeset_source"
+        ],
+        "title": "preview_track_road_editArguments"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "preview_track_road_editOutput"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "apply_osm_edit",
+      "description": "Apply a reviewed proposal after a separate client-host confirmation.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "proposal_id": {
+            "title": "Proposal Id",
+            "type": "string"
+          },
+          "proposal_digest": {
+            "title": "Proposal Digest",
+            "type": "string"
+          },
+          "changeset_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Changeset Id"
+          }
+        },
+        "required": [
+          "proposal_id",
+          "proposal_digest"
+        ],
+        "title": "apply_osm_editArguments"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "apply_osm_editOutput"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "apply_track_road_edit",
+      "description": "Apply an exact dev-API digest after separate host confirmation.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "proposal_id": {
+            "title": "Proposal Id",
+            "type": "string"
+          },
+          "proposal_digest": {
+            "title": "Proposal Digest",
+            "type": "string"
+          },
+          "confirm": {
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "changeset_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Changeset Id"
+          }
+        },
+        "required": [
+          "proposal_id",
+          "proposal_digest",
+          "confirm"
+        ],
+        "title": "apply_track_road_editArguments"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "apply_track_road_editOutput"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "get_edit_capabilities",
+      "description": "Describe the active safety profile and optional local services.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "title": "get_edit_capabilitiesArguments"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "get_edit_capabilitiesOutput"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "inspect_map_context",
+      "description": "Return stable OSM IDs, versions, tags and GeoJSON for a small bbox.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "bbox": {
+            "title": "Bbox",
+            "type": "string"
+          },
+          "highway_only": {
+            "default": false,
+            "title": "Highway Only",
+            "type": "boolean"
+          },
+          "max_elements": {
+            "default": 5000,
+            "title": "Max Elements",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "bbox"
+        ],
+        "title": "inspect_map_contextArguments"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "inspect_map_contextOutput"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "list_edit_proposals",
+      "description": "List local proposal metadata without exposing raw GPX coordinates.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Status"
+          },
+          "limit": {
+            "default": 20,
+            "title": "Limit",
+            "type": "integer"
+          }
+        },
+        "title": "list_edit_proposalsArguments"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "list_edit_proposalsOutput"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "verify_osm_edit",
+      "description": "Re-fetch every element recorded in an applied proposal receipt.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "proposal_id": {
+            "title": "Proposal Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "proposal_id"
+        ],
+        "title": "verify_osm_editArguments"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "verify_osm_editOutput"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    }
+  ],
+  "version": "0.2.0",
+  "category": "tools",
+  "tags": [
+    "mcp",
+    "openstreetmap",
+    "osm",
+    "gis",
+    "geospatial",
+    "gpx",
+    "map-editing",
+    "fastmcp",
+    "python"
+  ]
+}

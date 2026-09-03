@@ -27,7 +27,29 @@ def parse_osm_xml(xml_content: str) -> Dict[str, Any]:
         result: Dict[str, Any] = {"elements": []}
 
         for element in root:
-            if element.tag in ["node", "way", "relation"]:
+            if element.tag == "changeset":
+                changeset_data = {
+                    "type": "changeset",
+                    "id": int(element.get("id", 0)),
+                    "created_at": element.get("created_at", ""),
+                    "closed_at": element.get("closed_at", ""),
+                    "open": element.get("open") == "true",
+                    "user": element.get("user", ""),
+                    "uid": int(element.get("uid", 0)),
+                    "changes_count": int(element.get("changes_count", 0)),
+                    "comments_count": int(element.get("comments_count", 0)),
+                    "tags": {},
+                }  # type: Dict[str, Any]
+                for key in ("min_lat", "min_lon", "max_lat", "max_lon"):
+                    value = element.get(key)
+                    if value is not None:
+                        changeset_data[key] = float(value)
+
+                for tag in element.findall("tag"):
+                    changeset_data["tags"][tag.get("k")] = tag.get("v")
+
+                result["elements"].append(changeset_data)
+            elif element.tag in ["node", "way", "relation"]:
                 elem_data = {
                     "type": element.tag,
                     "id": int(element.get("id", 0)),

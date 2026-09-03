@@ -136,6 +136,7 @@ oauth_tokens.json
 .env.local
 .env.development
 .env.production
+.claude/settings.local.json
 
 # IDE/Editor files
 .vscode/
@@ -166,6 +167,11 @@ cache/
 tmp/
 temp/
 *.tmp
+
+# Local GPX survey inputs can contain sensitive location history. Keep the
+# directory available, but never commit its contents.
+tracks/*
+!tracks/.gitkeep
 
 # Testing output
 test-results/

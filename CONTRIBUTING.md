@@ -19,23 +19,11 @@ By participating in this project, you agree to abide by our code of conduct:
    cd osm-edit-mcp
    ```
 
-### Option 1: Using uv (Recommended)
+### Install the locked development environment
+
 ```bash
-# Install dependencies
-uv sync
-
-# Install with dev dependencies
-uv sync --all-extras
-```
-
-### Option 2: Using pip
-```bash
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install development dependencies
-pip install -e .[dev]
+# Install the dependencies declared by pyproject.toml exactly as locked
+uv sync --locked --extra dev
 ```
 
 ## 🔧 Development Setup
@@ -44,14 +32,14 @@ pip install -e .[dev]
 
 1. Copy the example environment file:
    ```bash
-   cp .env.example .env
+   install -m 600 .env.example .env
+   export OSM_EDIT_MCP_ENV_FILE="$PWD/.env"
    ```
 2. Configure for development (keep `OSM_USE_DEV_API=true`)
 3. Set up OAuth credentials following the README instructions
 
 ### Running Tests
 
-#### With uv
 ```bash
 # Run all tests
 uv run pytest
@@ -66,38 +54,23 @@ uv run pytest tests/test_config.py
 uv run python test_comprehensive.py
 ```
 
-#### With pip/python
-```bash
-# Run all tests
-pytest
-
-# Run with coverage
-pytest --cov=src/osm_edit_mcp
-
-# Run specific test file
-pytest tests/test_config.py
-
-# Run integration tests
-python test_comprehensive.py
-```
-
 ### Code Quality Tools
 
 ```bash
 # Format code with black
-black src/ tests/
+uv run black src/ tests/
 
 # Sort imports
-isort src/ tests/
+uv run isort src/ tests/
 
 # Type checking
-mypy src/osm_edit_mcp
+uv run mypy src/osm_edit_mcp
 
 # Linting
-flake8 src/ tests/
+uv run flake8 src/ tests/
 
 # Security checks
-bandit -r src/
+uv run bandit -r src/
 ```
 
 ## 📝 Making Changes
@@ -141,30 +114,34 @@ Examples:
    - Use the development OSM API
    - Clean up test data after tests
 
-3. **Test Coverage**: Aim for >80% coverage
-   - Critical paths should have 100% coverage
-   - Document why certain code is excluded
+3. **Test Coverage**: Keep the repository gate at or above 60%
+   - Add focused tests for changed safety-critical paths
+   - Document why an important branch cannot be exercised
 
 ### Example Test
 
 ```python
 import pytest
-from src.osm_edit_mcp.server import validate_coordinates
 
-def test_validate_coordinates_valid():
-    """Test validation of valid coordinates."""
-    result = await validate_coordinates(51.5074, -0.1278)
+from osm_edit_mcp.server import validate_coordinates
+
+
+@pytest.mark.asyncio
+async def test_validate_coordinates_rejects_invalid_latitude():
+    """Invalid coordinates are rejected locally without a network lookup."""
+    result = await validate_coordinates(91.0, 0.0)
     assert result["success"] is True
-    assert "location" in result["data"]
+    assert result["data"]["is_valid"] is False
 ```
 
 ## 📦 Submitting Changes
 
 1. **Ensure all tests pass**:
    ```bash
-   pytest
-   mypy src/osm_edit_mcp
-   flake8 src/ tests/
+   uv sync --locked --extra dev
+   uv run pytest
+   uv run mypy src/osm_edit_mcp
+   uv run flake8 src/ tests/
    ```
 
 2. **Update documentation** if needed:

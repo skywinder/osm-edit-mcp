@@ -2,98 +2,185 @@ name: CI
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_VERSION: "0.7.3"
 
 jobs:
-  test:
+  quality:
+    name: Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        python-version: ['3.10', '3.11', '3.12']
+        python-version: ["3.10", "3.11", "3.12"]
 
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ matrix.python-version }}
-    
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install -e .[dev]
-    
-    - name: Lint with flake8
-      run: |
-        pip install flake8
-        # stop the build if there are Python syntax errors or undefined names
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
-        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-    
-    - name: Type check with mypy
-      run: |
-        pip install mypy
-        mypy src/osm_edit_mcp --ignore-missing-imports
-    
-    - name: Test with pytest
-      run: |
-        pip install pytest pytest-asyncio pytest-cov
-        pytest --cov=src/osm_edit_mcp --cov-report=xml --cov-report=term-missing
-    
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v4
-      with:
-        file: ./coverage.xml
-        fail_ci_if_error: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - name: Install locked dependencies
+        run: uv sync --locked --extra dev --python "${{ matrix.python-version }}"
+
+      - name: Lint syntax and undefined names
+        run: >-
+          uv run --locked --extra dev flake8
+          src tests main.py oauth_auth.py status_check.py web_server.py
+          --count --select=E9,F63,F7,F82 --show-source --statistics
+
+      - name: Type check
+        run: uv run --locked --extra dev mypy src/osm_edit_mcp
+
+      - name: Run tests
+        run: >-
+          uv run --locked --extra dev pytest
+          --cov=src/osm_edit_mcp
+          --cov-report=term-missing
+          --cov-report=xml
 
   security:
     runs-on: ubuntu-latest
+
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-    - name: Run Bandit security checks
-      run: |
-        pip install bandit
-        bandit -r src/ -ll
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.11"
 
-    # `safety check` was deprecated in 2024 and now exits 64 regardless of
-    # findings, which failed this job unconditionally. pip-audit covers the same
-    # ground (dependency CVEs) and is maintained.
-    - name: Audit dependencies for known vulnerabilities
-      run: |
-        pip install pip-audit
-        pip-audit -r requirements.txt
+      - name: Set up uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - name: Install locked dependencies
+        run: uv sync --locked --extra dev --python 3.11
+
+      - name: Scan source for high-severity issues
+        run: uv run --locked --extra dev bandit -r src/osm_edit_mcp -lll
+
+      - name: Export the locked runtime environment
+        run: >-
+          uv export --locked --no-dev --no-emit-project
+          --format requirements-txt
+          --output-file "${RUNNER_TEMP}/runtime-requirements.txt"
+
+      - name: Audit locked runtime dependencies
+        run: >-
+          uv run --locked --extra dev pip-audit
+          --disable-pip
+          --require-hashes
+          --requirement "${RUNNER_TEMP}/runtime-requirements.txt"
 
   build:
     runs-on: ubuntu-latest
-    needs: [test, security]
-    
+    needs: [quality, security]
+
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-    
-    - name: Build package
-      run: |
-        python -m pip install --upgrade pip
-        pip install build
-        python -m build
-    
-    - name: Check package
-      run: |
-        pip install twine
-        twine check dist/*
-    
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: dist
-        path: dist/
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - name: Install locked dependencies
+        run: uv sync --locked --extra dev --python 3.11
+
+      - name: Check lock and package definition hygiene
+        shell: bash
+        run: |
+          uv lock --check
+          test ! -e setup.py
+          test ! -e requirements.txt
+          if git ls-files --error-unmatch .env >/dev/null 2>&1; then
+            echo "::error::.env must not be tracked or published"
+            exit 1
+          fi
+
+      - name: Build wheel and source distribution
+        run: uv build --no-build-isolation --wheel --sdist --out-dir dist
+
+      - name: Build the public source archive
+        run: >-
+          git archive --format=tar --prefix=osm-edit-mcp-source/
+          --output="${RUNNER_TEMP}/source.tar" HEAD
+
+      - name: Validate release artifacts
+        run: |
+          uv run --locked --extra dev twine check dist/*
+          uv run --locked --extra dev python scripts/check_release_artifacts.py \
+            --dist dist \
+            --archive "${RUNNER_TEMP}/source.tar"
+
+      - name: Install locked wheel and sdist environments
+        shell: bash
+        run: |
+          uv export --locked --no-dev --no-emit-project \
+            --format requirements-txt \
+            --output-file "${RUNNER_TEMP}/runtime-requirements.txt"
+          uv venv "${RUNNER_TEMP}/package-smoke" --python 3.11
+          uv pip install \
+            --python "${RUNNER_TEMP}/package-smoke/bin/python" \
+            --require-hashes \
+            --requirement "${RUNNER_TEMP}/runtime-requirements.txt"
+          wheel_path="$(find dist -maxdepth 1 -name '*.whl' -print -quit)"
+          uv pip install \
+            --python "${RUNNER_TEMP}/package-smoke/bin/python" \
+            --no-deps \
+            "${wheel_path}"
+
+          uv venv "${RUNNER_TEMP}/sdist-smoke" --python 3.11
+          uv pip install \
+            --python "${RUNNER_TEMP}/sdist-smoke/bin/python" \
+            --require-hashes \
+            --requirement "${RUNNER_TEMP}/runtime-requirements.txt"
+          sdist_path="$(find dist -maxdepth 1 -name '*.tar.gz' -print -quit)"
+          uv pip install \
+            --python "${RUNNER_TEMP}/sdist-smoke/bin/python" \
+            --no-deps \
+            "${sdist_path}"
+
+      - name: Smoke-test installed wheel and sdist console scripts
+        shell: bash
+        run: |
+          "${RUNNER_TEMP}/package-smoke/bin/python" \
+            scripts/smoke_test_mcp_package.py \
+            --command "${RUNNER_TEMP}/package-smoke/bin/osm-edit-mcp"
+          "${RUNNER_TEMP}/sdist-smoke/bin/python" \
+            scripts/smoke_test_mcp_package.py \
+            --command "${RUNNER_TEMP}/sdist-smoke/bin/osm-edit-mcp"
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: python-package-distributions
+          path: dist/
+          if-no-files-found: error

@@ -1,104 +1,92 @@
 # Cursor MCP Integration Troubleshooting
 
-## Issue: "0 tools enabled" in Cursor
+## Issue: no tools or prompts appear in Cursor
 
-### 1. Update Your Cursor Configuration
+### 1. Use the released package entry point
 
-Replace your current configuration with this exact JSON:
+Configure Cursor with the package command, without checkout-specific path or
+environment overrides:
 
 ```json
 {
-  "osm-edit": {
-    "command": "uv",
-    "args": ["run", "python", "/Users/pk/repo/_mine/osm-edit-mcp/main.py"],
-    "cwd": "/Users/pk/repo/_mine/osm-edit-mcp",
-    "env": {
-      "PYTHONPATH": "/Users/pk/repo/_mine/osm-edit-mcp/src"
+  "mcpServers": {
+    "osm-edit": {
+      "command": "uvx",
+      "args": ["osm-edit-mcp"],
+      "env": {
+        "OSM_USE_DEV_API": "true",
+        "OSM_WRITE_PROFILE": "safe",
+        "OSM_REQUIRE_HOST_CONFIRMATION": "true"
+      }
     }
   }
 }
 ```
 
-### 2. Alternative Configurations
+The first launch may take longer while `uvx` creates an isolated environment.
 
-If the above doesn't work, try these alternatives:
+### 2. Test `uvx` outside Cursor
 
-**Option A - Using absolute uv path:**
-```json
-{
-  "osm-edit": {
-    "command": "/opt/homebrew/bin/uv",
-    "args": ["run", "python", "main.py"],
-    "cwd": "/Users/pk/repo/_mine/osm-edit-mcp"
-  }
-}
-```
-
-**Option B - Direct Python (without uv):**
-```json
-{
-  "osm-edit": {
-    "command": "python",
-    "args": ["/Users/pk/repo/_mine/osm-edit-mcp/main.py"],
-    "cwd": "/Users/pk/repo/_mine/osm-edit-mcp",
-    "env": {
-      "PYTHONPATH": "/Users/pk/repo/_mine/osm-edit-mcp/src"
-    }
-  }
-}
-```
-
-
-### 3. Debugging Steps
-
-1. **Check Cursor MCP Logs**:
-   - View → Output → Select "MCP" from dropdown
-   - Look for error messages when Cursor tries to start the server
-
-2. **Verify Dependencies**:
-   ```bash
-   cd /Users/pk/repo/_mine/osm-edit-mcp
-   uv sync --dev  # Important: Use --dev flag to install all dependencies
-   ```
-
-3. **Test Server Manually**:
-   ```bash
-   cd /Users/pk/repo/_mine/osm-edit-mcp
-   echo '{"jsonrpc":"2.0","method":"initialize","id":1,"params":{"protocolVersion":"1.0.0","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}}}' | uv run python main.py
-   ```
-
-   You should see a JSON response with "serverInfo" if working correctly.
-
-4. **Restart Cursor**:
-   - After changing configuration, fully quit and restart Cursor
-   - Sometimes Cursor caches MCP server states
-
-### 4. Common Issues
-
-1. **Path Issues**:
-   - Make sure all paths are absolute (starting with /)
-   - The `args` array should have absolute path to main.py
-
-2. **Python Environment**:
-   - The PYTHONPATH env variable helps find the src modules
-   - Make sure you've run `uv sync --dev` in the project directory
-
-3. **Permissions**:
-   - Check that main.py is readable: `ls -la /Users/pk/repo/_mine/osm-edit-mcp/main.py`
-
-### 5. What Success Looks Like
-
-When properly configured, you should see:
-- Green dot next to "osm-edit" in Cursor's MCP panel
-- "25 tools enabled" (or similar number)
-- Tools like "find_nearby_amenities", "get_place_info" available
-
-### 6. If Still Not Working
-
-Run the debug script and share the output:
 ```bash
-cd /Users/pk/repo/_mine/osm-edit-mcp
-uv run python debug_mcp_cursor.py
+uvx --version
+npx -y @modelcontextprotocol/inspector uvx osm-edit-mcp
 ```
 
-Also check Cursor's MCP output logs and share any error messages.
+If `uvx` works in a terminal but Cursor cannot find it, run `command -v uvx`
+and use that absolute executable path as the configuration's `command` value.
+Keep the package entry point as the single argument instead of invoking a source
+file directly.
+
+### 3. Test unreleased changes from a local checkout
+
+Install exactly the dependencies recorded in `uv.lock`:
+
+```bash
+cd /absolute/path/to/osm-edit-mcp
+uv sync --locked --extra dev
+npx -y @modelcontextprotocol/inspector uv run --locked osm-edit-mcp
+```
+
+For Cursor to launch that checkout, use the console entry point through the
+project environment:
+
+```json
+{
+  "mcpServers": {
+    "osm-edit-local": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--locked",
+        "--project",
+        "/absolute/path/to/osm-edit-mcp",
+        "osm-edit-mcp"
+      ],
+      "env": {
+        "OSM_USE_DEV_API": "true",
+        "OSM_WRITE_PROFILE": "safe",
+        "OSM_REQUIRE_HOST_CONFIRMATION": "true"
+      }
+    }
+  }
+}
+```
+
+### 4. Check Cursor MCP logs
+
+1. Open **View → Output** and select **MCP**.
+2. Fully quit and restart Cursor after changing the configuration.
+3. Look for command-not-found, package-resolution, JSON, or startup errors.
+4. Confirm the configured server is enabled and its tool and prompt lists are
+   populated.
+
+### 5. Run the repository debug helper
+
+From a synced local checkout:
+
+```bash
+uv run --locked python debug_mcp_cursor.py
+```
+
+Share the helper output and the relevant Cursor MCP log entries if the server
+still fails to initialize. Remove credentials and tokens before sharing logs.

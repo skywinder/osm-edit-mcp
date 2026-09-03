@@ -80,6 +80,30 @@ def test_parse_relation_xml():
     assert relation["tags"]["type"] == "multipolygon"
 
 
+def test_parse_changeset_xml():
+    xml_content = """<?xml version="1.0" encoding="UTF-8"?>
+    <osm version="0.6">
+        <changeset id="123" open="false" user="testuser" uid="456"
+                   created_at="2026-08-16T00:00:00Z"
+                   closed_at="2026-08-16T00:05:00Z" changes_count="12"
+                   comments_count="1" min_lat="41.1" min_lon="42.1"
+                   max_lat="41.2" max_lon="42.2">
+            <tag k="comment" v="Add road"/>
+        </changeset>
+    </osm>"""
+
+    result = parse_osm_xml(xml_content)
+
+    assert len(result["elements"]) == 1
+    changeset = result["elements"][0]
+    assert changeset["type"] == "changeset"
+    assert changeset["id"] == 123
+    assert changeset["open"] is False
+    assert changeset["changes_count"] == 12
+    assert changeset["min_lat"] == 41.1
+    assert changeset["tags"]["comment"] == "Add road"
+
+
 def test_parse_invalid_xml():
     """Test parsing invalid XML."""
     xml_content = "This is not valid XML"

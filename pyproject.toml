@@ -1,17 +1,30 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27,<2"]
 build-backend = "hatchling.build"
 
 [project]
 name = "osm-edit-mcp"
-version = "0.1.0"
-description = "Model Context Protocol server for editing OpenStreetMap data"
+version = "0.2.0"
+description = "Review-first MCP server for previewed, version-checked OpenStreetMap road edits from local GPX surveys"
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
-    {name = "pk", email = "right.crew7885@fastmail.com"}
+    {name = "skywinder"}
 ]
-keywords = ["openstreetmap", "osm", "mcp", "model-context-protocol", "ai", "assistant"]
+keywords = [
+    "openstreetmap",
+    "osm",
+    "mcp",
+    "model-context-protocol",
+    "gis",
+    "geospatial",
+    "gpx",
+    "map-editing",
+    "fastmcp",
+    "ai",
+    "assistant",
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -25,17 +38,19 @@ classifiers = [
 ]
 requires-python = ">=3.10"
 dependencies = [
-    "mcp>=1.10.0",
-    "httpx>=0.24.0",
-    "pydantic>=2.0.0",
-    "pydantic-settings>=2.0.0",
-    "python-dotenv>=1.0.0",
-    "authlib>=1.2.0",
-    "keyring>=24.0.0",
-    "anyio>=3.0.0",
-    "defusedxml>=0.7.1",
-    "fastapi>=0.115.0",
-    "uvicorn[standard]>=0.34.0",
+    "mcp>=1.10,<2",
+    "httpx>=0.28.1,<1",
+    "pydantic>=2.11.0,<3",
+    "pydantic-settings>=2.10.0,<3",
+    "python-dotenv>=1.2.3,<2",
+    "authlib>=1.8.0,<2",
+    "cryptography>=50.0.1,<51",
+    "keyring>=25.7.0,<26",
+    "anyio>=4.9.0,<5",
+    "defusedxml>=0.7.1,<1",
+    "fastapi>=0.141.1,<1",
+    "python-multipart>=0.0.32,<1",
+    "uvicorn[standard]>=0.52.4,<1",
 ]
 
 [project.urls]
@@ -45,6 +60,7 @@ Issues = "https://github.com/skywinder/osm-edit-mcp/issues"
 
 [project.optional-dependencies]
 dev = [
+    "bandit[toml]>=1.8.0",
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.0.0",
@@ -52,11 +68,32 @@ dev = [
     "isort>=5.0.0",
     "mypy>=1.0.0",
     "flake8>=6.0.0",
+    "hatchling>=1.27,<2",
+    "pip-audit>=2.9.0",
     "pre-commit>=3.0.0",
+    "tomli>=2.0.0; python_version < '3.11'",
+    "twine>=6.0.0",
+    "types-defusedxml>=0.7.0.20260504",
 ]
 
 [project.scripts]
 osm-edit-mcp = "osm_edit_mcp.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/osm_edit_mcp"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/LICENSE",
+    "/README.md",
+    "/oauth_auth.py",
+    "/lhm.plugin.json",
+    "/pyproject.toml",
+    "/scripts/security_audit.py",
+    "/src",
+    "/tests",
+    "/web_server.py",
+]
 
 [tool.black]
 line-length = 88
@@ -86,6 +123,7 @@ asyncio_default_fixture_loop_scope = "function"
 source = ["src/osm_edit_mcp"]
 
 [tool.coverage.report]
+fail_under = 60
 exclude_lines = [
     "pragma: no cover",
     "def __repr__",

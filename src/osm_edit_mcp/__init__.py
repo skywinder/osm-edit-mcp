@@ -4,9 +4,10 @@ OSM Edit MCP Server
 A simple Model Context Protocol server for OpenStreetMap editing operations.
 """
 
-__version__ = "0.1.0"
-__author__ = "OSM Edit MCP"
+from ._version import __version__
 
 from .server import mcp
 
-__all__ = ["mcp"]
+__author__ = "skywinder"
+
+__all__ = ["__version__", "mcp"]

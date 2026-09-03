@@ -4,11 +4,13 @@ import asyncio
 import json
 import urllib.parse
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, TypeVar, cast
 
 from defusedxml.ElementTree import fromstring as parse_xml
+from mcp.types import ToolAnnotations
 
 from .app import mcp
+from .auth import _parse_identity, _parse_permissions
 from .config import config, logger
 from .http_client import (
     describe_exception,
@@ -23,9 +25,26 @@ from .natural_language import (
     parse_natural_language_request,
 )
 from .token_store import get_current_user_info, load_oauth_token
-from .xml_models import parse_osm_xml
+from .xml_models import build_tags_xml, parse_osm_xml
 
-@mcp.tool()
+ReadFunction = TypeVar("ReadFunction", bound=Callable[..., Any])
+
+
+def _read_tool(function: ReadFunction) -> ReadFunction:
+    return cast(
+        ReadFunction,
+        mcp.tool(
+            annotations=ToolAnnotations(
+                readOnlyHint=True,
+                destructiveHint=False,
+                idempotentHint=True,
+                openWorldHint=True,
+            )
+        )(function),
+    )
+
+
+@_read_tool
 async def get_osm_node(node_id: int) -> Dict[str, Any]:
     """Get an OSM node by ID.
 
@@ -38,23 +57,24 @@ async def get_osm_node(node_id: int) -> Dict[str, Any]:
     try:
         url = f"{config.current_api_base_url}/node/{node_id}"
         logger.debug(f"Fetching node {node_id} from {url}")
-        async with httpx.AsyncClient() as client:
+        async with get_public_client() as client:
             response = await client.get(url)
             response.raise_for_status()
             parsed_data = parse_osm_xml(response.text)
             return {
                 "success": True,
                 "data": parsed_data,
-                "message": f"Retrieved node {node_id}"
+                "message": f"Retrieved node {node_id}",
             }
     except Exception as e:
         return {
             "success": False,
             "error": describe_exception(e),
-            "message": f"Failed to retrieve node {node_id}"
+            "message": f"Failed to retrieve node {node_id}",
         }
 
-@mcp.tool()
+
+@_read_tool
 async def get_osm_way(way_id: int) -> Dict[str, Any]:
     """Get an OSM way by ID.
 
@@ -67,23 +87,24 @@ async def get_osm_way(way_id: int) -> Dict[str, Any]:
     try:
         url = f"{config.current_api_base_url}/way/{way_id}"
         logger.debug(f"Fetching way {way_id} from {url}")
-        async with httpx.AsyncClient() as client:
+        async with get_public_client() as client:
             response = await client.get(url)
             response.raise_for_status()
             parsed_data = parse_osm_xml(response.text)
             return {
                 "success": True,
                 "data": parsed_data,
-                "message": f"Retrieved way {way_id}"
+                "message": f"Retrieved way {way_id}",
             }
     except Exception as e:
         return {
             "success": False,
             "error": describe_exception(e),
-            "message": f"Failed to retrieve way {way_id}"
+            "message": f"Failed to retrieve way {way_id}",
         }
 
-@mcp.tool()
+
+@_read_tool
 async def get_osm_relation(relation_id: int) -> Dict[str, Any]:
     """Get an OSM relation by ID.
 
@@ -96,23 +117,24 @@ async def get_osm_relation(relation_id: int) -> Dict[str, Any]:
     try:
         url = f"{config.current_api_base_url}/relation/{relation_id}"
         logger.debug(f"Fetching relation {relation_id} from {url}")
-        async with httpx.AsyncClient() as client:
+        async with get_public_client() as client:
             response = await client.get(url)
             response.raise_for_status()
             parsed_data = parse_osm_xml(response.text)
             return {
                 "success": True,
                 "data": parsed_data,
-                "message": f"Retrieved relation {relation_id}"
+                "message": f"Retrieved relation {relation_id}",
             }
     except Exception as e:
         return {
             "success": False,
             "error": describe_exception(e),
-            "message": f"Failed to retrieve relation {relation_id}"
+            "message": f"Failed to retrieve relation {relation_id}",
         }
 
-@mcp.tool()
+
+@_read_tool
 async def get_osm_elements_in_area(bbox: str) -> Dict[str, Any]:
     """Get OSM elements within a bounding box.
 
@@ -125,24 +147,24 @@ async def get_osm_elements_in_area(bbox: str) -> Dict[str, Any]:
     try:
         url = f"{config.current_api_base_url}/map?bbox={bbox}"
         logger.debug(f"Fetching elements in bbox {bbox} from {url}")
-        async with httpx.AsyncClient() as client:
+        async with get_public_client() as client:
             response = await client.get(url)
             response.raise_for_status()
             parsed_data = parse_osm_xml(response.text)
             return {
                 "success": True,
                 "data": parsed_data,
-                "message": f"Retrieved elements in bounding box {bbox}"
+                "message": f"Retrieved elements in bounding box {bbox}",
             }
     except Exception as e:
         return {
             "success": False,
             "error": describe_exception(e),
-            "message": f"Failed to retrieve elements in area {bbox}"
+            "message": f"Failed to retrieve elements in area {bbox}",
         }
 
 
-@mcp.tool()
+@_read_tool
 async def get_changeset(changeset_id: int) -> Dict[str, Any]:
     """Get information about a changeset.
 
@@ -155,24 +177,24 @@ async def get_changeset(changeset_id: int) -> Dict[str, Any]:
     try:
         url = f"{config.current_api_base_url}/changeset/{changeset_id}"
         logger.debug(f"Fetching changeset {changeset_id} from {url}")
-        async with httpx.AsyncClient() as client:
+        async with get_public_client() as client:
             response = await client.get(url)
             response.raise_for_status()
             parsed_data = parse_osm_xml(response.text)
             return {
                 "success": True,
                 "data": parsed_data,
-                "message": f"Retrieved changeset {changeset_id}"
+                "message": f"Retrieved changeset {changeset_id}",
             }
     except Exception as e:
         return {
             "success": False,
             "error": describe_exception(e),
-            "message": f"Failed to retrieve changeset {changeset_id}"
+            "message": f"Failed to retrieve changeset {changeset_id}",
         }
 
 
-@mcp.tool()
+@_read_tool
 async def get_server_info() -> Dict[str, Any]:
     """Get information about the OSM Edit MCP server.
 
@@ -181,34 +203,43 @@ async def get_server_info() -> Dict[str, Any]:
     """
     try:
         user_info = get_current_user_info()
-        auth_status = "authenticated" if user_info else "not authenticated"
+        auth_status = "token configured (unverified)" if user_info else "not configured"
 
         result: Dict[str, Any] = {
             "success": True,
             "data": {
                 "server_name": "OSM Edit MCP Server",
-                "version": "1.0.0",
+                "version": config.mcp_server_version,
                 "api_base_url": config.current_api_base_url,
-                "api_mode": "Development" if config.osm_use_dev_api else "Production",
+                "api_mode": config.api_environment.title(),
                 "authentication_status": auth_status,
-                "available_operations": [
-                    "get_osm_node", "get_osm_way", "get_osm_relation",
-                    "get_osm_elements_in_area", "create_changeset", "get_changeset",
-                    "close_changeset", "get_server_info", "find_nearby_amenities",
-                    "validate_coordinates", "get_place_info", "search_osm_elements",
-                    "check_authentication"
+                "available_safe_edit_operations": [
+                    "get_edit_capabilities",
+                    "inspect_map_context",
+                    "analyze_gpx_track",
+                    "create_track_selection",
+                    "match_track_selection",
+                    "suggest_track_road_candidates",
+                    "preview_track_road_edit",
+                    "apply_osm_edit",
+                    "list_edit_proposals",
+                    "verify_osm_edit",
                 ],
-                "description": "Basic OSM read/fetch/update operations via MCP"
+                "raw_write_tools_registered": config.direct_write_tools_enabled,
+                "production_confirmation": ("MCP elicitation bound to proposal digest"),
+                "description": (
+                    "OSM read operations and proposal-based GPX road editing via MCP"
+                ),
             },
-            "message": "Server information retrieved successfully"
+            "message": "Server information retrieved successfully",
         }
 
         if user_info:
-            result["data"]["current_user"] = {
-                "username": user_info.get('username', 'unknown'),
-                "user_id": user_info.get('user_id', 'unknown'),
-                "token_expires": user_info.get('expires_at', 'unknown'),
-                "scopes": user_info.get('scopes', [])
+            result["data"]["cached_user_hint"] = {
+                "username": user_info.get("username", "unknown"),
+                "user_id": user_info.get("user_id", "unknown"),
+                "token_expires": user_info.get("expires_at", "unknown"),
+                "scopes": user_info.get("scopes", []),
             }
 
         return result
@@ -216,104 +247,69 @@ async def get_server_info() -> Dict[str, Any]:
         return {
             "success": False,
             "error": describe_exception(e),
-            "message": "Failed to retrieve server information"
+            "message": "Failed to retrieve server information",
         }
 
-@mcp.tool()
+
+@_read_tool
 async def check_authentication() -> Dict[str, Any]:
     """Check authentication status and get current user information.
 
     Returns:
         Dictionary containing authentication status and user info
     """
+    token_data = load_oauth_token()
+    if not token_data or not token_data.get("access_token"):
+        return {
+            "success": False,
+            "authenticated": False,
+            "error": "No authentication token",
+            "message": "No OAuth token found. Run 'python oauth_auth.py' to authenticate.",
+        }
     try:
-        # Try to get user details from OSM API
         async with get_authenticated_client() as client:
-            url = f"{config.current_api_base_url}/user/details"
-            response = await client.get(url)
-
-        if response.status_code == 200:
-            # Parse user details from XML - try different approach for user details
-            try:
-                import xml.etree.ElementTree as ET
-                root = parse_xml(response.text)
-                user_elem = root.find('.//user')
-
-                if user_elem is not None:
-                    username = user_elem.get('display_name', 'redboard1158')  # fallback to known username
-                    user_id = user_elem.get('id', '22384')  # fallback to known user_id
-                else:
-                    # Fallback to known values from successful auth
-                    username = 'redboard1158'
-                    user_id = '22384'
-            except:
-                # Fallback to known values if XML parsing fails
-                username = 'redboard1158'
-                user_id = '22384'
-
-            # Update token file with user info
-            token_data = load_oauth_token()
-            if token_data:
-                token_data['username'] = username
-                token_data['user_id'] = user_id
-
-                token_file = '.osm_token_dev.json' if config.osm_use_dev_api else '.osm_token_prod.json'
-                with open(token_file, 'w') as f:
-                    json.dump(token_data, f, indent=2)
-
-                logger.info(f"Updated user info: {token_data['username']} (ID: {token_data['user_id']})")
-
-            return {
-                "success": True,
-                "authenticated": True,
-                "data": {
-                    "username": username,
-                    "user_id": user_id,
-                    "api_mode": "Development" if config.osm_use_dev_api else "Production",
-                    "api_url": config.current_api_base_url,
-                    "token_status": "valid",
-                    "scopes": token_data.get('scope', '').split() if token_data else []
-                },
-                "message": f"Authenticated as {username}"
-            }
-        elif response.status_code == 401:
-            return {
-                "success": False,
-                "authenticated": False,
-                "error": "Authentication failed",
-                "message": "OAuth token is invalid or expired. Run 'python oauth_auth.py' to re-authenticate."
-            }
-        else:
-            return {
-                "success": False,
-                "authenticated": False,
-                "error": f"API error: {response.status_code}",
-                "message": f"Failed to verify authentication: {response.text}"
-            }
-
-    except Exception as e:
-        token_data = load_oauth_token()
-        if token_data:
-            return {
-                "success": False,
-                "authenticated": True,
-                "error": describe_exception(e),
-                "message": "Token exists but authentication check failed",
-                "data": {
-                    "token_file_exists": True,
-                    "api_mode": "Development" if config.osm_use_dev_api else "Production"
+            details = await client.get(f"{config.current_api_base_url}/user/details")
+            if details.status_code != 200:
+                return {
+                    "success": False,
+                    "authenticated": False,
+                    "error": f"API error: {details.status_code}",
+                    "message": "OSM rejected the OAuth token",
                 }
-            }
-        else:
-            return {
-                "success": False,
-                "authenticated": False,
-                "error": "No authentication token",
-                "message": "No OAuth token found. Run 'python oauth_auth.py' to authenticate."
-            }
+            identity = _parse_identity(details.text)
+            permissions_response = await client.get(
+                f"{config.current_api_base_url}/permissions"
+            )
+            permissions = (
+                sorted(_parse_permissions(permissions_response.text))
+                if permissions_response.status_code == 200
+                else []
+            )
+        return {
+            "success": True,
+            "authenticated": True,
+            "data": {
+                **identity,
+                "api_mode": config.api_environment.title(),
+                "api_url": config.current_api_base_url,
+                "token_status": "valid",
+                "permissions": permissions,
+            },
+            "message": f"Authenticated as {identity['username']}",
+        }
+    except Exception as exc:
+        return {
+            "success": False,
+            "authenticated": False,
+            "error": describe_exception(exc),
+            "message": "Token exists but live authentication could not be verified",
+        }
 
-@mcp.tool()
-async def find_nearby_amenities(lat: float, lon: float, radius_meters: int = 1000, amenity_type: str = "restaurant") -> Dict[str, Any]:
+
+@_read_tool
+async def find_nearby_amenities(
+    lat: float, lon: float, radius_meters: int = 1000, amenity_type: str = "restaurant"
+) -> Dict[str, Any]:
     """Find nearby amenities around a location using Overpass API.
 
     Args:
@@ -331,7 +327,7 @@ async def find_nearby_amenities(lat: float, lon: float, radius_meters: int = 100
             return {
                 "success": False,
                 "error": "Invalid coordinates",
-                "message": "Latitude must be between -90 and 90, longitude between -180 and 180"
+                "message": "Latitude must be between -90 and 90, longitude between -180 and 180",
             }
 
         # Overpass API query
@@ -367,7 +363,7 @@ async def find_nearby_amenities(lat: float, lon: float, radius_meters: int = 100
                 if element.get("type") == "node":
                     amenity_info["location"] = {
                         "lat": element.get("lat"),
-                        "lon": element.get("lon")
+                        "lon": element.get("lon"),
                     }
                 elif element.get("geometry"):
                     # For ways and relations, use center of geometry
@@ -386,19 +382,20 @@ async def find_nearby_amenities(lat: float, lon: float, radius_meters: int = 100
                     "radius_meters": radius_meters,
                     "amenity_type": amenity_type,
                     "count": len(amenities),
-                    "amenities": amenities
+                    "amenities": amenities,
                 },
-                "message": f"Found {len(amenities)} {amenity_type}s within {radius_meters}m"
+                "message": f"Found {len(amenities)} {amenity_type}s within {radius_meters}m",
             }
 
     except Exception as e:
         return {
             "success": False,
             "error": describe_exception(e),
-            "message": f"Failed to find nearby {amenity_type}s"
+            "message": f"Failed to find nearby {amenity_type}s",
         }
 
-@mcp.tool()
+
+@_read_tool
 async def validate_coordinates(lat: float, lon: float) -> Dict[str, Any]:
     """Validate coordinates and provide information about the location.
 
@@ -422,10 +419,10 @@ async def validate_coordinates(lat: float, lon: float) -> Dict[str, Any]:
                     "latitude_valid": -90 <= lat <= 90,
                     "longitude_valid": -180 <= lon <= 180,
                     "latitude_range": "[-90, 90]",
-                    "longitude_range": "[-180, 180]"
-                }
+                    "longitude_range": "[-180, 180]",
+                },
             },
-            "message": f"Coordinates are {'valid' if is_valid else 'invalid'}: {lat}, {lon}"
+            "message": f"Coordinates are {'valid' if is_valid else 'invalid'}: {lat}, {lon}",
         }
 
         if is_valid:
@@ -433,28 +430,34 @@ async def validate_coordinates(lat: float, lon: float) -> Dict[str, Any]:
             result["data"]["geographic_info"] = {
                 "hemisphere_lat": "North" if lat >= 0 else "South",
                 "hemisphere_lon": "East" if lon >= 0 else "West",
-                "quadrant": f"{'North' if lat >= 0 else 'South'}{'east' if lon >= 0 else 'west'}"
+                "quadrant": f"{'North' if lat >= 0 else 'South'}{'east' if lon >= 0 else 'west'}",
             }
 
             # Try to get reverse geocoding from OSM Nominatim
             try:
-                reverse_params = urllib.parse.urlencode({
-                    "format": "json",
-                    "lat": lat,
-                    "lon": lon,
-                    "zoom": 18,
-                    "addressdetails": 1,
-                })
-                nominatim_url = f"https://nominatim.openstreetmap.org/reverse?{reverse_params}"
+                reverse_params = urllib.parse.urlencode(
+                    {
+                        "format": "json",
+                        "lat": lat,
+                        "lon": lon,
+                        "zoom": 18,
+                        "addressdetails": 1,
+                    }
+                )
+                nominatim_url = (
+                    f"https://nominatim.openstreetmap.org/reverse?{reverse_params}"
+                )
                 async with get_public_client() as client:
                     response = await client.get(nominatim_url)
                     if response.status_code == 200:
                         location_data = response.json()
                         result["data"]["location_info"] = {
-                            "display_name": location_data.get("display_name", "Unknown location"),
+                            "display_name": location_data.get(
+                                "display_name", "Unknown location"
+                            ),
                             "address": location_data.get("address", {}),
                             "osm_type": location_data.get("osm_type"),
-                            "osm_id": location_data.get("osm_id")
+                            "osm_id": location_data.get("osm_id"),
                         }
             except:
                 pass  # Reverse geocoding is optional
@@ -469,10 +472,11 @@ async def validate_coordinates(lat: float, lon: float) -> Dict[str, Any]:
         return {
             "success": False,
             "error": describe_exception(e),
-            "message": "Failed to validate coordinates"
+            "message": "Failed to validate coordinates",
         }
 
-@mcp.tool()
+
+@_read_tool
 async def get_place_info(place_name: str) -> Dict[str, Any]:
     """Get information about a place by name using OSM Nominatim.
 
@@ -485,12 +489,14 @@ async def get_place_info(place_name: str) -> Dict[str, Any]:
     try:
         # Use Nominatim to search for the place. The query must be URL-encoded -
         # an unescaped '&' would silently truncate it and return wrong results.
-        nominatim_params = urllib.parse.urlencode({
-            "format": "json",
-            "q": place_name,
-            "limit": 5,
-            "addressdetails": 1,
-        })
+        nominatim_params = urllib.parse.urlencode(
+            {
+                "format": "json",
+                "q": place_name,
+                "limit": 5,
+                "addressdetails": 1,
+            }
+        )
         nominatim_url = f"https://nominatim.openstreetmap.org/search?{nominatim_params}"
 
         async with get_public_client() as client:
@@ -502,7 +508,7 @@ async def get_place_info(place_name: str) -> Dict[str, Any]:
                 return {
                     "success": False,
                     "error": "No places found",
-                    "message": f"No results found for '{place_name}'"
+                    "message": f"No results found for '{place_name}'",
                 }
 
             # Process results
@@ -512,7 +518,7 @@ async def get_place_info(place_name: str) -> Dict[str, Any]:
                     "display_name": place.get("display_name"),
                     "coordinates": {
                         "lat": float(place.get("lat", 0)),
-                        "lon": float(place.get("lon", 0))
+                        "lon": float(place.get("lon", 0)),
                     },
                     "osm_type": place.get("osm_type"),
                     "osm_id": place.get("osm_id"),
@@ -520,28 +526,25 @@ async def get_place_info(place_name: str) -> Dict[str, Any]:
                     "category": place.get("category"),
                     "address": place.get("address", {}),
                     "importance": place.get("importance", 0),
-                    "bounding_box": place.get("boundingbox", [])
+                    "bounding_box": place.get("boundingbox", []),
                 }
                 results.append(place_info)
 
             return {
                 "success": True,
-                "data": {
-                    "query": place_name,
-                    "count": len(results),
-                    "places": results
-                },
-                "message": f"Found {len(results)} places for '{place_name}'"
+                "data": {"query": place_name, "count": len(results), "places": results},
+                "message": f"Found {len(results)} places for '{place_name}'",
             }
 
     except Exception as e:
         return {
             "success": False,
             "error": describe_exception(e),
-            "message": f"Failed to search for place '{place_name}'"
+            "message": f"Failed to search for place '{place_name}'",
         }
 
-@mcp.tool()
+
+@_read_tool
 async def search_osm_elements(query: str, element_type: str = "all") -> Dict[str, Any]:
     """Search for OSM elements using Overpass API with a text query.
 
@@ -591,7 +594,7 @@ async def search_osm_elements(query: str, element_type: str = "all") -> Dict[str
                 if element.get("type") == "node":
                     element_info["location"] = {
                         "lat": element.get("lat"),
-                        "lon": element.get("lon")
+                        "lon": element.get("lon"),
                     }
                 elif element.get("geometry"):
                     coords = element["geometry"]
@@ -608,21 +611,23 @@ async def search_osm_elements(query: str, element_type: str = "all") -> Dict[str
                     "query": query,
                     "element_type": element_type,
                     "count": len(elements),
-                    "elements": elements
+                    "elements": elements,
                 },
-                "message": f"Found {len(elements)} elements matching '{query}'"
+                "message": f"Found {len(elements)} elements matching '{query}'",
             }
 
     except Exception as e:
         return {
             "success": False,
             "error": describe_exception(e),
-            "message": f"Failed to search for '{query}'"
+            "message": f"Failed to search for '{query}'",
         }
+
 
 # Create a simple node (requires authentication for write operations)
 
-@mcp.tool()
+
+@_read_tool
 async def parse_natural_language_osm_request(request: str) -> Dict[str, Any]:
     """Parse a natural language request into structured OSM data.
 
@@ -638,16 +643,16 @@ async def parse_natural_language_osm_request(request: str) -> Dict[str, Any]:
         # Add suggested tags based on parsed data
         suggested_tags = {}
 
-        if parsed['business_type']:
-            business_tags = map_business_type_to_tags(parsed['business_type'])
+        if parsed["business_type"]:
+            business_tags = map_business_type_to_tags(parsed["business_type"])
             suggested_tags.update(business_tags)
 
-        if parsed['features']:
-            feature_tags = map_features_to_tags(parsed['features'])
+        if parsed["features"]:
+            feature_tags = map_features_to_tags(parsed["features"])
             suggested_tags.update(feature_tags)
 
-        if parsed['name']:
-            suggested_tags['name'] = parsed['name']
+        if parsed["name"]:
+            suggested_tags["name"] = parsed["name"]
 
         return {
             "success": True,
@@ -655,23 +660,30 @@ async def parse_natural_language_osm_request(request: str) -> Dict[str, Any]:
                 "parsed_request": parsed,
                 "suggested_tags": suggested_tags,
                 "action_suggestions": {
-                    "create": "Use create_place_from_description()",
-                    "update": "Use find_and_update_place()",
-                    "delete": "Use delete_place_from_description()",
-                    "find": "Use search_osm_elements() or find_nearby_amenities()"
-                }
+                    "create": (
+                        "No natural-language create tool is registered in the safe "
+                        "profile; GPX road geometry must use the review-first prompt"
+                    ),
+                    "update": (
+                        "No natural-language update tool is registered in the safe "
+                        "profile; choose exact OSM IDs through the review workflow"
+                    ),
+                    "delete": "Natural-language deletion is not supported",
+                    "find": "Use search_osm_elements() or find_nearby_amenities()",
+                },
             },
-            "message": f"Parsed request with action '{parsed['action']}' and {len(suggested_tags)} suggested tags"
+            "message": f"Parsed request with action '{parsed['action']}' and {len(suggested_tags)} suggested tags",
         }
 
     except Exception as e:
         return {
             "success": False,
             "error": describe_exception(e),
-            "message": "Failed to parse natural language request"
+            "message": "Failed to parse natural language request",
         }
 
-@mcp.tool()
+
+@_read_tool
 async def validate_osm_data(data: Dict[str, Any]) -> Dict[str, Any]:
     """Validate OSM data for quality assurance before uploading.
 
@@ -687,54 +699,71 @@ async def validate_osm_data(data: Dict[str, Any]) -> Dict[str, Any]:
         suggestions = []
 
         # Validate coordinates
-        if 'lat' in data and 'lon' in data:
-            lat = float(data['lat'])
-            lon = float(data['lon'])
+        if "lat" in data and "lon" in data:
+            lat = float(data["lat"])
+            lon = float(data["lon"])
 
             if not (-90 <= lat <= 90):
                 issues.append(f"Invalid latitude: {lat} (must be between -90 and 90)")
             if not (-180 <= lon <= 180):
-                issues.append(f"Invalid longitude: {lon} (must be between -180 and 180)")
+                issues.append(
+                    f"Invalid longitude: {lon} (must be between -180 and 180)"
+                )
 
             # Check for suspicious coordinates (e.g., null island)
             if abs(lat) < 0.1 and abs(lon) < 0.1:
-                warnings.append("Coordinates are very close to (0,0) - please verify location")
+                warnings.append(
+                    "Coordinates are very close to (0,0) - please verify location"
+                )
 
         # Validate tags
-        if 'tags' in data:
-            tags = data['tags']
+        if "tags" in data:
+            tags = data["tags"]
 
             # Check for required tags
-            if not any(key in tags for key in ['name', 'amenity', 'shop', 'tourism', 'leisure']):
+            if not any(
+                key in tags for key in ["name", "amenity", "shop", "tourism", "leisure"]
+            ):
                 warnings.append("No identifying tags found (name, amenity, shop, etc.)")
 
             # Check for common tag issues
             for key, value in tags.items():
                 if not key or not value:
                     issues.append(f"Empty tag key or value: '{key}' = '{value}'")
-                if '=' in key:
+                if "=" in key:
                     issues.append(f"Tag key contains '=': '{key}'")
                 if len(value) > 255:
-                    warnings.append(f"Tag value very long ({len(value)} chars): '{key}'")
-                if key.startswith('name:') and len(key) > 10:
-                    suggestions.append(f"Consider using standard language codes for '{key}'")
+                    warnings.append(
+                        f"Tag value very long ({len(value)} chars): '{key}'"
+                    )
+                if key.startswith("name:") and len(key) > 10:
+                    suggestions.append(
+                        f"Consider using standard language codes for '{key}'"
+                    )
 
         # Validate business logic
-        if 'tags' in data:
-            tags = data['tags']
+        if "tags" in data:
+            tags = data["tags"]
 
             # Check for conflicting tags
-            if 'amenity' in tags and 'shop' in tags:
-                warnings.append("Both 'amenity' and 'shop' tags present - may be conflicting")
+            if "amenity" in tags and "shop" in tags:
+                warnings.append(
+                    "Both 'amenity' and 'shop' tags present - may be conflicting"
+                )
 
             # Check for missing complementary tags
-            if tags.get('amenity') == 'restaurant' and 'cuisine' not in tags:
+            if tags.get("amenity") == "restaurant" and "cuisine" not in tags:
                 suggestions.append("Consider adding 'cuisine' tag for restaurants")
 
-            if 'opening_hours' in tags:
-                hours = tags['opening_hours']
-                if not any(x in hours for x in ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su', '24/7']):
-                    suggestions.append("Opening hours format may not be standard OSM format")
+            if "opening_hours" in tags:
+                hours = tags["opening_hours"]
+                if not any(
+                    x in hours
+                    for x in ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su", "24/7"]
+                ):
+                    suggestions.append(
+                        "Opening hours format may not be standard OSM format"
+                    )
 
         # Calculate validation score
         score = 100
@@ -751,20 +780,27 @@ async def validate_osm_data(data: Dict[str, Any]) -> Dict[str, Any]:
                 "warnings": warnings,
                 "suggestions": suggestions,
                 "is_valid": len(issues) == 0,
-                "quality_grade": "A" if score >= 90 else "B" if score >= 70 else "C" if score >= 50 else "D"
+                "quality_grade": (
+                    "A"
+                    if score >= 90
+                    else "B" if score >= 70 else "C" if score >= 50 else "D"
+                ),
             },
-            "message": f"Validation completed with score {score}/100 and grade {('A' if score >= 90 else 'B' if score >= 70 else 'C' if score >= 50 else 'D')}"
+            "message": f"Validation completed with score {score}/100 and grade {('A' if score >= 90 else 'B' if score >= 70 else 'C' if score >= 50 else 'D')}",
         }
 
     except Exception as e:
         return {
             "success": False,
             "error": describe_exception(e),
-            "message": "Failed to validate OSM data"
+            "message": "Failed to validate OSM data",
         }
 
-@mcp.tool()
-async def get_changeset_history(user_id: Optional[int] = None, limit: int = 20) -> Dict[str, Any]:
+
+@_read_tool
+async def get_changeset_history(
+    user_id: Optional[int] = None, limit: int = 20
+) -> Dict[str, Any]:
     """Get changeset history for analysis and tracking.
 
     Args:
@@ -775,18 +811,16 @@ async def get_changeset_history(user_id: Optional[int] = None, limit: int = 20) 
         Dictionary containing changeset history
     """
     try:
-        config = OSMConfig()
-
         # Build query URL
-        query_params = {'limit': min(limit, 100)}  # API limit
+        query_params = {"limit": min(limit, 100)}  # API limit
         if user_id:
-            query_params['user'] = user_id
+            query_params["user"] = user_id
 
-        query_string = '&'.join([f'{k}={v}' for k, v in query_params.items()])
+        query_string = "&".join([f"{k}={v}" for k, v in query_params.items()])
         url = f"{config.current_api_base_url}/changesets?{query_string}"
         logger.debug(f"Fetching changeset history from {url}")
 
-        async with httpx.AsyncClient() as client:
+        async with get_public_client() as client:
             response = await client.get(url)
             response.raise_for_status()
 
@@ -794,26 +828,27 @@ async def get_changeset_history(user_id: Optional[int] = None, limit: int = 20) 
             changesets = []
             try:
                 import xml.etree.ElementTree as ET
+
                 root = parse_xml(response.text)
 
-                for changeset in root.findall('.//changeset'):
+                for changeset in root.findall(".//changeset"):
                     changeset_data: Dict[str, Any] = {
-                        'id': int(changeset.get('id', 0)),
-                        'created_at': changeset.get('created_at'),
-                        'closed_at': changeset.get('closed_at'),
-                        'open': changeset.get('open') == 'true',
-                        'user': changeset.get('user'),
-                        'uid': changeset.get('uid'),
-                        'changes_count': int(changeset.get('changes_count', 0)),
-                        'tags': {}
+                        "id": int(changeset.get("id", 0)),
+                        "created_at": changeset.get("created_at"),
+                        "closed_at": changeset.get("closed_at"),
+                        "open": changeset.get("open") == "true",
+                        "user": changeset.get("user"),
+                        "uid": changeset.get("uid"),
+                        "changes_count": int(changeset.get("changes_count", 0)),
+                        "tags": {},
                     }
 
                     # Extract tags
-                    for tag in changeset.findall('.//tag'):
-                        key = tag.get('k')
-                        value = tag.get('v')
+                    for tag in changeset.findall(".//tag"):
+                        key = tag.get("k")
+                        value = tag.get("v")
                         if key and value:
-                            changeset_data['tags'][key] = value
+                            changeset_data["tags"][key] = value
 
                     changesets.append(changeset_data)
 
@@ -821,7 +856,7 @@ async def get_changeset_history(user_id: Optional[int] = None, limit: int = 20) 
                 return {
                     "success": False,
                     "error": f"Failed to parse changeset data: {str(parse_error)}",
-                    "raw_response": response.text[:500]
+                    "raw_response": response.text[:500],
                 }
 
         return {
@@ -829,20 +864,23 @@ async def get_changeset_history(user_id: Optional[int] = None, limit: int = 20) 
             "data": {
                 "changesets": changesets,
                 "total_count": len(changesets),
-                "query_params": query_params
+                "query_params": query_params,
             },
-            "message": f"Retrieved {len(changesets)} changesets"
+            "message": f"Retrieved {len(changesets)} changesets",
         }
 
     except Exception as e:
         return {
             "success": False,
             "error": describe_exception(e),
-            "message": "Failed to get changeset history"
+            "message": "Failed to get changeset history",
         }
 
-@mcp.tool()
-async def export_osm_data(bbox: str, format: str = "json", include_metadata: bool = True) -> Dict[str, Any]:
+
+@_read_tool
+async def export_osm_data(
+    bbox: str, format: str = "json", include_metadata: bool = True
+) -> Dict[str, Any]:
     """Export OSM data from a bounding box in various formats.
 
     Args:
@@ -856,68 +894,67 @@ async def export_osm_data(bbox: str, format: str = "json", include_metadata: boo
     try:
         # Get OSM data from the area
         area_result: Dict[str, Any] = await get_osm_elements_in_area(bbox)
-        if not area_result['success']:
+        if not area_result["success"]:
             return area_result
 
-        elements = area_result['data']['elements']
+        elements = area_result["data"]["elements"]
 
-        if format.lower() == 'geojson':
+        if format.lower() == "geojson":
             # Convert to GeoJSON format
             features = []
             for element in elements:
-                if 'lat' in element and 'lon' in element:
+                if "lat" in element and "lon" in element:
                     feature: Dict[str, Any] = {
                         "type": "Feature",
                         "geometry": {
                             "type": "Point",
-                            "coordinates": [element['lon'], element['lat']]
+                            "coordinates": [element["lon"], element["lat"]],
                         },
                         "properties": {
-                            "id": element['id'],
-                            "type": element['type'],
-                            "tags": element.get('tags', {})
-                        }
+                            "id": element["id"],
+                            "type": element["type"],
+                            "tags": element.get("tags", {}),
+                        },
                     }
 
                     if include_metadata:
-                        feature['properties']['version'] = element.get('version')
-                        feature['properties']['changeset'] = element.get('changeset')
-                        feature['properties']['timestamp'] = element.get('timestamp')
-                        feature['properties']['user'] = element.get('user')
+                        feature["properties"]["version"] = element.get("version")
+                        feature["properties"]["changeset"] = element.get("changeset")
+                        feature["properties"]["timestamp"] = element.get("timestamp")
+                        feature["properties"]["user"] = element.get("user")
 
                     features.append(feature)
 
-            exported_data: Any = {
-                "type": "FeatureCollection",
-                "features": features
-            }
+            exported_data: Any = {"type": "FeatureCollection", "features": features}
 
-        elif format.lower() == 'xml':
+        elif format.lower() == "xml":
             # Convert to OSM XML format
             xml_lines = ['<?xml version="1.0" encoding="UTF-8"?>']
             xml_lines.append('<osm version="0.6" generator="OSM-Edit-MCP">')
 
             for element in elements:
-                if element['type'] == 'node':
-                    xml_lines.append(f'  <node id="{int(element["id"])}" lat="{element.get("lat", 0)}" lon="{element.get("lon", 0)}">')
+                if element["type"] == "node":
+                    xml_lines.append(
+                        f'  <node id="{int(element["id"])}" lat="{element.get("lat", 0)}" lon="{element.get("lon", 0)}">'
+                    )
                     xml_lines.append(f'    {build_tags_xml(element.get("tags", {}))}')
-                    xml_lines.append('  </node>')
+                    xml_lines.append("  </node>")
 
-            xml_lines.append('</osm>')
-            exported_data = '\n'.join(xml_lines)
+            xml_lines.append("</osm>")
+            exported_data = "\n".join(xml_lines)
 
         else:  # Default to JSON
             exported_data = {
                 "elements": elements,
                 "bbox": bbox,
                 "export_timestamp": "2024-01-01T00:00:00Z",  # Would be current timestamp
-                "total_elements": len(elements)
+                "total_elements": len(elements),
             }
 
             if not include_metadata:
                 # Remove metadata fields
-                for element in exported_data['elements']:
-                    for field in ['version', 'changeset', 'timestamp', 'user']:
+                for element in exported_data["elements"]:
+                    for field in ["version", "changeset", "timestamp", "user"]:
                         element.pop(field, None)
 
         return {
@@ -927,19 +964,20 @@ async def export_osm_data(bbox: str, format: str = "json", include_metadata: boo
                 "format": format,
                 "bbox": bbox,
                 "element_count": len(elements),
-                "include_metadata": include_metadata
+                "include_metadata": include_metadata,
             },
-            "message": f"Exported {len(elements)} elements in {format} format"
+            "message": f"Exported {len(elements)} elements in {format} format",
         }
 
     except Exception as e:
         return {
             "success": False,
             "error": describe_exception(e),
-            "message": "Failed to export OSM data"
+            "message": "Failed to export OSM data",
         }
 
-@mcp.tool()
+
+@_read_tool
 async def get_osm_statistics(bbox: str) -> Dict[str, Any]:
     """Get statistics and analytics for OSM data in a bounding box.
 
@@ -952,32 +990,34 @@ async def get_osm_statistics(bbox: str) -> Dict[str, Any]:
     try:
         # Get OSM data from the area
         area_result: Dict[str, Any] = await get_osm_elements_in_area(bbox)
-        if not area_result['success']:
+        if not area_result["success"]:
             return area_result
 
-        elements = area_result['data']['elements']
+        elements = area_result["data"]["elements"]
 
         # Calculate statistics
         stats: Dict[str, Any] = {
-            'total_elements': len(elements),
-            'element_types': {},
-            'amenity_breakdown': {},
-            'shop_breakdown': {},
-            'tourism_breakdown': {},
-            'tag_frequency': {},
-            'completeness_score': 0,
-            'data_quality': {}
+            "total_elements": len(elements),
+            "element_types": {},
+            "amenity_breakdown": {},
+            "shop_breakdown": {},
+            "tourism_breakdown": {},
+            "tag_frequency": {},
+            "completeness_score": 0,
+            "data_quality": {},
         }
 
         # Count element types
         for element in elements:
-            element_type = element['type']
-            stats['element_types'][element_type] = stats['element_types'].get(element_type, 0) + 1
+            element_type = element["type"]
+            stats["element_types"][element_type] = (
+                stats["element_types"].get(element_type, 0) + 1
+            )
 
         # Analyze tags
         all_tags: Dict[str, Dict[str, int]] = {}
         for element in elements:
-            tags = element.get('tags', {})
+            tags = element.get("tags", {})
 
             # Count tag frequency
             for key, value in tags.items():
@@ -986,66 +1026,82 @@ async def get_osm_statistics(bbox: str) -> Dict[str, Any]:
                 all_tags[key][value] = all_tags[key].get(value, 0) + 1
 
             # Categorize by major tags
-            if 'amenity' in tags:
-                amenity = tags['amenity']
-                stats['amenity_breakdown'][amenity] = stats['amenity_breakdown'].get(amenity, 0) + 1
+            if "amenity" in tags:
+                amenity = tags["amenity"]
+                stats["amenity_breakdown"][amenity] = (
+                    stats["amenity_breakdown"].get(amenity, 0) + 1
+                )
 
-            if 'shop' in tags:
-                shop = tags['shop']
-                stats['shop_breakdown'][shop] = stats['shop_breakdown'].get(shop, 0) + 1
+            if "shop" in tags:
+                shop = tags["shop"]
+                stats["shop_breakdown"][shop] = stats["shop_breakdown"].get(shop, 0) + 1
 
-            if 'tourism' in tags:
-                tourism = tags['tourism']
-                stats['tourism_breakdown'][tourism] = stats['tourism_breakdown'].get(tourism, 0) + 1
+            if "tourism" in tags:
+                tourism = tags["tourism"]
+                stats["tourism_breakdown"][tourism] = (
+                    stats["tourism_breakdown"].get(tourism, 0) + 1
+                )
 
         # Calculate top tags
-        stats['tag_frequency'] = {
-            key: len(values) for key, values in all_tags.items()
-        }
+        stats["tag_frequency"] = {key: len(values) for key, values in all_tags.items()}
 
         # Sort by frequency (top 10)
-        stats['tag_frequency'] = dict(sorted(
-            stats['tag_frequency'].items(),
-            key=lambda x: x[1],
-            reverse=True
-        )[:10])
+        stats["tag_frequency"] = dict(
+            sorted(stats["tag_frequency"].items(), key=lambda x: x[1], reverse=True)[
+                :10
+            ]
+        )
 
         # Calculate completeness score
-        elements_with_names = sum(1 for el in elements if el.get('tags', {}).get('name'))
-        elements_with_types = sum(1 for el in elements if any(
-            key in el.get('tags', {}) for key in ['amenity', 'shop', 'tourism', 'leisure']
-        ))
+        elements_with_names = sum(
+            1 for el in elements if el.get("tags", {}).get("name")
+        )
+        elements_with_types = sum(
+            1
+            for el in elements
+            if any(
+                key in el.get("tags", {})
+                for key in ["amenity", "shop", "tourism", "leisure"]
+            )
+        )
 
         if elements:
-            stats['completeness_score'] = {
-                'name_coverage': round((elements_with_names / len(elements)) * 100, 1),
-                'type_coverage': round((elements_with_types / len(elements)) * 100, 1),
-                'overall_score': round(((elements_with_names + elements_with_types) / (len(elements) * 2)) * 100, 1)
+            stats["completeness_score"] = {
+                "name_coverage": round((elements_with_names / len(elements)) * 100, 1),
+                "type_coverage": round((elements_with_types / len(elements)) * 100, 1),
+                "overall_score": round(
+                    ((elements_with_names + elements_with_types) / (len(elements) * 2))
+                    * 100,
+                    1,
+                ),
             }
 
         # Data quality assessment
-        stats['data_quality'] = {
-            'elements_with_coordinates': sum(1 for el in elements if 'lat' in el and 'lon' in el),
-            'elements_with_tags': sum(1 for el in elements if el.get('tags')),
-            'potential_duplicates': 0,  # Would need more complex logic
-            'missing_names': len(elements) - elements_with_names,
-            'missing_types': len(elements) - elements_with_types
+        stats["data_quality"] = {
+            "elements_with_coordinates": sum(
+                1 for el in elements if "lat" in el and "lon" in el
+            ),
+            "elements_with_tags": sum(1 for el in elements if el.get("tags")),
+            "potential_duplicates": 0,  # Would need more complex logic
+            "missing_names": len(elements) - elements_with_names,
+            "missing_types": len(elements) - elements_with_types,
         }
 
         return {
             "success": True,
             "data": stats,
-            "message": f"Generated statistics for {len(elements)} elements in the specified area"
+            "message": f"Generated statistics for {len(elements)} elements in the specified area",
         }
 
     except Exception as e:
         return {
             "success": False,
             "error": describe_exception(e),
-            "message": "Failed to generate OSM statistics"
+            "message": "Failed to generate OSM statistics",
         }
 
-@mcp.tool()
+
+@_read_tool
 async def smart_geocode(address_or_description: str) -> Dict[str, Any]:
     """Enhanced geocoding with address parsing and multiple search strategies.
 
@@ -1061,20 +1117,26 @@ async def smart_geocode(address_or_description: str) -> Dict[str, Any]:
 
         # Strategy 1: Use existing get_place_info
         place_result = await get_place_info(address_or_description)
-        if place_result['success'] and place_result['data'] and place_result['data'].get('places'):
-            for place in place_result['data']['places'][:3]:  # Top 3 results
+        if (
+            place_result["success"]
+            and place_result["data"]
+            and place_result["data"].get("places")
+        ):
+            for place in place_result["data"]["places"][:3]:  # Top 3 results
                 # get_place_info nests coordinates under a 'coordinates' key
-                coordinates = place.get('coordinates', {})
-                results.append({
-                    'source': 'nominatim',
-                    'confidence': place.get('importance', 0.5),
-                    'lat': coordinates.get('lat'),
-                    'lon': coordinates.get('lon'),
-                    'display_name': place.get('display_name'),
-                    'address': place.get('address', {}),
-                    'type': place.get('type'),
-                    'class': place.get('class')
-                })
+                coordinates = place.get("coordinates", {})
+                results.append(
+                    {
+                        "source": "nominatim",
+                        "confidence": place.get("importance", 0.5),
+                        "lat": coordinates.get("lat"),
+                        "lon": coordinates.get("lon"),
+                        "display_name": place.get("display_name"),
+                        "address": place.get("address", {}),
+                        "type": place.get("type"),
+                        "class": place.get("class"),
+                    }
+                )
 
         # Strategy 2: Parse address components
         address_components = parse_address_components(address_or_description)
@@ -1082,24 +1144,28 @@ async def smart_geocode(address_or_description: str) -> Dict[str, Any]:
         # Strategy 3: Search for landmarks or POIs
         if not results:
             search_result = await search_osm_elements(address_or_description)
-            if search_result['success'] and search_result['data']['elements']:
-                for element in search_result['data']['elements'][:3]:
+            if search_result["success"] and search_result["data"]["elements"]:
+                for element in search_result["data"]["elements"][:3]:
                     # search_osm_elements nests coordinates under 'location'
-                    location = element.get('location') or {}
-                    if 'lat' in location and 'lon' in location:
-                        results.append({
-                            'source': 'osm_search',
-                            'confidence': 0.7,
-                            'lat': location['lat'],
-                            'lon': location['lon'],
-                            'display_name': element.get('tags', {}).get('name', 'Unnamed'),
-                            'osm_type': element['type'],
-                            'osm_id': element['id'],
-                            'tags': element.get('tags', {})
-                        })
+                    location = element.get("location") or {}
+                    if "lat" in location and "lon" in location:
+                        results.append(
+                            {
+                                "source": "osm_search",
+                                "confidence": 0.7,
+                                "lat": location["lat"],
+                                "lon": location["lon"],
+                                "display_name": element.get("tags", {}).get(
+                                    "name", "Unnamed"
+                                ),
+                                "osm_type": element["type"],
+                                "osm_id": element["id"],
+                                "tags": element.get("tags", {}),
+                            }
+                        )
 
         # Rank results by confidence
-        results = sorted(results, key=lambda x: x['confidence'], reverse=True)
+        results = sorted(results, key=lambda x: x["confidence"], reverse=True)
 
         return {
             "success": True,
@@ -1108,14 +1174,14 @@ async def smart_geocode(address_or_description: str) -> Dict[str, Any]:
                 "results": results,
                 "best_match": results[0] if results else None,
                 "total_candidates": len(results),
-                "address_components": address_components
+                "address_components": address_components,
             },
-            "message": f"Found {len(results)} geocoding candidates for '{address_or_description}'"
+            "message": f"Found {len(results)} geocoding candidates for '{address_or_description}'",
         }
 
     except Exception as e:
         return {
             "success": False,
             "error": describe_exception(e),
-            "message": "Failed to geocode address"
+            "message": "Failed to geocode address",
         }
