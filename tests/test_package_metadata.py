@@ -41,6 +41,17 @@ def test_release_metadata_and_entrypoint_are_canonical() -> None:
     assert not (ROOT / "requirements.txt").exists()
 
 
+def test_readme_advertises_the_canonical_pypi_uvx_install() -> None:
+    project = _project_metadata()
+    package_name = project["name"]
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert f"https://pypi.org/project/{package_name}/" in readme
+    assert f"uvx {package_name}" in readme
+    assert '"command": "uvx"' in readme
+    assert f'"args": ["{package_name}"]' in readme
+
+
 def test_runtime_defaults_use_distribution_version(config_factory) -> None:
     config = config_factory()
 
