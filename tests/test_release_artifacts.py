@@ -29,7 +29,7 @@ def _write_archive(path: Path, names: set[str]) -> None:
     with tarfile.open(path, "w") as archive:
         for name in sorted(names):
             payload = b"release-test\n"
-            member = tarfile.TarInfo(f"osm-edit-mcp-0.2.0/{name}")
+            member = tarfile.TarInfo(f"osm-edit-mcp-0.2.1/{name}")
             member.size = len(payload)
             archive.addfile(member, io.BytesIO(payload))
 

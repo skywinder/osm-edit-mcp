@@ -23,7 +23,7 @@ def _project_metadata() -> dict[str, Any]:
 def test_distribution_and_runtime_versions_match_pyproject() -> None:
     project = _project_metadata()
 
-    assert project["version"] == "0.2.0"
+    assert project["version"] == "0.2.1"
     assert version(project["name"]) == project["version"]
     assert __version__ == project["version"]
 
