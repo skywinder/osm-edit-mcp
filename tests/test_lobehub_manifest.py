@@ -23,7 +23,7 @@ def test_lobehub_owner_metadata_is_release_metadata() -> None:
 
     assert manifest["identifier"] == "pk-osm-edit-mcp"
     assert manifest["name"] == "OSM Edit MCP Server"
-    assert manifest["version"] == __version__ == "0.2.0"
+    assert manifest["version"] == __version__ == "0.2.1"
     assert manifest["author"] == "skywinder"
     assert manifest["authorUrl"] == "https://github.com/skywinder"
     assert manifest["homepage"] == "https://github.com/skywinder/osm-edit-mcp"

@@ -7,6 +7,15 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-03
+
+### Changed
+
+- Made the canonical PyPI command, `uvx osm-edit-mcp`, a standalone quick-start
+  step in the README while keeping the ready-to-copy MCP host configuration.
+- Added live PyPI, CI, Python-version, and license badges plus a regression test
+  for the public package-installation contract.
+
 ## [0.2.0] - 2026-09-03
 
 ### Added
@@ -58,5 +67,6 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Production writes fail closed when the host cannot provide digest-bound
   elicitation.
 
-[Unreleased]: https://github.com/skywinder/osm-edit-mcp/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/skywinder/osm-edit-mcp/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/skywinder/osm-edit-mcp/releases/tag/v0.2.1
 [0.2.0]: https://github.com/skywinder/osm-edit-mcp/releases/tag/v0.2.0

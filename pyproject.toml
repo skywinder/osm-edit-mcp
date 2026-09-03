@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "osm-edit-mcp"
-version = "0.2.0"
+version = "0.2.1"
 description = "Review-first MCP server for previewed, version-checked OpenStreetMap road edits from local GPX surveys"
 readme = "README.md"
 license = "MIT"
