@@ -1,6 +1,10 @@
 # OSM Edit MCP
 
 [![MCP Badge](https://lobehub.com/badge/mcp/pk-osm-edit-mcp)](https://lobehub.com/mcp/pk-osm-edit-mcp)
+[![PyPI](https://img.shields.io/pypi/v/osm-edit-mcp.svg)](https://pypi.org/project/osm-edit-mcp/)
+[![CI](https://github.com/skywinder/osm-edit-mcp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/skywinder/osm-edit-mcp/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/pypi/pyversions/osm-edit-mcp.svg)](https://pypi.org/project/osm-edit-mcp/)
+[![License](https://img.shields.io/pypi/l/osm-edit-mcp.svg)](LICENSE)
 
 A review-first Model Context Protocol server for inspecting OpenStreetMap and
 turning a selected part of a local GPX survey into a previewed road-edit proposal.
@@ -45,7 +49,14 @@ Requirements:
 - [uv](https://docs.astral.sh/uv/);
 - an MCP host that supports local stdio servers.
 
-Add this server to a JSON-based MCP host:
+Recommended installation from [PyPI](https://pypi.org/project/osm-edit-mcp/):
+
+```bash
+uvx osm-edit-mcp
+```
+
+This command starts the stdio server and waits for an MCP client. For normal
+use, put the same command in a JSON-based MCP host configuration:
 
 ```json
 {
