@@ -50,6 +50,74 @@ OSM_WRITE_PROFILE = "safe"
 OSM_REQUIRE_HOST_CONFIRMATION = "true"
 ```
 
+## Hermes Agent
+
+Hermes users can install the repository's
+[setup skill](../skills/osm-edit-mcp-setup/SKILL.md) and let the agent
+perform the guarded procedure, or configure the stdio server directly. OAuth
+bootstrap currently requires a source checkout, so this example launches that
+checkout with its locked environment:
+
+```bash
+hermes mcp add osm-edit \
+  --command /absolute/path/to/uv \
+  --connect-timeout 120 \
+  --env \
+    OSM_EDIT_MCP_ENV_FILE=/absolute/path/to/osm-edit-mcp.env \
+    XDG_DATA_HOME=/absolute/path/to/persistent-keyring-data \
+    OSM_WRITE_PROFILE=safe \
+    OSM_REQUIRE_HOST_CONFIRMATION=true \
+  --args run --locked --project /absolute/path/to/osm-edit-mcp osm-edit-mcp
+```
+
+`hermes mcp add` performs discovery and then asks which tools to enable. In an
+agent-driven session, run it with a PTY and answer that selection prompt; a
+non-interactive EOF prints `Cancelled` and does not save the server even when
+the preceding connection and tool discovery succeeded. Confirm persistence with
+`hermes mcp test osm-edit` after the add process exits.
+
+Use the same `XDG_DATA_HOME` when running `oauth_auth.py`, otherwise the helper
+can save a valid token in one keyring namespace while the MCP subprocess reads
+another. Prefer the platform keyring. If a headless deployment explicitly uses
+`keyrings.alt.file.PlaintextKeyring`, install `keyrings.alt` in the same runtime,
+pass `PYTHON_KEYRING_BACKEND` to both processes, and protect its persistent
+directory; that fallback is not encrypted secret storage.
+
+Keep OAuth client credentials and the API selector in the private env file,
+which must be a regular, non-symlink file with mode `0600`:
+
+```dotenv
+OSM_USE_DEV_API=true
+OSM_DEV_CLIENT_ID=<development-client-id>
+OSM_DEV_CLIENT_SECRET=<development-client-secret>
+OSM_DEV_REDIRECT_URI=https://localhost:8080/callback
+OSM_WRITE_PROFILE=safe
+OSM_REQUIRE_HOST_CONFIRMATION=true
+```
+
+Do not duplicate `OSM_USE_DEV_API` under the Hermes server's `env` mapping when
+`OSM_EDIT_MCP_ENV_FILE` already provides it. In particular, using
+`hermes config set` on an unknown nested environment key may coerce `false` to a
+YAML boolean, while MCP stdio process environments require strings. Trying to
+preserve it with shell quotes can instead store the quote characters. Either
+mismatch can close the MCP connection during Pydantic startup validation.
+Remove a duplicate selector with:
+
+```bash
+hermes config unset mcp_servers.osm-edit.env.OSM_USE_DEV_API
+```
+
+Then verify the fresh process before restarting the active Hermes runtime:
+
+```bash
+hermes mcp test osm-edit
+```
+
+After reconnection, call `get_edit_capabilities` and `check_authentication`.
+Confirm the API target, `safe` profile, expected OSM account, and `write_api`
+permission together. A successful standalone OAuth flow does not prove that an
+already-running MCP subprocess has reloaded its environment.
+
 ## Local GPX files
 
 The server accepts inline GPX XML or paths below `OSM_TRACK_IMPORT_DIR`.
