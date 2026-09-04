@@ -121,6 +121,13 @@ override environment selection. Set the env file to mode `0600` on POSIX hosts.
 
 ### Single-source rule for API selection
 
+This skill deliberately uses one server entry (`osm-edit`) plus one private env
+file, switching `OSM_USE_DEV_API` only during the explicit handoff in step 7.
+`docs/MCP_CLIENT_SETUP.md` also documents the alternative of two fully separate
+entries (`osm-edit-dev` / `osm-edit-prod`) for hosts that can run both at once.
+Both models are safe as long as the environment is verified before every write
+and `OSM_USE_DEV_API` lives only in the private env file.
+
 When `OSM_EDIT_MCP_ENV_FILE` points to the private env file, keep
 `OSM_USE_DEV_API` there only. Do not duplicate it under
 `mcp_servers.<name>.env` in Hermes configuration.
@@ -151,8 +158,9 @@ criterion: the selected environment and every configuration source are known.
 
 ### 2. Register separate OAuth applications
 
-For development, register at the OSM development site. For production, register
-at `https://www.openstreetmap.org/oauth2/applications` with:
+For development, register at
+`https://api06.dev.openstreetmap.org/oauth2/applications`. For production,
+register at `https://www.openstreetmap.org/oauth2/applications` with:
 
 - Redirect URI: `https://localhost:8080/callback`
 - Scopes: `read_prefs` and `write_api`
@@ -212,13 +220,14 @@ Start the OAuth helper in a PTY so its state and PKCE verifier remain alive:
 terminal(command="export OSM_EDIT_MCP_ENV_FILE=<env-file>; export XDG_DATA_HOME=<keyring-dir>; <uv-path> run --locked python oauth_auth.py --dev --no-browser", workdir="<checkout>", background=true, pty=true)
 ```
 
-Use `process(action="poll")` to obtain the authorization URL. Ask the user to
-authorize it, then enter the callback URL directly in the local PTY or through a
-secret-capable elicitation surface. Do not request or repeat callback URLs in a
-messaging channel or shared log. If no private input path exists, stop and have
-the user run `oauth_auth.py` interactively in a local terminal instead of
-weakening this rule. Submit secure input to the same PTY with
-`process(action="submit")`, then use `process(action="wait")`.
+Use `process(action="poll")` to obtain the authorization URL and give it to the
+user. The callback URL carries the one-time authorization code and state, so it
+is a secret. Preferred: the user types it directly into the locally attached
+PTY, or into a genuinely secret-capable input channel. Fallback: the agent may
+forward it with `process(action="submit")` only after telling the user that the
+URL will appear in the local session transcript; on a shared or exported
+transcript, stop and have the user run `oauth_auth.py` in a local terminal
+instead. Then use `process(action="wait")`.
 
 Completion criterion: live `/user/details` and `/permissions` checks succeed for
 the expected development account with `write_api`.
@@ -248,20 +257,17 @@ Completion criterion: the helper verifies the intended production username,
 user ID, and `write_api`, then stores a production-specific token without
 replacing the development token.
 
-### 8. Reconnect and verify the real MCP process
+### 8. Verify a fresh MCP process
 
 An already-running MCP subprocess cannot observe a changed process environment.
-Test a fresh process first:
+Start a fresh process and verify it before touching the active runtime:
 
 ```text
 terminal(command="hermes mcp test osm-edit", timeout=240)
 ```
 
-Then use `/reload-mcp` when the active Hermes surface supports it. If a live MCP
-call still reports the old target or a tripped connection state after reload,
-restart the Hermes runtime. Call `get_edit_capabilities` and
-`check_authentication` from the refreshed active process. Verify all of the
-following:
+Call `get_edit_capabilities` and `check_authentication` through that fresh
+connection and confirm all of the following:
 
 - `environment` is exactly the intended environment;
 - production target is `https://api.openstreetmap.org/api/0.6`;
@@ -270,16 +276,18 @@ following:
 - digest-bound production confirmation is required;
 - the username, user ID, and `write_api` match expectations.
 
-Completion criterion: both protocol connection and live identity verification
-succeed. Restart Hermes only after this check.
+Completion criterion: a freshly spawned process reports the intended API target
+and identity.
 
 ### 9. Reload or restart the active runtime
 
-Prefer `/reload-mcp` as the cheap first step. Explain the platform-specific full
-restart only when reload is unavailable or a verified live call remains stale.
-On Umbrel, use the Hermes Agent app's Restart action rather than self-updating
-Hermes or replacing its pinned image. After reload or restart, call
-`get_edit_capabilities` again from the active conversation.
+Only now bring the running Hermes session in line with the verified
+configuration. Prefer `/reload-mcp` as the cheap first step. If a live MCP call
+still reports the old target or a tripped connection state after reload,
+restart the Hermes runtime once; on Umbrel use the Hermes Agent app's Restart
+action rather than self-updating Hermes or replacing its pinned image. After
+reload or restart, call `get_edit_capabilities` and `check_authentication` again
+from the active conversation.
 
 Completion criterion: the active session, not only a diagnostic subprocess,
 reports the intended API target and account.
@@ -312,7 +320,7 @@ Before declaring setup complete, record non-secret evidence for:
 3. `get_edit_capabilities` API environment, target, profile, and confirmation
    mechanism.
 4. `check_authentication` expected username, user ID, and `write_api`.
-5. A post-restart check from the active Hermes session.
+5. A post-reload (or post-restart) check from the active Hermes session.
 
 Never include client secrets, access tokens, authorization codes, raw keyring
 records, or full redirect URLs in the verification report.
