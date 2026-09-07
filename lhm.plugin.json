@@ -282,9 +282,8 @@
     },
     {
       "name": "find_nearby_amenities",
-      "description": "Find nearby amenities around a location using Overpass API.\n\nArgs:\n    lat: Latitude coordinate\n    lon: Longitude coordinate\n    radius_meters: Search radius in meters (default: 1000)\n    amenity_type: Type of amenity to search for (restaurant, cafe, hospital, etc.)\n\nReturns:\n    Dictionary containing nearby amenities with their details\n",
+      "description": "Compatibility amenity-only search. radius aliases radius_meters; conflicts\nfail explicitly. Omitted radii default to 1000m. For museums/parks use\nsearch_nearby_places categories instead of inventing amenity tags.\n",
       "inputSchema": {
-        "type": "object",
         "properties": {
           "lat": {
             "title": "Lat",
@@ -295,24 +294,48 @@
             "type": "number"
           },
           "radius_meters": {
-            "default": 1000,
-            "title": "Radius Meters",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Radius Meters"
           },
           "amenity_type": {
             "default": "restaurant",
             "title": "Amenity Type",
             "type": "string"
+          },
+          "radius": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Radius"
+          },
+          "limit": {
+            "default": 20,
+            "title": "Limit",
+            "type": "integer"
           }
         },
         "required": [
           "lat",
           "lon"
         ],
-        "title": "find_nearby_amenitiesArguments"
+        "title": "find_nearby_amenitiesArguments",
+        "type": "object"
       },
       "outputSchema": {
-        "type": "object",
         "properties": {
           "result": {
             "additionalProperties": true,
@@ -323,7 +346,8 @@
         "required": [
           "result"
         ],
-        "title": "find_nearby_amenitiesOutput"
+        "title": "find_nearby_amenitiesOutput",
+        "type": "object"
       },
       "annotations": {
         "readOnlyHint": true,
@@ -413,9 +437,8 @@
     },
     {
       "name": "search_osm_elements",
-      "description": "Search for OSM elements using Overpass API with a text query.\n\nArgs:\n    query: Search query (e.g., \"coffee shop\", \"hospital\", \"park\")\n    element_type: Type of element to search for (node, way, relation, or all)\n\nReturns:\n    Dictionary containing search results\n",
+      "description": "Literal case-insensitive text search in multilingual name/alt_name/\nofficial_name tags (including :* variants) and amenity/tourism/leisure/\nhistoric/shop tags. Requires bbox (west,south,east,north, max 0.25 degrees\neach side) OR lat/lon/radius_meters (1–10000m). Never a global regex scan.\nResults sorted by straight-line distance from point or bbox center.\n",
       "inputSchema": {
-        "type": "object",
         "properties": {
           "query": {
             "title": "Query",
@@ -425,15 +448,68 @@
             "default": "all",
             "title": "Element Type",
             "type": "string"
+          },
+          "bbox": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Bbox"
+          },
+          "lat": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Lat"
+          },
+          "lon": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Lon"
+          },
+          "radius_meters": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Radius Meters"
+          },
+          "limit": {
+            "default": 20,
+            "title": "Limit",
+            "type": "integer"
           }
         },
         "required": [
           "query"
         ],
-        "title": "search_osm_elementsArguments"
+        "title": "search_osm_elementsArguments",
+        "type": "object"
       },
       "outputSchema": {
-        "type": "object",
         "properties": {
           "result": {
             "additionalProperties": true,
@@ -444,7 +520,8 @@
         "required": [
           "result"
         ],
-        "title": "search_osm_elementsOutput"
+        "title": "search_osm_elementsOutput",
+        "type": "object"
       },
       "annotations": {
         "readOnlyHint": true,
@@ -663,7 +740,6 @@
       "name": "smart_geocode",
       "description": "Enhanced geocoding with address parsing and multiple search strategies.\n\nArgs:\n    address_or_description: Full address or location description\n\nReturns:\n    Dictionary containing geocoding results with multiple candidates\n",
       "inputSchema": {
-        "type": "object",
         "properties": {
           "address_or_description": {
             "title": "Address Or Description",
@@ -673,10 +749,10 @@
         "required": [
           "address_or_description"
         ],
-        "title": "smart_geocodeArguments"
+        "title": "smart_geocodeArguments",
+        "type": "object"
       },
       "outputSchema": {
-        "type": "object",
         "properties": {
           "result": {
             "additionalProperties": true,
@@ -687,7 +763,8 @@
         "required": [
           "result"
         ],
-        "title": "smart_geocodeOutput"
+        "title": "smart_geocodeOutput",
+        "type": "object"
       },
       "annotations": {
         "readOnlyHint": true,
@@ -1457,6 +1534,88 @@
           "result"
         ],
         "title": "verify_osm_editOutput"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "search_nearby_places",
+      "description": "Search within 1–10000m. Categories are OR; exact tag_filters are AND\nconstraints on every category (or used alone). No arbitrary QL or regex.\nReturns up to 100 places, deduplicated and sorted by straight-line distance\nto node / Overpass bounding-box center, not walking routes. Polygon centers\nmay lie outside the radius. Unknown categories return available names.\n",
+      "inputSchema": {
+        "properties": {
+          "lat": {
+            "title": "Lat",
+            "type": "number"
+          },
+          "lon": {
+            "title": "Lon",
+            "type": "number"
+          },
+          "radius_meters": {
+            "default": 1000,
+            "title": "Radius Meters",
+            "type": "integer"
+          },
+          "categories": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Categories"
+          },
+          "limit": {
+            "default": 20,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "tag_filters": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Tag Filters"
+          }
+        },
+        "required": [
+          "lat",
+          "lon"
+        ],
+        "title": "search_nearby_placesArguments",
+        "type": "object"
+      },
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "search_nearby_placesOutput",
+        "type": "object"
       },
       "annotations": {
         "readOnlyHint": true,

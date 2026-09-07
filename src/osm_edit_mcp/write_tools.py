@@ -840,7 +840,16 @@ async def find_and_update_place(
         search_term = parsed["name"] or parsed["business_type"] or "place"
         search_result = await search_osm_elements(search_term)
 
-        if not search_result["success"] or not search_result["data"]["elements"]:
+        if not search_result["success"]:
+            return {
+                **search_result,
+                "message": (
+                    "Search failed; no mutation attempted. Use search_osm_elements "
+                    "with bbox or lat/lon/radius_meters to locate the place first."
+                ),
+            }
+
+        if not search_result["data"]["elements"]:
             return {
                 "success": False,
                 "error": "No places found",
@@ -948,7 +957,16 @@ async def delete_place_from_description(
         search_term = parsed["name"] or parsed["business_type"] or "place"
         search_result = await search_osm_elements(search_term)
 
-        if not search_result["success"] or not search_result["data"]["elements"]:
+        if not search_result["success"]:
+            return {
+                **search_result,
+                "message": (
+                    "Search failed; no mutation attempted. Use search_osm_elements "
+                    "with bbox or lat/lon/radius_meters to locate the place first."
+                ),
+            }
+
+        if not search_result["data"]["elements"]:
             return {
                 "success": False,
                 "error": "No places found",

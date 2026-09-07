@@ -41,6 +41,22 @@ It does **not** upload GPS traces, infer crossings, delete roads, restructure
 relations, copy geometry from restricted providers, or authorize a production
 edit from natural-language consent alone.
 
+## Read-only nearby discovery
+
+Use `search_nearby_places` for museums, parks, viewpoints, useful amenities and
+exact OSM tag combinations. It searches nodes, ways and relations, returns stable
+OSM links and explicitly **straight-line** distances, then deduplicates/sorts/limits
+with `total`, `count` and `truncated`. No OAuth is needed.
+
+```json
+{"lat":40.197784,"lon":44.51098,"radius_meters":1200,"categories":["museum","park","viewpoint"],"limit":15}
+```
+
+`find_nearby_amenities` remains compatible (including `radius` alias).
+`search_osm_elements` now requires a bounded bbox or lat/lon/radius; unscoped global
+regex scans are no longer allowed. See [nearby search documentation](docs/NEARBY_SEARCH.md)
+for categories, exact filters, distance caveats, migration examples and transport bounds.
+
 ## Quick start
 
 Requirements:

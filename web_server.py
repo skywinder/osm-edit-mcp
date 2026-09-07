@@ -110,6 +110,11 @@ class PlaceInfoRequest(BaseModel):
 class SearchRequest(BaseModel):
     query: str
     limit: int = 10
+    element_type: str = "all"
+    bbox: Optional[str] = None
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+    radius_meters: Optional[int] = None
 
 
 class GeocodeRequest(BaseModel):
@@ -192,7 +197,7 @@ async def api_search_osm_elements(
 ):
     """Search for OSM elements"""
     try:
-        result = await search_osm_elements(query=request.query)
+        result = await search_osm_elements(**request.model_dump())
         return _tool_result(result)
     except Exception as e:
         logger.error(f"Error searching OSM elements: {e}")

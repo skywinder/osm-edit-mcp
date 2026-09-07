@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import re
 import urllib.parse
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, TypeVar, cast
@@ -24,8 +25,13 @@ from .natural_language import (
     parse_address_components,
     parse_natural_language_request,
 )
+from .nearby import bounded_integer, results, safe_text, selectors, validate_point
+from .overpass import OverpassExecutor
 from .token_store import get_current_user_info, load_oauth_token
 from .xml_models import build_tags_xml, parse_osm_xml
+
+_overpass = OverpassExecutor()
+execute_overpass = _overpass.execute
 
 ReadFunction = TypeVar("ReadFunction", bound=Callable[..., Any])
 
@@ -307,92 +313,76 @@ async def check_authentication() -> Dict[str, Any]:
 
 
 @_read_tool
-async def find_nearby_amenities(
-    lat: float, lon: float, radius_meters: int = 1000, amenity_type: str = "restaurant"
+async def search_nearby_places(
+    lat: float,
+    lon: float,
+    radius_meters: int = 1000,
+    categories: Optional[List[str]] = None,
+    limit: int = 20,
+    tag_filters: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
-    """Find nearby amenities around a location using Overpass API.
-
-    Args:
-        lat: Latitude coordinate
-        lon: Longitude coordinate
-        radius_meters: Search radius in meters (default: 1000)
-        amenity_type: Type of amenity to search for (restaurant, cafe, hospital, etc.)
-
-    Returns:
-        Dictionary containing nearby amenities with their details
+    """Search within 1–10000m. Categories are OR; exact tag_filters are AND
+    constraints on every category (or used alone). No arbitrary QL or regex.
+    Returns up to 100 places, deduplicated and sorted by straight-line distance
+    to node / Overpass bounding-box center, not walking routes. Polygon centers
+    may lie outside the radius. Unknown categories return available names.
     """
     try:
-        # Validate coordinates
-        if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
-            return {
-                "success": False,
-                "error": "Invalid coordinates",
-                "message": "Latitude must be between -90 and 90, longitude between -180 and 180",
-            }
-
-        # Overpass API query
-        safe_amenity = overpass_literal(amenity_type)
-        around = f"(around:{int(radius_meters)},{float(lat)},{float(lon)})"
-        overpass_query = f"""
-        [out:json][timeout:25];
-        (
-          node["amenity"="{safe_amenity}"]{around};
-          way["amenity"="{safe_amenity}"]{around};
-          relation["amenity"="{safe_amenity}"]{around};
-        );
-        out geom;
-        """
-
-        overpass_url = "https://overpass-api.de/api/interpreter"
-
-        async with get_public_client() as client:
-            response = await client.post(overpass_url, data={"data": overpass_query})
-            response.raise_for_status()
-            data = response.json()
-
-            # Process results
-            amenities = []
-            for element in data.get("elements", []):
-                amenity_info = {
-                    "id": element.get("id"),
-                    "type": element.get("type"),
-                    "tags": element.get("tags", {}),
-                }
-
-                # Add location info
-                if element.get("type") == "node":
-                    amenity_info["location"] = {
-                        "lat": element.get("lat"),
-                        "lon": element.get("lon"),
-                    }
-                elif element.get("geometry"):
-                    # For ways and relations, use center of geometry
-                    coords = element["geometry"]
-                    if coords:
-                        avg_lat = sum(c["lat"] for c in coords) / len(coords)
-                        avg_lon = sum(c["lon"] for c in coords) / len(coords)
-                        amenity_info["location"] = {"lat": avg_lat, "lon": avg_lon}
-
-                amenities.append(amenity_info)
-
-            return {
-                "success": True,
-                "data": {
-                    "query_location": {"lat": lat, "lon": lon},
-                    "radius_meters": radius_meters,
-                    "amenity_type": amenity_type,
-                    "count": len(amenities),
-                    "amenities": amenities,
-                },
-                "message": f"Found {len(amenities)} {amenity_type}s within {radius_meters}m",
-            }
-
-    except Exception as e:
+        validate_point(lat, lon)
+        bounded_integer(radius_meters, "radius_meters", 10000)
+        bounded_integer(limit, "limit", 100)
+        groups = selectors(categories, tag_filters)
+        clauses = [
+            f"nwr{tags}(around:{radius_meters},{float(lat)},{float(lon)});"
+            for tags in groups
+        ]
+        query = "[out:json][timeout:25];(" + "".join(clauses) + ");out center tags;"
+        data = results(await execute_overpass(query), lat, lon, limit)
+        data.update(
+            query_location={"lat": lat, "lon": lon},
+            radius_meters=radius_meters,
+            distance_reference="query_location",
+        )
+        return {"success": True, "data": data, "message": "Nearby places retrieved"}
+    except Exception as exc:
         return {
             "success": False,
-            "error": describe_exception(e),
-            "message": f"Failed to find nearby {amenity_type}s",
+            "error": describe_exception(exc),
+            "message": "Nearby search failed",
         }
+
+
+@_read_tool
+async def find_nearby_amenities(
+    lat: float,
+    lon: float,
+    radius_meters: Optional[int] = None,
+    amenity_type: str = "restaurant",
+    radius: Optional[int] = None,
+    limit: int = 20,
+) -> Dict[str, Any]:
+    """Compatibility amenity-only search. radius aliases radius_meters; conflicts
+    fail explicitly. Omitted radii default to 1000m. For museums/parks use
+    search_nearby_places categories instead of inventing amenity tags.
+    """
+    if radius is not None and radius_meters is not None and radius != radius_meters:
+        return {
+            "success": False,
+            "error": "Conflicting radius and radius_meters",
+            "message": "Choose one radius",
+        }
+    effective = (
+        radius
+        if radius is not None
+        else radius_meters if radius_meters is not None else 1000
+    )
+    result = await search_nearby_places(
+        lat, lon, effective, limit=limit, tag_filters={"amenity": amenity_type}
+    )
+    if result["success"]:
+        result["data"]["amenities"] = result["data"].pop("places")
+        result["data"]["amenity_type"] = amenity_type
+    return result
 
 
 @_read_tool
@@ -545,86 +535,84 @@ async def get_place_info(place_name: str) -> Dict[str, Any]:
 
 
 @_read_tool
-async def search_osm_elements(query: str, element_type: str = "all") -> Dict[str, Any]:
-    """Search for OSM elements using Overpass API with a text query.
-
-    Args:
-        query: Search query (e.g., "coffee shop", "hospital", "park")
-        element_type: Type of element to search for (node, way, relation, or all)
-
-    Returns:
-        Dictionary containing search results
+async def search_osm_elements(
+    query: str,
+    element_type: str = "all",
+    bbox: Optional[str] = None,
+    lat: Optional[float] = None,
+    lon: Optional[float] = None,
+    radius_meters: Optional[int] = None,
+    limit: int = 20,
+) -> Dict[str, Any]:
+    """Literal case-insensitive text search in multilingual name/alt_name/
+    official_name tags (including :* variants) and amenity/tourism/leisure/
+    historic/shop tags. Requires bbox (west,south,east,north, max 0.25 degrees
+    each side) OR lat/lon/radius_meters (1–10000m). Never a global regex scan.
+    Results sorted by straight-line distance from point or bbox center.
     """
     try:
-        # Build Overpass query based on element type
-        safe_query = overpass_literal(query)
-        element_filters = []
-        if element_type in ["node", "all"]:
-            element_filters.append(f'node[~".*"~"{safe_query}",i]')
-        if element_type in ["way", "all"]:
-            element_filters.append(f'way[~".*"~"{safe_query}",i]')
-        if element_type in ["relation", "all"]:
-            element_filters.append(f'relation[~".*"~"{safe_query}",i]')
-
-        overpass_query = f"""
-        [out:json][timeout:25];
-        (
-          {';'.join(element_filters)};
-        );
-        out geom;
-        """
-
-        overpass_url = "https://overpass-api.de/api/interpreter"
-
-        async with get_public_client() as client:
-            response = await client.post(overpass_url, data={"data": overpass_query})
-            response.raise_for_status()
-            data = response.json()
-
-            # Process results
-            elements = []
-            for element in data.get("elements", [])[:20]:  # Limit to first 20 results
-                element_info = {
-                    "id": element.get("id"),
-                    "type": element.get("type"),
-                    "tags": element.get("tags", {}),
-                }
-
-                # Add location info
-                if element.get("type") == "node":
-                    element_info["location"] = {
-                        "lat": element.get("lat"),
-                        "lon": element.get("lon"),
-                    }
-                elif element.get("geometry"):
-                    coords = element["geometry"]
-                    if coords:
-                        avg_lat = sum(c["lat"] for c in coords) / len(coords)
-                        avg_lon = sum(c["lon"] for c in coords) / len(coords)
-                        element_info["location"] = {"lat": avg_lat, "lon": avg_lon}
-
-                elements.append(element_info)
-
-            return {
-                "success": True,
-                "data": {
-                    "query": query,
-                    "element_type": element_type,
-                    "count": len(elements),
-                    "elements": elements,
-                },
-                "message": f"Found {len(elements)} elements matching '{query}'",
-            }
-
-    except Exception as e:
+        bounded_integer(limit, "limit", 100)
+        if element_type not in ("all", "node", "way", "relation"):
+            raise ValueError("element_type must be all, node, way or relation")
+        safe_text(query)
+        if bbox is not None:
+            if any(v is not None for v in (lat, lon, radius_meters)):
+                raise ValueError("Choose bbox OR lat/lon/radius_meters, not both")
+            west, south, east, north = [float(v) for v in bbox.split(",")]
+            validate_point(south, west)
+            validate_point(north, east)
+            if not (0 < east - west <= 0.25 and 0 < north - south <= 0.25):
+                raise ValueError(
+                    "bbox must be ordered west,south,east,north, with each span <= 0.25 degrees"
+                )
+            lat, lon = (south + north) / 2, (west + east) / 2
+            scope = f"({south},{west},{north},{east})"
+            reference = "bbox_center"
+        else:
+            if lat is None or lon is None or radius_meters is None:
+                raise ValueError(
+                    "Geographical scope required: supply bbox or lat, lon and radius_meters"
+                )
+            validate_point(lat, lon)
+            bounded_integer(radius_meters, "radius_meters", 10000)
+            scope = f"(around:{radius_meters},{float(lat)},{float(lon)})"
+            reference = "query_location"
+        literal = overpass_literal(re.escape(query))
+        kind = "nwr" if element_type == "all" else element_type
+        # Fixed name-family key regex; user input is only an escaped value.
+        clauses = (
+            f'{kind}[~"^(name|alt_name|official_name)(:.*)?$"~"{literal}",i]{scope};'
+        )
+        clauses += "".join(
+            f'{kind}["{key}"~"{literal}",i]{scope};'
+            for key in ("amenity", "tourism", "leisure", "historic", "shop")
+        )
+        data = results(
+            await execute_overpass(
+                "[out:json][timeout:25];(" + clauses + ");out center tags;"
+            ),
+            lat,
+            lon,
+            limit,
+        )
+        data["elements"] = data.pop("places")
+        data.update(
+            query=query,
+            element_type=element_type,
+            query_location={"lat": lat, "lon": lon},
+            distance_reference=reference,
+        )
+        return {
+            "success": True,
+            "data": data,
+            "message": "Scoped text search completed",
+        }
+    except Exception as exc:
         return {
             "success": False,
-            "error": describe_exception(e),
-            "message": f"Failed to search for '{query}'",
+            "error": describe_exception(exc),
+            "message": "Scoped text search failed",
         }
-
-
-# Create a simple node (requires authentication for write operations)
 
 
 @_read_tool
@@ -1141,28 +1129,11 @@ async def smart_geocode(address_or_description: str) -> Dict[str, Any]:
         # Strategy 2: Parse address components
         address_components = parse_address_components(address_or_description)
 
-        # Strategy 3: Search for landmarks or POIs
-        if not results:
-            search_result = await search_osm_elements(address_or_description)
-            if search_result["success"] and search_result["data"]["elements"]:
-                for element in search_result["data"]["elements"][:3]:
-                    # search_osm_elements nests coordinates under 'location'
-                    location = element.get("location") or {}
-                    if "lat" in location and "lon" in location:
-                        results.append(
-                            {
-                                "source": "osm_search",
-                                "confidence": 0.7,
-                                "lat": location["lat"],
-                                "lon": location["lon"],
-                                "display_name": element.get("tags", {}).get(
-                                    "name", "Unnamed"
-                                ),
-                                "osm_type": element["type"],
-                                "osm_id": element["id"],
-                                "tags": element.get("tags", {}),
-                            }
-                        )
+        # Address-only geocoding has no reliable bounded Overpass scope.
+        # Never silently run a global fallback or turn a scope error into zero matches.
+        overpass_fallback = (
+            "Not attempted: use search_osm_elements with bbox or lat/lon/radius_meters"
+        )
 
         # Rank results by confidence
         results = sorted(results, key=lambda x: x["confidence"], reverse=True)
@@ -1175,6 +1146,7 @@ async def smart_geocode(address_or_description: str) -> Dict[str, Any]:
                 "best_match": results[0] if results else None,
                 "total_candidates": len(results),
                 "address_components": address_components,
+                "overpass_fallback": overpass_fallback,
             },
             "message": f"Found {len(results)} geocoding candidates for '{address_or_description}'",
         }
