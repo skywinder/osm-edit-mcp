@@ -3,7 +3,7 @@
 from typing import Annotated, Literal
 
 from pydantic import Field
-from typing_extensions import NotRequired, TypedDict
+from typing_extensions import TypedDict
 
 Latitude = Annotated[float, Field(ge=-90, le=90, allow_inf_nan=False, strict=True)]
 Longitude = Annotated[float, Field(ge=-180, le=180, allow_inf_nan=False, strict=True)]
@@ -109,12 +109,17 @@ class SearchData(TypedDict):
     candidates_total: int
 
 
-class SearchResult(TypedDict):
+class ResultStatus(TypedDict):
     success: bool
     message: str
-    data: NotRequired[SearchData]
-    error: NotRequired[str]
-    error_details: NotRequired[ErrorDetails]
+
+
+# Inheritance preserves required keys without NotRequired: Python 3.10's
+# get_type_hints does not strip the backported qualifier in FastMCP.
+class SearchResult(ResultStatus, total=False):
+    data: SearchData
+    error: str
+    error_details: ErrorDetails
 
 
 class LocationCandidate(TypedDict):
@@ -137,12 +142,10 @@ class ResolveData(TypedDict):
     attribution: str
 
 
-class ResolveResult(TypedDict):
-    success: bool
-    message: str
-    data: NotRequired[ResolveData]
-    error: NotRequired[str]
-    error_details: NotRequired[ErrorDetails]
+class ResolveResult(ResultStatus, total=False):
+    data: ResolveData
+    error: str
+    error_details: ErrorDetails
 
 
 class DetailsData(TypedDict):
@@ -151,9 +154,7 @@ class DetailsData(TypedDict):
     data_timestamp: str | None
 
 
-class DetailsResult(TypedDict):
-    success: bool
-    message: str
-    data: NotRequired[DetailsData]
-    error: NotRequired[str]
-    error_details: NotRequired[ErrorDetails]
+class DetailsResult(ResultStatus, total=False):
+    data: DetailsData
+    error: str
+    error_details: ErrorDetails
