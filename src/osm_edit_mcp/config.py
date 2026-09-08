@@ -103,6 +103,9 @@ class OSMConfig(BaseSettings):
     # MCP Server Configuration
     mcp_server_name: str = Field(default="osm-edit-mcp")
     mcp_server_version: str = Field(default=__version__)
+    osm_tool_profile: Literal["full", "discovery"] = "full"
+    osm_overpass_url: str = "https://overpass-api.de/api/interpreter"
+    osm_nominatim_url: str = "https://nominatim.openstreetmap.org"
 
     # Logging Configuration
     log_level: str = Field(

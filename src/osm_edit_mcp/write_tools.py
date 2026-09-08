@@ -6,7 +6,7 @@ from xml.sax.saxutils import quoteattr
 from defusedxml.ElementTree import fromstring as parse_xml
 from mcp.types import ToolAnnotations
 
-from .app import mcp
+from .app import mcp, profile_tool
 from .config import config, logger
 from .http_client import describe_exception, get_authenticated_client
 from .natural_language import (
@@ -28,7 +28,7 @@ def _expert_write_tool() -> Callable[[ToolFunction], ToolFunction]:
         if config.direct_write_tools_enabled:
             return cast(
                 ToolFunction,
-                mcp.tool(
+                profile_tool(
                     annotations=ToolAnnotations(
                         destructiveHint=True,
                         idempotentHint=False,
@@ -814,7 +814,13 @@ async def create_place_from_description(
 
 @_expert_write_tool()
 async def find_and_update_place(
-    description: str, changeset_id: Optional[int] = None
+    description: str,
+    changeset_id: Optional[int] = None,
+    *,
+    bbox: Optional[str] = None,
+    lat: Optional[float] = None,
+    lon: Optional[float] = None,
+    radius_meters: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Find and update a place on OSM from a natural language description.
 
@@ -838,9 +844,20 @@ async def find_and_update_place(
 
         # Search for the place
         search_term = parsed["name"] or parsed["business_type"] or "place"
-        search_result = await search_osm_elements(search_term)
+        search_result = await search_osm_elements(
+            search_term, bbox=bbox, lat=lat, lon=lon, radius_meters=radius_meters
+        )
 
-        if not search_result["success"] or not search_result["data"]["elements"]:
+        if not search_result["success"]:
+            return {
+                **search_result,
+                "message": (
+                    "Search failed; no mutation attempted. Use search_osm_elements "
+                    "with bbox or lat/lon/radius_meters to locate the place first."
+                ),
+            }
+
+        if not search_result["data"]["elements"]:
             return {
                 "success": False,
                 "error": "No places found",
@@ -922,7 +939,13 @@ async def find_and_update_place(
 
 @_expert_write_tool()
 async def delete_place_from_description(
-    description: str, changeset_id: Optional[int] = None
+    description: str,
+    changeset_id: Optional[int] = None,
+    *,
+    bbox: Optional[str] = None,
+    lat: Optional[float] = None,
+    lon: Optional[float] = None,
+    radius_meters: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Delete a place on OSM from a natural language description (requires confirmation).
 
@@ -946,9 +969,20 @@ async def delete_place_from_description(
 
         # Search for the place
         search_term = parsed["name"] or parsed["business_type"] or "place"
-        search_result = await search_osm_elements(search_term)
+        search_result = await search_osm_elements(
+            search_term, bbox=bbox, lat=lat, lon=lon, radius_meters=radius_meters
+        )
 
-        if not search_result["success"] or not search_result["data"]["elements"]:
+        if not search_result["success"]:
+            return {
+                **search_result,
+                "message": (
+                    "Search failed; no mutation attempted. Use search_osm_elements "
+                    "with bbox or lat/lon/radius_meters to locate the place first."
+                ),
+            }
+
+        if not search_result["data"]["elements"]:
             return {
                 "success": False,
                 "error": "No places found",

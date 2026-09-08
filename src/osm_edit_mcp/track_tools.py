@@ -25,7 +25,7 @@ from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, Field
 
-from .app import mcp
+from .app import mcp, profile_resource, profile_tool
 from .auth import verify_write_identity
 from .config import config
 from .http_client import (
@@ -922,7 +922,7 @@ def _proposal_result(
     }
 
 
-@mcp.tool(
+@profile_tool(
     annotations=ToolAnnotations(
         readOnlyHint=True,
         destructiveHint=False,
@@ -993,7 +993,7 @@ async def analyze_gpx_track(
         )
 
 
-@mcp.tool(
+@profile_tool(
     annotations=ToolAnnotations(
         readOnlyHint=True,
         destructiveHint=False,
@@ -1110,7 +1110,7 @@ async def create_track_selection(
         )
 
 
-@mcp.tool(
+@profile_tool(
     annotations=ToolAnnotations(
         readOnlyHint=True,
         destructiveHint=False,
@@ -1198,7 +1198,7 @@ if(pts.length) {{
 </script></body></html>"""
 
 
-@mcp.resource(
+@profile_resource(
     "ui://osm-edit/track-selection/{selection_id}",
     name="OSM GPX track selection preview",
     description="Local visual preview of the selected GPX subsection",
@@ -1216,7 +1216,7 @@ def track_selection_preview_resource(selection_id: str) -> str:
     )
 
 
-@mcp.resource(
+@profile_resource(
     "ui://osm-edit/proposal/{proposal_id}",
     name="OSM edit proposal preview",
     description="Current and proposed OSM geometry for human review",
@@ -1236,7 +1236,7 @@ def proposal_preview_resource(proposal_id: str) -> str:
     )
 
 
-@mcp.tool(
+@profile_tool(
     annotations=ToolAnnotations(
         readOnlyHint=True,
         destructiveHint=False,
@@ -1553,9 +1553,7 @@ async def _preview_create(
                 raise ValueError(
                     f"Could not determine version for snapped endpoint node {node_id}"
                 )
-            snapshot_nodes[node_id]["version"] = int(
-                node_element.get("version", "0")
-            )
+            snapshot_nodes[node_id]["version"] = int(node_element.get("version", "0"))
             authoritative_point = (
                 float(node_element.get("lat", "0")),
                 float(node_element.get("lon", "0")),
@@ -2046,7 +2044,7 @@ async def _preview_update(
     )
 
 
-@mcp.tool(
+@profile_tool(
     annotations=ToolAnnotations(
         readOnlyHint=True,
         destructiveHint=False,
@@ -2633,7 +2631,7 @@ async def _request_host_confirmation(
     return None
 
 
-@mcp.tool(
+@profile_tool(
     annotations=ToolAnnotations(
         readOnlyHint=False,
         destructiveHint=True,
@@ -2707,7 +2705,7 @@ async def apply_track_road_edit(
 
 
 if config.is_development_api:
-    mcp.tool(
+    profile_tool(
         annotations=ToolAnnotations(
             readOnlyHint=False,
             destructiveHint=True,
