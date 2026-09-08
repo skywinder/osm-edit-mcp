@@ -1,9 +1,11 @@
 """Pure query and result helpers for bounded read-only place searches."""
 
 import math
+from datetime import datetime, timezone
 from typing import Any
 
 from .http_client import overpass_literal
+from .place_features import ATTRIBUTION, describe_place
 
 
 def validate_point(lat: Any, lon: Any) -> None:
@@ -127,7 +129,18 @@ CATEGORIES = {
 }
 
 
-def results(data: dict[str, Any], lat: float, lon: float, limit: int) -> dict[str, Any]:
+def results(
+    data: dict[str, Any],
+    lat: float,
+    lon: float,
+    limit: int,
+    *,
+    preferred_tags: dict[str, str] | None = None,
+    language: str | None = None,
+    open_now: bool = False,
+    moment: datetime | None = None,
+) -> dict[str, Any]:
+    moment = moment or datetime.now(timezone.utc)
     unique = {}
     for element in data["elements"]:
         kind, identity = element["type"], element["id"]
@@ -147,20 +160,30 @@ def results(data: dict[str, Any], lat: float, lon: float, limit: int) -> dict[st
                 * math.sin(math.radians(longitude - lon) / 2) ** 2
             )
             distance = 6371008.8 * 2 * math.asin(math.sqrt(min(1, max(0, h))))
-        unique[(kind, identity)] = {
-            "type": kind,
-            "id": identity,
-            "tags": element.get("tags", {}),
-            "location": (
-                {"lat": latitude, "lon": longitude} if distance is not None else None
-            ),
-            "location_source": "node" if kind == "node" else "overpass_bbox_center",
-            "distance_meters": round(distance, 3) if distance is not None else None,
-            "osm_url": f"https://www.openstreetmap.org/{kind}/{identity}",
-        }
+        unique[(kind, identity)] = describe_place(
+            {
+                "type": kind,
+                "id": identity,
+                "tags": element.get("tags", {}),
+                "location": (
+                    {"lat": latitude, "lon": longitude}
+                    if distance is not None
+                    else None
+                ),
+                "location_source": "node" if kind == "node" else "overpass_bbox_center",
+                "distance_meters": round(distance, 3) if distance is not None else None,
+                "osm_url": f"https://www.openstreetmap.org/{kind}/{identity}",
+            },
+            preferred_tags or {},
+            language,
+            moment,
+        )
+    candidates_total = len(unique)
+    unknown_hours = sum(p["open_status"] == "unknown" for p in unique.values())
     places = sorted(
-        unique.values(),
+        (p for p in unique.values() if not open_now or p["open_status"] == "open"),
         key=lambda p: (
+            -p["preference_matches"],
             p["distance_meters"] is None,
             p["distance_meters"] or 0,
             p["type"],
@@ -173,4 +196,10 @@ def results(data: dict[str, Any], lat: float, lon: float, limit: int) -> dict[st
         "count": len(places[:limit]),
         "truncated": len(places) > limit,
         "distance_type": "straight-line",
+        "attribution": ATTRIBUTION,
+        "retrieved_at": datetime.now(timezone.utc).isoformat(),
+        "data_timestamp": data.get("osm3s", {}).get("timestamp_osm_base"),
+        "evaluated_at": moment.isoformat(),
+        "candidates_total": candidates_total,
+        "unknown_opening_hours": unknown_hours,
     }

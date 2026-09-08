@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 from defusedxml.ElementTree import fromstring as parse_xml
 from mcp.types import ToolAnnotations
 
-from .app import mcp
+from .app import mcp, profile_tool
 from .auth import verify_write_identity
 from .config import config
 from .http_client import (
@@ -48,7 +48,7 @@ def _tags(element: Any) -> Dict[str, str]:
     }
 
 
-@mcp.tool(annotations=READ_ONLY)
+@profile_tool(annotations=READ_ONLY)
 async def get_edit_capabilities() -> Dict[str, Any]:
     """Describe the active safety profile and optional local services."""
     try:
@@ -99,7 +99,7 @@ async def get_edit_capabilities() -> Dict[str, Any]:
     }
 
 
-@mcp.tool(annotations=READ_ONLY)
+@profile_tool(annotations=READ_ONLY)
 async def inspect_map_context(
     bbox: str,
     highway_only: bool = False,
@@ -197,7 +197,7 @@ async def inspect_map_context(
         }
 
 
-@mcp.tool(annotations=READ_ONLY)
+@profile_tool(annotations=READ_ONLY)
 async def list_edit_proposals(
     status: Optional[str] = None, limit: int = 20
 ) -> Dict[str, Any]:
@@ -224,7 +224,7 @@ async def list_edit_proposals(
     }
 
 
-@mcp.tool(annotations=READ_ONLY)
+@profile_tool(annotations=READ_ONLY)
 async def verify_osm_edit(proposal_id: str) -> Dict[str, Any]:
     """Re-fetch every element recorded in an applied proposal receipt."""
     proposal = _PROPOSAL_STORE.get(proposal_id, include_expired=True)

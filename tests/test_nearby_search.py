@@ -332,11 +332,14 @@ async def test_text_scope_validation(monkeypatch, scope):
 
 
 def test_configurable_overpass_endpoint(monkeypatch):
+    from src.osm_edit_mcp.config import config
     from src.osm_edit_mcp.overpass import OverpassExecutor
 
-    monkeypatch.setenv("OSM_OVERPASS_URL", "https://example.test/api/interpreter")
+    monkeypatch.setattr(
+        config, "osm_overpass_url", "https://example.test/api/interpreter"
+    )
     assert OverpassExecutor().endpoint == "https://example.test/api/interpreter"
-    monkeypatch.setenv("OSM_OVERPASS_URL", "file:///etc/passwd")
+    monkeypatch.setattr(config, "osm_overpass_url", "file:///etc/passwd")
     with pytest.raises(ValueError, match="HTTP"):
         OverpassExecutor()
 

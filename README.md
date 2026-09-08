@@ -6,8 +6,8 @@
 [![Python](https://img.shields.io/pypi/pyversions/osm-edit-mcp.svg)](https://pypi.org/project/osm-edit-mcp/)
 [![License](https://img.shields.io/pypi/l/osm-edit-mcp.svg)](LICENSE)
 
-A review-first Model Context Protocol server for inspecting OpenStreetMap and
-turning a selected part of a local GPX survey into a previewed road-edit proposal.
+A Model Context Protocol server for finding relevant places in OpenStreetMap and
+turning a selected part of a local GPX survey into a reviewed road-edit proposal.
 
 > **Alpha software.** It does not autonomously edit OpenStreetMap. The normal
 > profile can inspect data and prepare proposals, but a production write requires
@@ -16,9 +16,8 @@ turning a selected part of a local GPX survey into a previewed road-edit proposa
 
 ## Why this server
 
-Most OpenStreetMap MCP servers focus on search, geocoding, or routing. OSM Edit
-MCP focuses on the risky last mile: helping a mapper review a narrowly selected
-survey before any road geometry reaches OSM.
+Use public place discovery without OAuth, or the separate review-first editing
+workflow to inspect a selected survey before road geometry reaches OSM.
 
 ```text
 local GPX → selected segment → current/proposed preview
@@ -43,10 +42,16 @@ edit from natural-language consent alone.
 
 ## Read-only nearby discovery
 
+**Unreleased: use the source checkout for this section until the next package
+release.** Set `OSM_TOOL_PROFILE=discovery` to expose only three client-neutral
+tools: `resolve_location`, `search_nearby_places`, and `get_place_details`.
+
 Use `search_nearby_places` for museums, parks, viewpoints, useful amenities and
 exact OSM tag combinations. It searches nodes, ways and relations, returns stable
 OSM links and explicitly **straight-line** distances, then deduplicates/sorts/limits
-with `total`, `count` and `truncated`. No OAuth is needed.
+with `total`, `count` and `truncated`. Optional preferences explain why a place
+ranks higher; unknown properties and opening hours remain explicit. No OAuth is
+needed. The default `full` profile retains the editing workflow.
 
 ```json
 {"lat":40.197784,"lon":44.51098,"radius_meters":1200,"categories":["museum","park","viewpoint"],"limit":15}

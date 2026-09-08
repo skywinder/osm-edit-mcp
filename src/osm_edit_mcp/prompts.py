@@ -4,10 +4,10 @@ import json
 
 from mcp.server.fastmcp.prompts.base import UserMessage
 
-from .app import mcp
+from .app import profile_prompt
 
 
-@mcp.prompt(
+@profile_prompt(
     name="review_gpx_road_edit",
     title="Review a GPX road edit",
     description=(

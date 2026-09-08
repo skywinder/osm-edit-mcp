@@ -1,16 +1,16 @@
 """Shared public Overpass transport; never rotates mirrors on rate limiting."""
 
 import asyncio
-import os
 import time
 from collections import OrderedDict
 from copy import deepcopy
-from email.utils import parsedate_to_datetime
 from typing import Any, Awaitable, Callable
 from urllib.parse import urlparse
 
 import httpx
 
+from .config import config
+from .discovery_errors import DiscoveryError, retry_after
 from .http_client import get_public_client
 
 
@@ -26,11 +26,9 @@ class OverpassExecutor:
         clock: Callable[[], float] = time.monotonic,
         ttl: float = 30,
         cache_size: int = 32,
-        total_timeout: float = 160,
+        total_timeout: float = 35,
     ) -> None:
-        self.endpoint = endpoint or os.environ.get(
-            "OSM_OVERPASS_URL", "https://overpass-api.de/api/interpreter"
-        )
+        self.endpoint = endpoint or config.osm_overpass_url
         parsed = urlparse(self.endpoint)
         if (
             parsed.scheme not in ("https", "http")
@@ -47,6 +45,7 @@ class OverpassExecutor:
         self.total_timeout = total_timeout
         self.cache: OrderedDict[str, tuple[float, dict[str, Any]]] = OrderedDict()
         self.gate = asyncio.Semaphore(1)
+        self.blocked_until = 0.0
 
     async def execute(self, query: str) -> dict[str, Any]:
         try:
@@ -54,8 +53,10 @@ class OverpassExecutor:
                 self._execute(query), timeout=self.total_timeout
             )
         except asyncio.TimeoutError as exc:
-            raise ValueError(
-                "Overpass time budget exceeded (including queue); retry later"
+            raise DiscoveryError(
+                "Overpass time budget exceeded (including queue); retry later",
+                "upstream_timeout",
+                retryable=True,
             ) from exc
 
     async def _execute(self, query: str) -> dict[str, Any]:
@@ -64,6 +65,14 @@ class OverpassExecutor:
             if cached and cached[0] > self.clock():
                 self.cache.move_to_end(query)
                 return deepcopy(cached[1])
+            remaining = self.blocked_until - self.clock()
+            if remaining > 0:
+                raise DiscoveryError(
+                    "Overpass is cooling down; retry later",
+                    "rate_limited",
+                    retryable=True,
+                    retry_after_seconds=remaining,
+                )
             async with self.client_factory() as client:
                 for attempt in range(3):
                     try:
@@ -78,27 +87,29 @@ class OverpassExecutor:
                             raise
                         await self.sleep(2**attempt)
                         continue
-                    if response.status_code in (429, 502, 503, 504) and attempt < 2:
+                    if response.status_code in (429, 502, 503, 504):
                         delay = float(2**attempt)
                         value = response.headers.get("Retry-After")
-                        if value:
-                            try:
-                                delay = max(delay, float(value))
-                            except ValueError:
-                                try:
-                                    delay = max(
-                                        delay,
-                                        parsedate_to_datetime(value).timestamp()
-                                        - self.wall_clock(),
-                                    )
-                                except (ValueError, TypeError, OverflowError):
-                                    pass
+                        requested = retry_after(value, self.wall_clock())
+                        if requested is not None:
+                            delay = max(delay, requested)
+                        # Persist the cooldown even when this call fails or is
+                        # cancelled. A queued agent must not bypass Retry-After.
+                        if requested is not None or response.status_code == 429:
+                            self.blocked_until = max(
+                                self.blocked_until, self.clock() + delay
+                            )
                         # Do not shorten a server cooldown to fit our wait budget.
                         if delay > 30:
-                            raise ValueError(
+                            raise DiscoveryError(
                                 f"Overpass Retry-After {value} exceeds the 30s "
-                                "retry wait budget; retry later"
+                                "retry wait budget; retry later",
+                                "rate_limited",
+                                retryable=True,
+                                retry_after_seconds=delay,
                             )
+                        if attempt == 2:
+                            response.raise_for_status()
                         await self.sleep(delay)
                         continue
                     response.raise_for_status()
@@ -108,9 +119,11 @@ class OverpassExecutor:
                         or data.get("remark")
                         or not isinstance(data.get("elements"), list)
                     ):
-                        raise ValueError(
+                        raise DiscoveryError(
                             "Overpass returned an incomplete or invalid result; "
-                            "retry later"
+                            "retry later",
+                            "invalid_upstream_response",
+                            retryable=True,
                         )
                     self.cache[query] = (self.clock() + self.ttl, deepcopy(data))
                     self.cache.move_to_end(query)
