@@ -115,8 +115,9 @@ OSM_EDIT_MCP_ENV_FILE=/absolute/path/to/private-dev.env \
   /absolute/path/to/checkout/oauth_auth.py --dev
 ```
 
-Use the production file and omit `--dev` only when configuring the separate
-production entry. Enter credentials and callback URLs locally in the helper;
+For the separate production entry, use the production file and replace
+`--dev` with `--prod`. The helper defaults to development; setting
+`OSM_USE_DEV_API=false` alone does not select production in this helper. Enter credentials and callback URLs locally in the helper;
 do not send them through chat, agent tool arguments, commits, or logs. An
 agent's private PTY is not necessarily the visible integrated terminal. If the
 keyring is unavailable, diagnose the selected backend instead of silently
