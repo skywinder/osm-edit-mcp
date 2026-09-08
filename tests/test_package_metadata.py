@@ -34,7 +34,7 @@ def test_release_metadata_and_entrypoint_are_canonical() -> None:
     assert project["authors"] == [{"name": "skywinder"}]
     assert project["scripts"] == {"osm-edit-mcp": "osm_edit_mcp.server:main"}
     assert any(
-        dependency.startswith("mcp>=1.10") and "<2" in dependency
+        dependency.startswith("mcp>=1.29.1") and "<2" in dependency
         for dependency in project["dependencies"]
     )
     assert not (ROOT / "setup.py").exists()
