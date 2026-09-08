@@ -13,6 +13,23 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 DISCOVERY = {"resolve_location", "search_nearby_places", "get_place_details"}
+RAW_WRITES = {
+    "create_changeset",
+    "close_changeset",
+    "create_osm_node",
+    "create_osm_way",
+    "create_osm_relation",
+    "update_osm_node",
+    "update_osm_way",
+    "update_osm_relation",
+    "delete_osm_node",
+    "delete_osm_way",
+    "delete_osm_relation",
+    "create_place_from_description",
+    "find_and_update_place",
+    "delete_place_from_description",
+    "bulk_create_places",
+}
 TARGETS = {
     "development": "https://api06.dev.openstreetmap.org/api/0.6",
     "production": "https://api.openstreetmap.org/api/0.6",
@@ -73,6 +90,8 @@ async def verify(session, mode, query=None, environment=None, username=None):
         )
     if not {"get_edit_capabilities", "check_authentication"} <= names:
         raise ValueError("Editing diagnostics are unavailable")
+    if names & RAW_WRITES:
+        raise ValueError("Raw write tools must be absent")
     caps = (await payload(session, "get_edit_capabilities"))["data"]
     auth = await payload(session, "check_authentication")
     identity, live = caps["authentication"], auth["data"]

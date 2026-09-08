@@ -92,6 +92,7 @@ include = [
     "/lhm.plugin.json",
     "/pyproject.toml",
     "/scripts/security_audit.py",
+    "/scripts/check_mcp_connection.py",
     "/src",
     "/tests",
     "/web_server.py",
