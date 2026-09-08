@@ -9,6 +9,9 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Added a client-neutral setup skill, a functional stdio connection checker,
+  and a separate Hermes guide. Discovery setup needs no OAuth; editing checks
+  the expected live API, account, permissions, and safe profile in one session.
 - Client-neutral `discovery` tool profile: resolve a location, search nearby,
   and retrieve details bound to the public OSM source, without OAuth/edit tools.
 - Typed discovery schemas, language/country/viewbox preferences, exact category

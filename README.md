@@ -99,9 +99,18 @@ The first `uvx` launch installs the released package in an isolated environment.
 The development API is the default in this example; no OAuth credentials are
 needed for read-only inspection.
 
-For client-specific formats, including Codex TOML, see
+For client configuration and source-checkout setup, see
 [MCP client setup](docs/MCP_CLIENT_SETUP.md). A real read-only protocol smoke
 client is available at [examples/quick_start.py](examples/quick_start.py).
+
+### Agent-assisted setup
+
+The client-neutral [setup skill](skills/osm-edit-mcp-setup/SKILL.md) guides an
+agent through discovery or editing setup, preserving existing configuration and
+verifying the selected profile. Place discovery needs no OAuth. Editing setup
+checks the live API target, account and permissions without authorizing an edit.
+See [MCP client setup](docs/MCP_CLIENT_SETUP.md) for the functional diagnostic
+helper and [Hermes setup](docs/HERMES_SETUP.md) for Hermes-specific commands.
 
 MCP hosts can also start the guided `review_gpx_road_edit` prompt with a local
 GPX path and edit goal. It requires explicit segment and target choices, builds

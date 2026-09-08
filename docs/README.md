@@ -7,7 +7,9 @@ an agent autonomous production write authority.
 ## Start here
 
 - [Quick start](quick-start-guide.md) — package-first `uvx` setup.
-- [MCP client setup](MCP_CLIENT_SETUP.md) — JSON, Codex, GPX, and source modes.
+- [MCP client setup](MCP_CLIENT_SETUP.md) — client-neutral profiles, OAuth, and functional checks.
+- [Nearby search](NEARBY_SEARCH.md) — location, preferences, and place details.
+- [Hermes setup](HERMES_SETUP.md) — Hermes-specific registration and checks.
 - [Safe usage examples](mcp-usage-examples.md) — inspection through verification.
 - [Running the server](RUNNING_SERVER.md) — stdio lifecycle and MCP Inspector.
 - [Troubleshooting](MCP_TROUBLESHOOTING.md) — connection and safety-gate failures.
