@@ -9,9 +9,9 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- Added a repository-distributed Agent Skill and Hermes setup guide for safely
-  configuring development/production OAuth, validating the active API target
-  and identity, and diagnosing duplicated `OSM_USE_DEV_API` host configuration.
+- Added a client-neutral setup skill, a functional stdio connection checker,
+  and a separate Hermes guide. Discovery setup needs no OAuth; editing checks
+  the expected live API, account, permissions, and safe profile in one session.
 
 ## [0.2.1] - 2026-09-03
 

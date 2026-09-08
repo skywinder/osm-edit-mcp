@@ -78,41 +78,18 @@ The first `uvx` launch installs the released package in an isolated environment.
 The development API is the default in this example; no OAuth credentials are
 needed for read-only inspection.
 
-For client-specific formats, including Codex TOML, see
+For client configuration and source-checkout setup, see
 [MCP client setup](docs/MCP_CLIENT_SETUP.md). A real read-only protocol smoke
 client is available at [examples/quick_start.py](examples/quick_start.py).
 
-### Agent-assisted Hermes setup
+### Agent-assisted setup
 
-This repository includes an
-[OSM Edit MCP setup skill](skills/osm-edit-mcp-setup/SKILL.md) for
-operators who want an AI agent to configure and verify the server in Hermes.
-The skill exists because a working setup crosses several independent layers:
-Hermes stdio configuration, OSM API selection, environment-specific OAuth
-applications, persistent token storage, and the server's write-safety profile.
-Success at one layer does not prove that the active MCP process is safe or even
-targeting the intended OSM environment.
-
-The skill gives an agent a repeatable procedure to:
-
-- keep development and production OAuth applications and tokens separate;
-- bootstrap OAuth without placing credentials in chat, commits, or MCP config;
-- test a fresh stdio connection before restarting the active Hermes runtime;
-- verify the API target, OSM identity, permissions, and write profile together;
-- diagnose the `OSM_USE_DEV_API` scalar-type conflict that can occur when both a
-  private dotenv file and a host `env` mapping define the same selector.
-
-Install it into Hermes directly from the raw GitHub URL after selecting a local
-category, or copy the `osm-edit-mcp-setup` directory below
-`$HERMES_HOME/skills/`. The skill does not enable raw write tools, authorize an
-OSM edit, or bypass digest-bound production confirmation; production should
-remain on the `safe` profile.
-
-```bash
-hermes skills install \
-  https://raw.githubusercontent.com/skywinder/osm-edit-mcp/main/skills/osm-edit-mcp-setup/SKILL.md \
-  --category mcp
-```
+The client-neutral [setup skill](skills/osm-edit-mcp-setup/SKILL.md) guides an
+agent through discovery or editing setup, preserving existing configuration and
+verifying the selected profile. Place discovery needs no OAuth. Editing setup
+checks the live API target, account and permissions without authorizing an edit.
+See [MCP client setup](docs/MCP_CLIENT_SETUP.md) for the functional diagnostic
+helper and [Hermes setup](docs/HERMES_SETUP.md) for Hermes-specific commands.
 
 MCP hosts can also start the guided `review_gpx_road_edit` prompt with a local
 GPX path and edit goal. It requires explicit segment and target choices, builds

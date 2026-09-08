@@ -1,248 +1,156 @@
 # MCP client setup
 
-OSM Edit MCP uses the standard local stdio transport. The MCP host owns the
-server process and should launch the released package with `uvx`.
+OSM Edit MCP uses standard local stdio transport. The client owns the server
+process. Python 3.10+ and [uv](https://docs.astral.sh/uv/) are required. There is
+no server port or HTTP URL to configure. Use a host that supports MCP elicitation
+before applying production edits.
 
-## Requirements
+## Choose a profile and package
 
-- Python 3.10 or newer;
-- [uv](https://docs.astral.sh/uv/) with `uvx` available to the host;
-- an MCP client that supports local stdio servers;
-- MCP elicitation support for production `apply_osm_edit`.
+- **Place discovery:** `OSM_TOOL_PROFILE=discovery` exposes only
+  `resolve_location`, `search_nearby_places`, and `get_place_details`. No OAuth
+  setup or development edit is required. These tools currently require a source
+  checkout of the updated main branch; use a released package only once its
+  release notes include them.
+- **Editing and GPX:** the default `full` tool profile uses the `safe` write
+  profile. The released package is launched with `uvx osm-edit-mcp`. OAuth is
+  needed for authenticated operations, not public place discovery.
 
-The examples below force the OSM development API and the `safe` profile.
-
-## JSON-based clients
-
-Claude Desktop, Cursor, Cline, and many other hosts accept this shape:
+For a source checkout, run `uv sync --locked` in the checkout, then configure
+this **inner server record** in the client's documented MCP configuration:
 
 ```json
 {
-  "mcpServers": {
-    "osm-edit": {
-      "command": "uvx",
-      "args": ["osm-edit-mcp"],
-      "env": {
-        "OSM_USE_DEV_API": "true",
-        "OSM_WRITE_PROFILE": "safe",
-        "OSM_REQUIRE_HOST_CONFIRMATION": "true"
-      }
-    }
+  "command": "uv",
+  "args": ["run", "--locked", "--project", "/absolute/path/to/checkout", "osm-edit-mcp"],
+  "env": {"OSM_TOOL_PROFILE": "discovery"}
+}
+```
+
+Some clients wrap this record inside `mcpServers` under a server name; others
+use a different outer structure or a configuration UI. All `env` values must be
+strings. Replace the executable with an absolute path if the host's PATH cannot
+find it. Paths must exist inside the host's filesystem/container.
+
+For released editing tools, use this inner record:
+
+```json
+{
+  "command": "uvx",
+  "args": ["osm-edit-mcp"],
+  "env": {
+    "OSM_USE_DEV_API": "true",
+    "OSM_WRITE_PROFILE": "safe",
+    "OSM_REQUIRE_HOST_CONFIRMATION": "true"
   }
 }
 ```
 
-If the client uses a different outer key, keep the server command, arguments,
-and environment unchanged. Restart the client after editing its configuration.
+For source editing, retain the source command/args and select
+`OSM_TOOL_PROFILE=full`. Keep existing unrelated client settings. Reconnect the
+server using the host's supported reload workflow; coordinate a restart when it
+would interrupt an active session.
 
-## Codex
+## Verify one fresh session
 
-Add this to the Codex configuration:
-
-```toml
-[mcp_servers.osm_edit]
-command = "uvx"
-args = ["osm-edit-mcp"]
-
-[mcp_servers.osm_edit.env]
-OSM_USE_DEV_API = "true"
-OSM_WRITE_PROFILE = "safe"
-OSM_REQUIRE_HOST_CONFIRMATION = "true"
-```
-
-## Hermes Agent
-
-Hermes users can install the repository's
-[setup skill](../skills/osm-edit-mcp-setup/SKILL.md) and let the agent
-perform the guarded procedure, or configure the stdio server directly. OAuth
-bootstrap currently requires a source checkout, so this example launches that
-checkout with its locked environment:
+A successful initialization or tool list proves protocol connectivity, not
+provider access or OAuth. Save the intended inner server record as a local JSON
+file and run the source checkout's diagnostic helper:
 
 ```bash
-hermes mcp add osm-edit \
-  --command /absolute/path/to/uv \
-  --connect-timeout 120 \
-  --env \
-    OSM_EDIT_MCP_ENV_FILE=/absolute/path/to/osm-edit-mcp.env \
-    XDG_DATA_HOME=/absolute/path/to/persistent-keyring-data \
-    OSM_WRITE_PROFILE=safe \
-    OSM_REQUIRE_HOST_CONFIRMATION=true \
-  --args run --locked --project /absolute/path/to/osm-edit-mcp osm-edit-mcp
+uv run --locked --project /absolute/path/to/checkout python \
+  /absolute/path/to/checkout/scripts/check_mcp_connection.py \
+  --server-config /absolute/path/to/server.json --mode discovery
 ```
 
-`hermes mcp add` performs discovery and then asks which tools to enable. In an
-agent-driven session, run it with a PTY and answer that selection prompt; a
-non-interactive EOF prints `Cancelled` and does not save the server even when
-the preceding connection and tool discovery succeeded. Confirm persistence with
-`hermes mcp test osm-edit` after the add process exits.
+This verifies exactly three discovery tools. Add `--query "Matenadaran, Yerevan"`
+to run resolve → nearby cafe/pharmacy search → details in that same session.
+The probe sends the query and resolved coordinates to the configured public
+providers. It requires a single location candidate and a nearby match; use a
+precise public landmark if the location is ambiguous or empty. Respect provider
+cooldowns rather than repeatedly running the probe after a failure.
 
-Use the same `XDG_DATA_HOME` when running `oauth_auth.py`, otherwise the helper
-can save a valid token in one keyring namespace while the MCP subprocess reads
-another. Prefer the platform keyring. If a headless deployment explicitly uses
-`keyrings.alt.file.PlaintextKeyring`, install `keyrings.alt` in the same runtime,
-pass `PYTHON_KEYRING_BACKEND` to both processes, and protect its persistent
-directory; that fallback is not encrypted secret storage.
+The helper exits nonzero on failure and never edits OSM. It launches a separate
+process: repeat a representative read through the active host to verify that
+host's configuration. For discovery behavior and attribution, see
+[nearby search](NEARBY_SEARCH.md).
 
-Keep OAuth client credentials and the API selector in the private env file,
-which must be a regular, non-symlink file with mode `0600`:
+## Editing authentication
+
+Keep **separate development and production OAuth apps and server entries**.
+Register the app on the selected OSM site, using the helper's callback URI
+`https://localhost:8080/callback`, with `read_prefs` and `write_api` permissions.
+Do not reuse development credentials for production.
+
+Create a private, non-symlink dotenv file outside the checkout, with mode `0600`
+on POSIX. Preserve existing credentials rather than overwriting a file. Use the
+appropriate variables from [.env.example](../.env.example):
 
 ```dotenv
+OSM_TOOL_PROFILE=full
 OSM_USE_DEV_API=true
-OSM_DEV_CLIENT_ID=<development-client-id>
-OSM_DEV_CLIENT_SECRET=<development-client-secret>
-OSM_DEV_REDIRECT_URI=https://localhost:8080/callback
 OSM_WRITE_PROFILE=safe
 OSM_REQUIRE_HOST_CONFIRMATION=true
+USE_KEYRING=true
+ALLOW_PLAINTEXT_TOKEN_FILE=false
+OSM_DEV_CLIENT_ID=<enter locally>
+OSM_DEV_CLIENT_SECRET=<enter locally>
+OSM_DEV_REDIRECT_URI=https://localhost:8080/callback
 ```
 
-Do not duplicate `OSM_USE_DEV_API` under the Hermes server's `env` mapping when
-`OSM_EDIT_MCP_ENV_FILE` already provides it. In particular, using
-`hermes config set` on an unknown nested environment key may coerce `false` to a
-YAML boolean, while MCP stdio process environments require strings. Trying to
-preserve it with shell quotes can instead store the quote characters. Either
-mismatch can close the MCP connection during Pydantic startup validation.
-Remove a duplicate selector with:
+For a separate production file, set `OSM_USE_DEV_API=false` and use the
+`OSM_PROD_CLIENT_ID`, `OSM_PROD_CLIENT_SECRET`, and `OSM_PROD_REDIRECT_URI` names.
+Point each host entry at its file with string-valued
+`OSM_EDIT_MCP_ENV_FILE=/absolute/path/to/private.env`. Remove duplicated profile
+and API selectors from that entry's `env`; the process environment takes
+precedence over the file. Do not put secrets in the server record.
+
+The OAuth helper is currently source-only. Run it in your own local terminal
+(or a verified user-visible terminal), using the same OS user, keyring backend,
+and relevant XDG configuration as the MCP process:
 
 ```bash
-hermes config unset mcp_servers.osm-edit.env.OSM_USE_DEV_API
+OSM_EDIT_MCP_ENV_FILE=/absolute/path/to/private-dev.env \
+  uv run --locked --project /absolute/path/to/checkout python \
+  /absolute/path/to/checkout/oauth_auth.py --dev
 ```
 
-Then verify the fresh process before restarting the active Hermes runtime:
+Use the production file and omit `--dev` only when configuring the separate
+production entry. Enter credentials and callback URLs locally in the helper;
+do not send them through chat, agent tool arguments, commits, or logs. An
+agent's private PTY is not necessarily the visible integrated terminal. If the
+keyring is unavailable, diagnose the selected backend instead of silently
+enabling plaintext token storage.
+
+Verify the intended account and environment in a fresh connection:
 
 ```bash
-hermes mcp test osm-edit
+uv run --locked --project /absolute/path/to/checkout python \
+  /absolute/path/to/checkout/scripts/check_mcp_connection.py \
+  --server-config /absolute/path/to/dev-server.json --mode edit \
+  --expect-environment development --expect-user YOUR_OSM_USERNAME
 ```
 
-After reconnection, call `get_edit_capabilities` and `check_authentication`.
-Confirm the API target, `safe` profile, expected OSM account, and `write_api`
-permission together. A successful standalone OAuth flow does not prove that an
-already-running MCP subprocess has reloaded its environment.
+The helper calls `get_edit_capabilities` and `check_authentication` in one
+session. It checks the canonical API URL, environment, expected username,
+consistent live user ID, `write_api` permission, `safe` profile, absence of raw
+write registration, and required digest-bound confirmation. It does not prove
+that the host supports elicitation or that an edit has succeeded. Repeat these
+checks through the active host after reloading it.
 
-## Local GPX files
+Before production apply, separately complete an authorized representative edit
+on development and verify host elicitation support. Review the exact proposal
+and digest. A host without elicitation can preview proposals; production apply
+must fail closed. Connection setup does not authorize an OSM data change.
 
-The server accepts inline GPX XML or paths below `OSM_TRACK_IMPORT_DIR`.
-Prefer an explicit directory outside the repository:
+## GPX files and host limitations
 
-```json
-{
-  "mcpServers": {
-    "osm-edit": {
-      "command": "uvx",
-      "args": ["osm-edit-mcp"],
-      "env": {
-        "OSM_USE_DEV_API": "true",
-        "OSM_WRITE_PROFILE": "safe",
-        "OSM_TRACK_IMPORT_DIR": "/absolute/path/to/local-gpx"
-      }
-    }
-  }
-}
-```
+Set `OSM_TRACK_IMPORT_DIR` to an explicit directory outside the repository for
+local GPX input, or provide inline XML. Size/point caps apply; path traversal and
+symlink escapes are rejected. The path is relative to the host's filesystem,
+not the user's other computer. A host without `ui://` support can inspect the
+returned GeoJSON.
 
-The path must be absolute from the host process's point of view. Track files are
-limited by configured size and point-count caps, and path traversal or symlink
-escapes are rejected.
-
-## Separate development and production entries
-
-Do not reuse an OAuth application or configuration entry across environments.
-After completing development-API acceptance, a production-capable host can use:
-
-```json
-{
-  "mcpServers": {
-    "osm-edit-dev": {
-      "command": "uvx",
-      "args": ["osm-edit-mcp"],
-      "env": {
-        "OSM_USE_DEV_API": "true",
-        "OSM_WRITE_PROFILE": "safe"
-      }
-    },
-    "osm-edit-prod": {
-      "command": "uvx",
-      "args": ["osm-edit-mcp"],
-      "env": {
-        "OSM_USE_DEV_API": "false",
-        "OSM_WRITE_PROFILE": "safe",
-        "OSM_REQUIRE_HOST_CONFIRMATION": "true"
-      }
-    }
-  }
-}
-```
-
-Keep the production entry disabled until:
-
-1. A separate production OAuth app has been registered.
-2. The expected account and `write_api` permission are verified live.
-3. The host is known to implement MCP elicitation.
-4. `get_edit_capabilities` reports the production API, `safe` profile, and
-   digest-bound confirmation.
-
-If the host does not support elicitation, production apply must fail closed.
-
-## Development from a source checkout
-
-Contributors can run the current checkout instead of the released package:
-
-```bash
-uv sync --locked --extra dev
-```
-
-Then point the host at that checkout:
-
-```json
-{
-  "mcpServers": {
-    "osm-edit-source": {
-      "command": "uv",
-      "args": [
-        "run",
-        "--locked",
-        "--project",
-        "/absolute/path/to/checkout",
-        "osm-edit-mcp"
-      ],
-      "env": {
-        "OSM_USE_DEV_API": "true",
-        "OSM_WRITE_PROFILE": "safe"
-      }
-    }
-  }
-}
-```
-
-Source checkout mode is also currently required for the OAuth bootstrap script:
-
-```bash
-install -m 600 .env.example .env
-export OSM_EDIT_MCP_ENV_FILE="$PWD/.env"
-uv run python oauth_auth.py --dev
-```
-
-Do not authenticate against production until representative development-server
-create and update acceptance has succeeded.
-
-## Verify the connection
-
-After reconnecting:
-
-1. Call `get_server_info`.
-2. Call `get_edit_capabilities`.
-3. Confirm the API target and write profile.
-4. Inspect the tool list: raw direct-write tools must be absent in `safe`.
-5. Optionally run the real read-only client in
-   [examples/quick_start.py](../examples/quick_start.py).
-
-## Host limitations
-
-- A client that cannot open `ui://` resources can still inspect the returned
-  GeoJSON.
-- A client that cannot perform elicitation can preview proposals but cannot
-  apply them to production.
-- The server communicates over stdio. Do not configure a TCP port, daemon, or
-  HTTP URL for the normal MCP transport.
-
-See [troubleshooting](MCP_TROUBLESHOOTING.md) if the process exits or tools do
-not appear.
+See [troubleshooting](MCP_TROUBLESHOOTING.md), the client-neutral
+[setup skill](../skills/osm-edit-mcp-setup/SKILL.md), and the separate
+[Hermes guide](HERMES_SETUP.md).
