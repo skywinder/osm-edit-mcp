@@ -290,6 +290,9 @@ Guided prompt:
 
 ## Development
 
+For directory capability checks and the owner-update gate, see
+[LobeHub listing maintenance](docs/LOBEHUB.md).
+
 From an existing source checkout:
 
 ```bash
