@@ -6,8 +6,8 @@
 [![Python](https://img.shields.io/pypi/pyversions/osm-edit-mcp.svg)](https://pypi.org/project/osm-edit-mcp/)
 [![License](https://img.shields.io/pypi/l/osm-edit-mcp.svg)](LICENSE)
 
-A review-first Model Context Protocol server for inspecting OpenStreetMap and
-turning a selected part of a local GPX survey into a previewed road-edit proposal.
+A Model Context Protocol server for finding relevant places in OpenStreetMap and
+turning a selected part of a local GPX survey into a reviewed road-edit proposal.
 
 > **Alpha software.** It does not autonomously edit OpenStreetMap. The normal
 > profile can inspect data and prepare proposals, but a production write requires
@@ -16,9 +16,8 @@ turning a selected part of a local GPX survey into a previewed road-edit proposa
 
 ## Why this server
 
-Most OpenStreetMap MCP servers focus on search, geocoding, or routing. OSM Edit
-MCP focuses on the risky last mile: helping a mapper review a narrowly selected
-survey before any road geometry reaches OSM.
+Use public place discovery without OAuth, or the separate review-first editing
+workflow to inspect a selected survey before road geometry reaches OSM.
 
 ```text
 local GPX → selected segment → current/proposed preview
@@ -40,6 +39,28 @@ The safe profile can:
 It does **not** upload GPS traces, infer crossings, delete roads, restructure
 relations, copy geometry from restricted providers, or authorize a production
 edit from natural-language consent alone.
+
+## Read-only nearby discovery
+
+**Unreleased: use the source checkout for this section until the next package
+release.** Set `OSM_TOOL_PROFILE=discovery` to expose only three client-neutral
+tools: `resolve_location`, `search_nearby_places`, and `get_place_details`.
+
+Use `search_nearby_places` for museums, parks, viewpoints, useful amenities and
+exact OSM tag combinations. It searches nodes, ways and relations, returns stable
+OSM links and explicitly **straight-line** distances, then deduplicates/sorts/limits
+with `total`, `count` and `truncated`. Optional preferences explain why a place
+ranks higher; unknown properties and opening hours remain explicit. No OAuth is
+needed. The default `full` profile retains the editing workflow.
+
+```json
+{"lat":40.197784,"lon":44.51098,"radius_meters":1200,"categories":["museum","park","viewpoint"],"limit":15}
+```
+
+`find_nearby_amenities` remains compatible (including `radius` alias).
+`search_osm_elements` now requires a bounded bbox or lat/lon/radius; unscoped global
+regex scans are no longer allowed. See [nearby search documentation](docs/NEARBY_SEARCH.md)
+for categories, exact filters, distance caveats, migration examples and transport bounds.
 
 ## Quick start
 
@@ -78,9 +99,18 @@ The first `uvx` launch installs the released package in an isolated environment.
 The development API is the default in this example; no OAuth credentials are
 needed for read-only inspection.
 
-For client-specific formats, including Codex TOML, see
+For client configuration and source-checkout setup, see
 [MCP client setup](docs/MCP_CLIENT_SETUP.md). A real read-only protocol smoke
 client is available at [examples/quick_start.py](examples/quick_start.py).
+
+### Agent-assisted setup
+
+The client-neutral [setup skill](skills/osm-edit-mcp-setup/SKILL.md) guides an
+agent through discovery or editing setup, preserving existing configuration and
+verifying the selected profile. Place discovery needs no OAuth. Editing setup
+checks the live API target, account and permissions without authorizing an edit.
+See [MCP client setup](docs/MCP_CLIENT_SETUP.md) for the functional diagnostic
+helper and [Hermes setup](docs/HERMES_SETUP.md) for Hermes-specific commands.
 
 MCP hosts can also start the guided `review_gpx_road_edit` prompt with a local
 GPX path and edit goal. It requires explicit segment and target choices, builds

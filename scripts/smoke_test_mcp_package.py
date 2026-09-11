@@ -14,13 +14,38 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 EXPECTED_TOOLS = {
-    "analyze_gpx_track",
-    "apply_osm_edit",
-    "get_edit_capabilities",
     "get_osm_node",
+    "get_osm_way",
+    "get_osm_relation",
+    "get_osm_elements_in_area",
+    "get_changeset",
+    "get_server_info",
+    "check_authentication",
+    "search_nearby_places",
+    "find_nearby_amenities",
+    "get_changeset_history",
+    "resolve_location",
+    "get_place_details",
+    "get_place_info",
+    "search_osm_elements",
+    "parse_natural_language_osm_request",
+    "validate_osm_data",
+    "validate_coordinates",
+    "export_osm_data",
+    "get_osm_statistics",
+    "smart_geocode",
+    "analyze_gpx_track",
+    "create_track_selection",
+    "match_track_selection",
+    "suggest_track_road_candidates",
     "preview_track_road_edit",
+    "apply_osm_edit",
+    "apply_track_road_edit",
+    "get_edit_capabilities",
+    "inspect_map_context",
+    "list_edit_proposals",
+    "verify_osm_edit",
 }
-EXPECTED_TOOL_COUNT = 28
 EXPECTED_RESOURCE_TEMPLATES = {
     "ui://osm-edit/proposal/{proposal_id}",
     "ui://osm-edit/track-selection/{selection_id}",
@@ -110,18 +135,13 @@ async def smoke_test(command: str, *, live_osm_read: bool = False) -> None:
                     successful_tool_payload(live_result, "get_osm_node")
 
         tool_names = {tool.name for tool in tools.tools}
-        expected_tool_count = (
-            EXPECTED_TOOL_COUNT - 1 if live_osm_read else EXPECTED_TOOL_COUNT
+        expected = EXPECTED_TOOLS - (
+            {"apply_track_road_edit"} if live_osm_read else set()
         )
-        missing = EXPECTED_TOOLS - tool_names
-        if missing:
+        if tool_names != expected:
             raise SystemExit(
-                f"installed MCP package is missing tools: {sorted(missing)}"
-            )
-        if len(tool_names) != expected_tool_count:
-            raise SystemExit(
-                "installed MCP package has an unexpected tool count: "
-                f"{len(tool_names)} != {expected_tool_count}"
+                "installed MCP package has unexpected tools: "
+                f"missing={sorted(expected - tool_names)}, extra={sorted(tool_names - expected)}"
             )
         if resources.resources:
             raise SystemExit(

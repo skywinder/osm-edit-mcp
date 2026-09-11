@@ -7,6 +7,25 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Added a client-neutral setup skill, a functional stdio connection checker,
+  and a separate Hermes guide. Discovery setup needs no OAuth; editing checks
+  the expected live API, account, permissions, and safe profile in one session.
+- Client-neutral `discovery` tool profile: resolve a location, search nearby,
+  and retrieve details bound to the public OSM source, without OAuth/edit tools.
+- Typed discovery schemas, language/country/viewbox preferences, exact category
+  and tag searches, preference explanations, and timezone-aware opening hours.
+- Cached, bounded public-service clients with cooldowns shared across calls and
+  machine-readable errors that distinguish failures from empty results.
+
+### Changed
+
+- Text search now requires geographical scope; legacy expert place update/delete
+  tools accept the same scope. `smart_geocode` preserves provider ordering and
+  exposes prominence as `importance` instead of misleading `confidence`.
+- Package smoke tests verify the supported tool names, including discovery.
+
 ## [0.2.1] - 2026-09-03
 
 ### Changed
