@@ -85,6 +85,7 @@ def test_cli_uses_temporary_metadata_and_never_publishes(monkeypatch, tmp_path):
     (tmp_path / "pyproject.toml").write_text(project_source, encoding="utf-8")
     declared = fixture_manifest()
     manifest_path = tmp_path / "lhm.plugin.json"
+    declared["version"] = audit.tomllib.loads(project_source)["project"]["version"]
     manifest_path.write_text(json.dumps(declared), encoding="utf-8")
     before = manifest_path.read_bytes()
     monkeypatch.setenv("OSM_ACCESS_TOKEN", "test-token-must-not-be-forwarded")

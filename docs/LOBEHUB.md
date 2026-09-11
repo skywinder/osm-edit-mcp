@@ -3,12 +3,22 @@
 The existing listing identifier is **`pk-osm-edit-mcp`**, even though the GitHub
 owner is `skywinder`. Do not publish a second `skywinder-osm-edit-mcp` listing.
 
+This is a listing key, not the package name or current author's name. The
+package and CLI are already `osm-edit-mcp`. The owner update API requires the
+existing identifier; changing it locally does not rename the listing. A future
+move to `osm-edit-mcp` needs a confirmed marketplace migration/redirect before
+updating badges, links, the manifest, or identifier checks. As of 2026-09-11,
+`skywinder-osm-edit-mcp` is already a separate, unclaimed legacy listing of this
+repository; do not treat it as an alias or republish over it.
+
 ## Local readiness versus marketplace state
 
 The Score page's "Includes At Least One Skill" label refers to MCP **tools**
-(`toolsCount`), not an extra `SKILL.md` file. The published safe/default profile
-provides 28 tools, two resource templates, and one review prompt. The production
-safe profile provides 27 tools because a development-only tool is omitted.
+(`toolsCount`), not an extra `SKILL.md` file. Published version 0.2.1's
+safe/default profile provides 28 tools, two resource templates, and one review
+prompt. Its production safe profile provides 27 tools because a
+development-only tool is omitted. The current unreleased source adds three
+discovery tools; the checked-in manifest now declares 31 tools.
 
 Resource templates belong in the manifest's `resources` array with their
 standard `uriTemplate` field. They are not concrete `resources/list` entries.
@@ -48,6 +58,13 @@ This starts the exact released package and runs
 the complete tools, resources, and prompts against checked-in `lhm.plugin.json`,
 including argument schemas and safety annotations. It never calls tools, logs
 in, claims, publishes, updates the marketplace, or overwrites the owner manifest.
+
+This is deliberately a **post-publication release check**, not a comparison
+against the local source server. On 2026-09-11, the source manifest has 31 tools
+but PyPI 0.2.1 still has 28, so the check is expected to reject that mismatch.
+Publish the next explicitly approved release before uploading its new
+capabilities; do not weaken this check or advertise unreleased tools on the
+0.2.1 listing. Unit tests separately compare the source server to the manifest.
 
 ### Why a temporary metadata bridge is needed
 
