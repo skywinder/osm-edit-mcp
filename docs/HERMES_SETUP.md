@@ -6,16 +6,15 @@ MCP stdio and works with other clients; use the
 
 ## Connect place discovery
 
-Install `uv`, prepare the source checkout with `uv sync --locked`, and confirm
-that both are accessible from the Hermes runtime. Discovery is currently
-unreleased; the plain PyPI command does not yet provide this profile.
+Install `uv` and confirm it is accessible from the Hermes runtime. Discovery
+is available in the PyPI package from version 0.2.2.
 
-In a local terminal, register the source server:
+In a local terminal, register the released server:
 
 ```bash
-hermes mcp add osm-places --command uv --connect-timeout 120 \
+hermes mcp add osm-places --command uvx --connect-timeout 120 \
   --env OSM_TOOL_PROFILE=discovery \
-  --args run --locked --project /absolute/path/to/checkout osm-edit-mcp
+  --args --from osm-edit-mcp==0.2.2 osm-edit-mcp
 ```
 
 Keep `--args` last: subsequent flags are passed to the server command. The CLI

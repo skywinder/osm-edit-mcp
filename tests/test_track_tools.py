@@ -68,6 +68,57 @@ class FakeClient:
         return self.post_response or FakeResponse(500, "missing fake response")
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error_type", [httpx.ConnectError, httpx.ReadTimeout])
+async def test_unavailable_valhalla_returns_actionable_optional_failure(
+    monkeypatch, error_type
+):
+    async def offline(*args, **kwargs):
+        raise error_type("synthetic unavailable service")
+
+    monkeypatch.setattr(
+        track_tools,
+        "_resolve_track_selection",
+        lambda _: SimpleNamespace(points=[(1, 2), (1.1, 2.1)]),
+    )
+    monkeypatch.setattr(track_tools, "valhalla_match_track", offline)
+    result = await track_tools.match_track_selection("test-selection")
+    assert result["success"] is False
+    assert result["error"] == error_type.__name__
+    assert result["optional"] is True
+    assert "OSM_VALHALLA_URL" in str(result["next_steps"])
+    assert "suggest_track_road_candidates" in str(result["next_steps"])
+
+
+@pytest.mark.asyncio
+async def test_preview_without_identity_explains_auth_and_never_builds_proposal(
+    monkeypatch,
+):
+    async def unauthenticated(client):
+        raise PermissionError("Authentication required")
+
+    async def forbidden_preview(*args, **kwargs):
+        pytest.fail("A proposal must not be built without verified identity")
+
+    client = FakeClient()
+    monkeypatch.setattr(track_tools, "get_authenticated_client", lambda: client)
+    monkeypatch.setattr(track_tools, "verify_write_identity", unauthenticated)
+    monkeypatch.setattr(track_tools, "_preview_create", forbidden_preview)
+    result = await track_tools.preview_track_road_edit(
+        action="create",
+        changeset_comment="Synthetic test",
+        changeset_source="survey",
+        gpx_xml=SIMPLE_GPX,
+        segment_id="trk-0-seg-0",
+        tags={"highway": "service"},
+    )
+    assert result["success"] is False
+    assert result["authentication_required"] is True
+    assert "write_api" in result["message"]
+    assert "preview_uri" in str(result["next_steps"])
+    assert client.posts == []
+
+
 class MapClient:
     def __init__(self, xml):
         self.xml = xml

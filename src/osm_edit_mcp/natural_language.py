@@ -4,7 +4,8 @@ This module has no MCP or network dependencies, so parsing can be reused and
 tested independently from tool execution.
 """
 
-from typing import Any, Dict, List
+import re
+from typing import Any, Dict, Iterable, List
 
 BUSINESS_TYPES = {
     # Food & Drink
@@ -54,6 +55,7 @@ BUSINESS_TYPES = {
     'petrol station': {'amenity': 'fuel'},
     'parking': {'amenity': 'parking'},
     'parking lot': {'amenity': 'parking'},
+    'car park': {'amenity': 'parking'},
     'taxi': {'amenity': 'taxi'},
     'bus station': {'amenity': 'bus_station'},
     'bus stop': {'highway': 'bus_stop'},
@@ -169,11 +171,36 @@ ACTION_MAPPINGS = {
     'find': ['find', 'search', 'locate', 'show', 'get', 'look for', 'discover']
 }
 
+def _matching_phrases(text: str, phrases: Iterable[str]) -> List[str]:
+    """Match whole phrases, preferring specific phrases over contained keywords.
+
+    Resolve overlapping spans before mapping tags: ``accessible`` must not
+    overwrite ``not wheelchair accessible``. Keep independent matches in text
+    order. This is a small English keyword parser, not semantic tag inference.
+    """
+    candidates = []
+    for phrase in phrases:
+        pattern = (
+            r"(?<!\w)"
+            + r"\s+".join(re.escape(word) for word in phrase.split())
+            + r"(?!\w)"
+        )
+        for match in re.finditer(pattern, text, re.IGNORECASE):
+            candidates.append((match.start(), match.end(), phrase))
+    selected: List[tuple[int, int, str]] = []
+    for start, end, phrase in sorted(
+        candidates, key=lambda item: (-(item[1] - item[0]), item[0])
+    ):
+        if not any(start < right and end > left for left, right, _ in selected):
+            selected.append((start, end, phrase))
+    return [phrase for _, _, phrase in sorted(selected)]
+
+
 def extract_action_from_text(text: str) -> str:
     """Extract action type from natural language text."""
     text_lower = text.lower()
     for action, verbs in ACTION_MAPPINGS.items():
-        if any(verb in text_lower for verb in verbs):
+        if _matching_phrases(text_lower, verbs):
             return action
     return 'find'  # Default action
 
@@ -220,17 +247,11 @@ def parse_natural_language_request(request: str) -> Dict[str, Any]:
     address = address_match.group(1).strip() if address_match else None
 
     # Extract business type
-    business_type = None
-    for btype in BUSINESS_TYPES.keys():
-        if btype in request_lower:
-            business_type = btype
-            break
+    business_types = _matching_phrases(request_lower, BUSINESS_TYPES)
+    business_type = business_types[0] if business_types else None
 
     # Extract features
-    features = []
-    for feature in FEATURE_MAPPINGS.keys():
-        if feature in request_lower:
-            features.append(feature)
+    features = _matching_phrases(request_lower, FEATURE_MAPPINGS)
 
     # Extract location references
     location_refs = []

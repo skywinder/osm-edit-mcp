@@ -17,8 +17,9 @@ The Score page's "Includes At Least One Skill" label refers to MCP **tools**
 (`toolsCount`), not an extra `SKILL.md` file. Published version 0.2.1's
 safe/default profile provides 28 tools, two resource templates, and one review
 prompt. Its production safe profile provides 27 tools because a
-development-only tool is omitted. The current unreleased source adds three
-discovery tools; the checked-in manifest now declares 31 tools.
+development-only tool is omitted. Version 0.2.2 adds three discovery tools;
+the checked-in manifest declares 31 tools (30 in production). A new package
+release does not automatically update the live marketplace listing.
 
 Resource templates belong in the manifest's `resources` array with their
 standard `uriTemplate` field. They are not concrete `resources/list` entries.
@@ -60,11 +61,10 @@ including argument schemas and safety annotations. It never calls tools, logs
 in, claims, publishes, updates the marketplace, or overwrites the owner manifest.
 
 This is deliberately a **post-publication release check**, not a comparison
-against the local source server. On 2026-09-11, the source manifest has 31 tools
-but PyPI 0.2.1 still has 28, so the check is expected to reject that mismatch.
-Publish the next explicitly approved release before uploading its new
-capabilities; do not weaken this check or advertise unreleased tools on the
-0.2.1 listing. Unit tests separately compare the source server to the manifest.
+against the local source server. Publish the exact declared package version
+before uploading its capabilities; do not weaken this check or advertise
+0.2.2's tools on the older 0.2.1 listing. Unit tests separately compare the
+source server to the manifest.
 
 ### Why a temporary metadata bridge is needed
 
