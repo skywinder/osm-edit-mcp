@@ -66,4 +66,4 @@ the `safe` profile, live account and permission checks, and an MCP host that
 supports digest-bound elicitation.
 
 See [MCP client setup](MCP_CLIENT_SETUP.md) and the
-[main README](../README.md#oauth-and-production-use).
+[detailed guide](README.md#oauth-and-production-use).
