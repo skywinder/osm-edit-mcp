@@ -61,9 +61,30 @@ configuration above.
 
 ## GPX and editing: what else needs setup?
 
-For GPX tools, change `OSM_TOOL_PROFILE` to `full` and add
-`OSM_USE_DEV_API=true` and `OSM_WRITE_PROFILE=safe` to the server's `env`.
-Keep the development target while learning the editing workflow.
+Keep the same command and args; replace the server's `env` above with:
+
+```json
+{
+  "OSM_TOOL_PROFILE": "full",
+  "OSM_USE_DEV_API": "true",
+  "OSM_WRITE_PROFILE": "safe",
+  "OSM_REQUIRE_HOST_CONFIRMATION": "true"
+}
+```
+
+Reconnect, then call `get_edit_capabilities` to check the selected API and
+authentication status. This enables GPX tools and the review-first workflow on
+the **development sandbox**; it does not log you in or authorize an edit.
+
+**To make edits:** register a development OSM OAuth app and authenticate it with
+the source checkout's `oauth_auth.py --dev` helper, following the
+[authentication guide](docs/MCP_CLIENT_SETUP.md#editing-authentication).
+Keep credentials in a private file, not in this JSON or chat. Once the guide's
+private file contains the profile/API settings, replace `env` with only
+`OSM_EDIT_MCP_ENV_FILE` pointing to that file; do not leave conflicting settings
+in both places. Preview the proposal, review it, and confirm its exact digest.
+Real-map edits need a **separate production app/configuration**, development
+acceptance first, and an MCP host that supports confirmation (elicitation).
 
 | What you want to do | What to configure, and why |
 | --- | --- |
