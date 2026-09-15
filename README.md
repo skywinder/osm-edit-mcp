@@ -122,6 +122,32 @@ Keep private tracks outside the repository. Set `OSM_TRACK_IMPORT_DIR` to a
 directory you control, or provide inline GPX XML. Files are limited to 10 MiB
 and 100,000 raw points; path traversal and symlink escapes are rejected.
 
+### Try a local preview without OAuth or Valhalla
+
+Use the default `full` tool profile with `OSM_WRITE_PROFILE=safe`; the
+`discovery`-only profile does not expose GPX tools. The calls below are MCP tool
+calls, not shell commands. This synthetic track is only a connectivity example,
+not survey evidence for a real OSM edit.
+
+Call `analyze_gpx_track` with these JSON arguments:
+
+```json
+{"gpx_xml":"<gpx version=\"1.1\" xmlns=\"http://www.topografix.com/GPX/1/1\"><trk><trkseg><trkpt lat=\"40.1810\" lon=\"44.5130\"/><trkpt lat=\"40.1811\" lon=\"44.5131\"/><trkpt lat=\"40.1812\" lon=\"44.5132\"/></trkseg></trk></gpx>"}
+```
+
+Copy `data.track_id` from the result, then call `create_track_selection` in the
+same server session, replacing the placeholder:
+
+```json
+{"track_id":"<returned track_id>","segment_id":"trk-0-seg-0","start_point_index":0,"end_point_index":2}
+```
+
+Read the returned `data.preview_uri` with the MCP client's `resources/read`, or
+inspect the returned `data.geojson` if the host cannot display the resource.
+Stop here: this previews the selected track, **not an OSM road-edit diff**. It
+needs no OSM credentials, Valhalla service, or OSM API request. A road-edit
+proposal in step 4 requires OAuth; applying it requires separate confirmation.
+
 ### 1. Analyze the track
 
 ```text
@@ -147,9 +173,16 @@ returned `preview_uri` or its GeoJSON fallback.
 
 ### 3. Compare with current OSM
 
+Find candidates directly, including when Valhalla is not installed:
+
+```text
+suggest_track_road_candidates(selection_id="<selection_id>")
+```
+
+Optionally, with a local Valhalla service configured:
+
 ```text
 match_track_selection(selection_id="<selection_id>", costing="auto")
-suggest_track_road_candidates(selection_id="<selection_id>")
 ```
 
 Valhalla output is diagnostic only. Candidate discovery never selects the target
@@ -166,6 +199,12 @@ mean the real road is absent. Production object IDs/versions cannot be reused
 as sandbox edit targets. Public place lookup can use the separate `discovery`
 profile, which has no write tools; a mixed production-read/sandbox-write road
 workflow is not supported.
+
+Multiple traces can be inspected separately, but automatic multi-trace alignment,
+consensus geometry, and cross-trace outlier rejection are not implemented.
+Discontinuous-jump warnings on one trace are not a substitute for comparing
+independent surveys. These limitations are tracked in [#7](https://github.com/skywinder/osm-edit-mcp/issues/7)
+and [#10](https://github.com/skywinder/osm-edit-mcp/issues/10).
 
 ### 4. Build a non-writing preview
 
