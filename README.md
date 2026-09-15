@@ -42,8 +42,7 @@ edit from natural-language consent alone.
 
 ## Read-only nearby discovery
 
-**Unreleased: use the source checkout for this section until the next package
-release.** Set `OSM_TOOL_PROFILE=discovery` to expose only three client-neutral
+**Available from version 0.2.2.** Set `OSM_TOOL_PROFILE=discovery` to expose only three client-neutral
 tools: `resolve_location`, `search_nearby_places`, and `get_place_details`.
 
 Use `search_nearby_places` for museums, parks, viewpoints, useful amenities and
@@ -155,6 +154,18 @@ suggest_track_road_candidates(selection_id="<selection_id>")
 
 Valhalla output is diagnostic only. Candidate discovery never selects the target
 way on the mapper's behalf.
+
+`match_track_selection` is optional and needs a **separate local Valhalla
+service with routing tiles**. `uvx osm-edit-mcp` does not install it. If it is
+unavailable, skip matching and continue with candidate discovery. See
+[local Valhalla setup and diagnostics](docs/VALHALLA.md).
+
+Candidate discovery reads from the configured editing API. The development
+sandbox is not a copy of the production map, so an empty result there does not
+mean the real road is absent. Production object IDs/versions cannot be reused
+as sandbox edit targets. Public place lookup can use the separate `discovery`
+profile, which has no write tools; a mixed production-read/sandbox-write road
+workflow is not supported.
 
 ### 4. Build a non-writing preview
 

@@ -1121,7 +1121,12 @@ async def create_track_selection(
 async def match_track_selection(
     selection_id: str, costing: str = "auto"
 ) -> Dict[str, Any]:
-    """Map-match a selected GPX subsection using the configured local Valhalla."""
+    """Optionally map-match a GPX selection using a separately installed local
+    Valhalla service. Configure OSM_VALHALLA_URL (default http://127.0.0.1:8002)
+    with routing tiles for the survey area. No OAuth; GPX stays on loopback.
+    This step can be skipped before suggest_track_road_candidates and preview.
+    Routing results are diagnostic only, not evidence for OSM geometry.
+    """
     try:
         selection = _resolve_track_selection(selection_id)
         result = await valhalla_match_track(selection.points, costing=costing)
@@ -1155,6 +1160,19 @@ async def match_track_selection(
             },
             "message": f"Map matching classified the selection as {classification}",
         }
+    except httpx.HTTPError as exc:
+        return _failure(
+            type(exc).__name__,
+            "Local Valhalla map matching is unavailable or failed",
+            detail=describe_exception(exc),
+            selection_id=selection_id,
+            optional=True,
+            next_steps=[
+                "Skip matching and call suggest_track_road_candidates with this selection_id",
+                "Or start local Valhalla with tiles for the survey area and set OSM_VALHALLA_URL",
+            ],
+            documentation="https://github.com/skywinder/osm-edit-mcp/blob/main/docs/VALHALLA.md",
+        )
     except Exception as exc:
         return _failure(
             type(exc).__name__,
@@ -2070,7 +2088,13 @@ async def preview_track_road_edit(
     evidence_provider: Optional[str] = None,
     evidence_observed_at: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Build a non-writing GeoJSON and element diff preview for a road edit."""
+    """Build a non-writing GeoJSON and element diff preview for a road edit.
+    Requires OAuth with write_api: the stored proposal is bound to the verified
+    OSM account and API target before review. Read-only means no OSM upload,
+    not anonymous access. For an OAuth-free geometry view use
+    analyze_gpx_track, create_track_selection and its preview_uri instead.
+    Applying this proposal still requires a separate digest-bound confirmation.
+    """
     try:
         action = action.lower().strip()
         if action not in {"create", "update"}:
@@ -2111,7 +2135,19 @@ async def preview_track_road_edit(
         )
         _require_continuous_segment(segment)
         async with get_authenticated_client() as client:
-            identity = await verify_write_identity(client)
+            try:
+                identity = await verify_write_identity(client)
+            except PermissionError as exc:
+                return _failure(
+                    type(exc).__name__,
+                    "Road-edit preview requires OAuth identity and write_api permission; no OSM edit was sent",
+                    detail=describe_exception(exc),
+                    authentication_required=True,
+                    next_steps=[
+                        "Authenticate for the configured API target, then rebuild the proposal",
+                        "For an OAuth-free selection preview, use create_track_selection and its preview_uri",
+                    ],
+                )
         verified_osm_uid = int(identity["user_id"])
         if action == "create":
             if target_way_ids:

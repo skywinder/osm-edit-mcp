@@ -1,7 +1,7 @@
 # Place discovery for MCP clients
 
-These capabilities are unreleased; use a source checkout until the next package
-release. Discovery reads public OpenStreetMap data without OAuth. It does not
+These capabilities are available from version 0.2.2. Discovery reads public
+OpenStreetMap data without OAuth. It does not
 change the editing API target or authorize edits.
 
 ## Connect
@@ -12,8 +12,8 @@ not. Environment values are strings.
 
 ```json
 {
-  "command": "uv",
-  "args": ["run", "--locked", "--project", "/absolute/path/to/osm-edit-mcp", "osm-edit-mcp"],
+  "command": "uvx",
+  "args": ["--from", "osm-edit-mcp==0.2.2", "osm-edit-mcp"],
   "env": {"OSM_TOOL_PROFILE": "discovery"}
 }
 ```
@@ -29,7 +29,7 @@ safeguards. Start a new process after changing profiles or updating source.
    Otherwise resolve a named location and clarify genuinely ambiguous candidates.
    Never infer the user's location from an unrelated example.
 2. Translate the request into categories, exact mandatory tag filters and optional
-   preferences. The host model handles natural language; the old substring parser
+   preferences. The host model handles natural language; the legacy keyword parser
    is not part of discovery.
 3. Search across relevant categories. Explain known matches and unknown properties,
    and include OSM links/attribution. Use `get_place_details` for a selected result;

@@ -7,6 +7,23 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-09-15
+
+### Fixed
+
+- Natural-language keyword matching now respects word boundaries and prefers
+  specific overlapping phrases. Added `car park`; negations such as
+  `not wheelchair accessible` no longer get overwritten by `accessible`.
+- Valhalla transport failures explain how to configure the optional local
+  service or skip matching. Added an explicit setup/diagnostics guide.
+- Road-edit preview describes its identity-binding OAuth requirement in the
+  tool schema and returns actionable authentication guidance without building
+  a proposal or sending an OSM edit.
+
+Thanks to @chrisdebian for the hands-on reports (#7–#11). Mixed-target road
+evaluation and multi-trace consensus remain separate design proposals; this
+release does not implement them or weaken account/API-bound edit safeguards.
+
 ### Added
 
 - Added a client-neutral setup skill, a functional stdio connection checker,
@@ -86,6 +103,7 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Production writes fail closed when the host cannot provide digest-bound
   elicitation.
 
-[Unreleased]: https://github.com/skywinder/osm-edit-mcp/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/skywinder/osm-edit-mcp/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/skywinder/osm-edit-mcp/releases/tag/v0.2.2
 [0.2.1]: https://github.com/skywinder/osm-edit-mcp/releases/tag/v0.2.1
 [0.2.0]: https://github.com/skywinder/osm-edit-mcp/releases/tag/v0.2.0

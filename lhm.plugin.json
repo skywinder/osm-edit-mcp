@@ -2045,7 +2045,7 @@
     },
     {
       "name": "match_track_selection",
-      "description": "Map-match a selected GPX subsection using the configured local Valhalla.",
+      "description": "Optionally map-match a GPX selection using a separately installed local\n    Valhalla service. Configure OSM_VALHALLA_URL (default http://127.0.0.1:8002)\n    with routing tiles for the survey area. No OAuth; GPX stays on loopback.\n    This step can be skipped before suggest_track_road_candidates and preview.\n    Routing results are diagnostic only, not evidence for OSM geometry.\n    ",
       "inputSchema": {
         "properties": {
           "selection_id": {
@@ -2175,7 +2175,7 @@
     },
     {
       "name": "preview_track_road_edit",
-      "description": "Build a non-writing GeoJSON and element diff preview for a road edit.",
+      "description": "Build a non-writing GeoJSON and element diff preview for a road edit.\n    Requires OAuth with write_api: the stored proposal is bound to the verified\n    OSM account and API target before review. Read-only means no OSM upload,\n    not anonymous access. For an OAuth-free geometry view use\n    analyze_gpx_track, create_track_selection and its preview_uri instead.\n    Applying this proposal still requires a separate digest-bound confirmation.\n    ",
       "inputSchema": {
         "properties": {
           "action": {
@@ -2621,7 +2621,7 @@
       }
     }
   ],
-  "version": "0.2.1",
+  "version": "0.2.2",
   "category": "tools",
   "tags": [
     "mcp",

@@ -128,6 +128,29 @@ async def smoke_test(command: str, *, live_osm_read: bool = False) -> None:
                 if not isinstance(preview_uri, str):
                     raise SystemExit("track selection did not return preview_uri")
                 preview = await session.read_resource(preview_uri)
+                # Check the actual installed artifact, not just source imports (#11).
+                parser_cases = [
+                    ("a public footpath", {}),
+                    ("a car park", {"amenity": "parking"}),
+                    (
+                        "a cafe that is not wheelchair accessible",
+                        {
+                            "amenity": "cafe",
+                            "wheelchair": "no",
+                        },
+                    ),
+                ]
+                for text, expected_tags in parser_cases:
+                    parsed = successful_tool_payload(
+                        await session.call_tool(
+                            "parse_natural_language_osm_request", {"request": text}
+                        ),
+                        "parse_natural_language_osm_request",
+                    )
+                    if parsed["data"]["suggested_tags"] != expected_tags:
+                        raise SystemExit(
+                            "installed parser failed word/negation regression"
+                        )
                 if live_osm_read:
                     live_result = await session.call_tool(
                         "get_osm_node", {"node_id": 1}

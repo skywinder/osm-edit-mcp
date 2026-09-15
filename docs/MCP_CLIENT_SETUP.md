@@ -9,9 +9,8 @@ before applying production edits.
 
 - **Place discovery:** `OSM_TOOL_PROFILE=discovery` exposes only
   `resolve_location`, `search_nearby_places`, and `get_place_details`. No OAuth
-  setup or development edit is required. These tools currently require a source
-  checkout of the updated main branch; use a released package only once its
-  release notes include them.
+  setup or development edit is required. These tools are included in released
+  packages from version 0.2.2; use `uvx --from osm-edit-mcp==0.2.2 osm-edit-mcp`.
 - **Editing and GPX:** the default `full` tool profile uses the `safe` write
   profile. The released package is launched with `uvx osm-edit-mcp`. OAuth is
   needed for authenticated operations, not public place discovery.
