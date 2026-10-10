@@ -30,6 +30,8 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
+- Require PyJWT 2.15.1 or later and update the runtime lock to address the
+  known vulnerabilities in the previously locked 2.13.0 dependency.
 - Node creation requires separate structured host confirmation in every
   environment; production remains in the safe profile with raw writes disabled.
 - Canonical proposal integrity checks and atomic claims prevent altered payloads,
