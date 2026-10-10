@@ -78,6 +78,8 @@ async def get_edit_capabilities() -> Dict[str, Any]:
                 "mechanism": "MCP elicitation bound to proposal SHA-256",
             },
             "safe_write_tools": [
+                "preview_node_create",
+                "preview_node_tag_edit",
                 "preview_track_road_edit",
                 "apply_osm_edit",
             ],
@@ -230,6 +232,77 @@ async def verify_osm_edit(proposal_id: str) -> Dict[str, Any]:
     proposal = _PROPOSAL_STORE.get(proposal_id, include_expired=True)
     if proposal is None:
         return {"success": False, "error": "Unknown proposal"}
+    if proposal.api_target != config.current_api_base_url:
+        return {"success": False, "error": "Proposal belongs to a different API target"}
+    if proposal.payload.get("action") == "node_create":
+        from . import track_tools
+        from .node_create_verification import verify_node_create
+        from .proposal_store import canonical_digest
+
+        if (
+            canonical_digest(proposal.payload, proposal.api_target, proposal.osm_uid)
+            != proposal.digest
+        ):
+            return {"success": False, "error": "Stored proposal digest mismatch"}
+        if proposal.status == "RECONCILE_REQUIRED" and proposal.changeset_id:
+            if proposal.osm_uid is None:
+                return {"success": False, "error": "Unbound node-create proposal"}
+            review = track_tools.Proposal(
+                proposal_id=proposal.proposal_id,
+                created_at=proposal.created_at,
+                expires_at=proposal.expires_at,
+                payload=proposal.payload,
+                digest=proposal.digest,
+                status=proposal.status,
+                api_target=proposal.api_target,
+                osm_uid=proposal.osm_uid,
+            )
+            reconciliation = await track_tools._reconcile_created_node(
+                review,
+                proposal.changeset_id,
+                known_diff=(proposal.receipt or {}).get("diff_results"),
+            )
+            if reconciliation.get("status") != "reconciled":
+                return {
+                    "success": False,
+                    "status": "RECONCILE_REQUIRED",
+                    "data": {"reconciliation": reconciliation},
+                }
+            receipt = track_tools._node_create_receipt(
+                review, proposal.changeset_id, reconciliation
+            )
+            proposal = _PROPOSAL_STORE.record_reconciliation(
+                proposal_id,
+                proposal.digest,
+                proposal.api_target,
+                int(proposal.osm_uid),
+                receipt,
+            )
+            track_tools._PROPOSALS.pop(proposal_id, None)
+        if proposal.status != "APPLIED" or not proposal.receipt:
+            return {
+                "success": False,
+                "error": "Proposal is not applied",
+                "status": proposal.status,
+            }
+        async with get_public_client() as client:
+            verification = await verify_node_create(
+                client,
+                proposal.receipt.get("diff_results", []),
+                proposal.payload,
+                proposal.receipt["changeset_id"],
+            )
+        return {
+            "success": verification["status"] == "verified",
+            "data": {
+                "proposal_id": proposal_id,
+                "node_id": proposal.receipt.get("node_id"),
+                "changeset_id": proposal.receipt["changeset_id"],
+                "node_url": proposal.receipt.get("node_url"),
+                "changeset_url": proposal.receipt.get("changeset_url"),
+                "verification": verification,
+            },
+        }
     if proposal.status != "APPLIED" or not proposal.receipt:
         return {
             "success": False,
@@ -238,7 +311,9 @@ async def verify_osm_edit(proposal_id: str) -> Dict[str, Any]:
         }
     async with get_public_client() as client:
         verification = await _verify_diff_results(
-            client, proposal.receipt.get("diff_results", [])
+            client,
+            proposal.receipt.get("diff_results", []),
+            expected_nodes=proposal.payload.get("modify_nodes"),
         )
     return {
         "success": verification["status"] == "verified",

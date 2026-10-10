@@ -34,6 +34,7 @@ from .natural_language import (
     parse_natural_language_request,
     parse_opening_hours,
 )
+from .node_tools import preview_node_create
 from .prompts import review_gpx_road_edit
 from .read_tools import (
     check_authentication,
@@ -64,6 +65,7 @@ from .track_tools import (
     apply_track_road_edit,
     create_track_selection,
     match_track_selection,
+    preview_node_tag_edit,
     preview_track_road_edit,
     suggest_track_road_candidates,
 )
@@ -173,6 +175,8 @@ __all__ = [
     "parse_natural_language_request",
     "parse_opening_hours",
     "parse_osm_xml",
+    "preview_node_tag_edit",
+    "preview_node_create",
     "preview_track_road_edit",
     "review_gpx_road_edit",
     "search_nearby_places",

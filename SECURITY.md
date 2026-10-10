@@ -71,6 +71,13 @@ writes or development-only raw tools.
 An ambiguous network result after upload begins is recorded as
 `RECONCILE_REQUIRED`; the server does not blindly retry it.
 
+Reviewed POI creation uses a dedicated one-node changeset, exact coordinate/tag
+readback and mandatory digest-bound elicitation on both APIs. Only an exact
+changeset download plus node readback can resolve an uncertain creation result;
+empty/unavailable evidence never permits a retry. Duplicate search failures
+block proposal creation, and potential duplicates or changed map context block
+apply. See [reviewed node creation](docs/reviewed-node-creation.md).
+
 ## Data and network boundaries
 
 - GPX paths are restricted to `OSM_TRACK_IMPORT_DIR`; traversal and symlink

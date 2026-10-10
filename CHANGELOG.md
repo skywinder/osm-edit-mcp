@@ -7,6 +7,35 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-10
+
+### Added
+
+- `preview_node_create` for reviewed POI creation in the safe profile, with
+  exact point geometry, tags, diffs and bounded nearby duplicate checks.
+  Failed or incomplete searches remain unknown; possible duplicates block apply.
+- `preview_node_tag_edit` for bounded tag changes to an existing node, preserving
+  its coordinates and unmentioned tags and checking its inspected version.
+- Capability discovery, MCP registration, owner manifest and workflow guides
+  for both reviewed node operations.
+
+### Changed
+
+- `apply_osm_edit` creates a POI in a dedicated changeset only after genuine
+  MCP host confirmation of the exact SHA-256 digest, within the proposal TTL.
+  Receipts retain the actual node and changeset IDs.
+- `verify_osm_edit` re-fetches created nodes and checks their exact coordinates,
+  complete tags, identity, version, visibility and changeset.
+- Map previews render point geometry alongside existing road-edit geometry.
+
+### Security
+
+- Node creation requires separate structured host confirmation in every
+  environment; production remains in the safe profile with raw writes disabled.
+- Canonical proposal integrity checks and atomic claims prevent altered payloads,
+  concurrent writes and repeated creation. Ambiguous uploads require reconciliation
+  against the original changeset and node instead of blind retries.
+
 ## [0.2.2] - 2026-09-15
 
 ### Fixed
@@ -103,7 +132,8 @@ release does not implement them or weaken account/API-bound edit safeguards.
 - Production writes fail closed when the host cannot provide digest-bound
   elicitation.
 
-[Unreleased]: https://github.com/skywinder/osm-edit-mcp/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/skywinder/osm-edit-mcp/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/skywinder/osm-edit-mcp/releases/tag/v0.3.0
 [0.2.2]: https://github.com/skywinder/osm-edit-mcp/releases/tag/v0.2.2
 [0.2.1]: https://github.com/skywinder/osm-edit-mcp/releases/tag/v0.2.1
 [0.2.0]: https://github.com/skywinder/osm-edit-mcp/releases/tag/v0.2.0

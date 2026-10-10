@@ -94,8 +94,7 @@ class ProposalStore:
         if self._initialized:
             return
         with self._init_lock:
-            connection.execute(
-                """
+            connection.execute("""
                 CREATE TABLE IF NOT EXISTS proposals (
                     proposal_id TEXT PRIMARY KEY,
                     created_at REAL NOT NULL,
@@ -110,8 +109,7 @@ class ProposalStore:
                     changeset_id INTEGER,
                     updated_at REAL NOT NULL
                 )
-                """
-            )
+                """)
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS proposals_status_idx "
                 "ON proposals(status, expires_at)"
@@ -184,31 +182,59 @@ class ProposalStore:
             if row is None:
                 return None
             proposal = self._from_row(row)
-            if (
-                proposal.expires_at <= time.time()
-                and proposal.status not in TERMINAL_STATUSES
-            ):
+            if proposal.expires_at <= time.time() and proposal.status in {
+                "PREVIEWED",
+                "AWAITING_APPROVAL",
+            }:
                 connection.execute(
                     "UPDATE proposals SET status='EXPIRED', updated_at=? "
-                    "WHERE proposal_id=?",
+                    "WHERE proposal_id=? "
+                    "AND status IN ('PREVIEWED','AWAITING_APPROVAL')",
                     (time.time(), proposal_id),
                 )
-                proposal = StoredProposal(**{**proposal.__dict__, "status": "EXPIRED"})
+                row = connection.execute(
+                    "SELECT * FROM proposals WHERE proposal_id=?", (proposal_id,)
+                ).fetchone()
+                assert row is not None
+                proposal = self._from_row(row)
             if proposal.status == "EXPIRED" and not include_expired:
                 return None
             return proposal
 
     def update_payload(self, proposal_id: str, payload: Dict[str, Any]) -> None:
-        """Persist derived review fields without changing the write digest."""
+        """Persist derived fields only while the exact preview is unapproved."""
         with self._connection() as connection:
-            connection.execute(
-                "UPDATE proposals SET payload_json=?, updated_at=? WHERE proposal_id=?",
-                (
-                    json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
-                    time.time(),
-                    proposal_id,
-                ),
-            )
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                row = connection.execute(
+                    "SELECT * FROM proposals WHERE proposal_id=?", (proposal_id,)
+                ).fetchone()
+                if row is None:
+                    raise ProposalStoreError("Unknown proposal")
+                proposal = self._from_row(row)
+                if proposal.status != "PREVIEWED":
+                    raise ProposalStoreError("Only a previewed proposal can be updated")
+                if (
+                    canonical_digest(payload, proposal.api_target, proposal.osm_uid)
+                    != proposal.digest
+                ):
+                    raise ProposalStoreError(
+                        "Derived payload update cannot change the proposal digest"
+                    )
+                connection.execute(
+                    "UPDATE proposals SET payload_json=?, updated_at=? "
+                    "WHERE proposal_id=? AND status='PREVIEWED'",
+                    (
+                        json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+                        time.time(),
+                        proposal_id,
+                    ),
+                )
+                connection.execute("COMMIT")
+            except Exception:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+                raise
 
     def replace_preview_payload(
         self,
@@ -279,9 +305,23 @@ class ProposalStore:
             if row is None:
                 raise ProposalStoreError("Unknown proposal")
             proposal = self._from_row(row)
+            if (
+                proposal.digest != digest
+                or canonical_digest(
+                    proposal.payload, proposal.api_target, proposal.osm_uid
+                )
+                != proposal.digest
+            ):
+                raise ProposalStoreError("Proposal digest mismatch")
+            if proposal.api_target.rstrip("/") != api_target.rstrip("/"):
+                raise ProposalStoreError("Proposal belongs to a different API target")
+            if proposal.osm_uid is not None and proposal.osm_uid != osm_uid:
+                raise ProposalStoreError("Proposal belongs to a different OSM account")
             if proposal.status == "APPLIED":
                 connection.execute("COMMIT")
                 return proposal
+            if proposal.status not in {"PREVIEWED", "AWAITING_APPROVAL"}:
+                raise ProposalStoreError(f"Proposal is {proposal.status.lower()}")
             if proposal.expires_at <= time.time():
                 connection.execute(
                     "UPDATE proposals SET status='EXPIRED', updated_at=? "
@@ -290,21 +330,13 @@ class ProposalStore:
                 )
                 connection.execute("COMMIT")
                 raise ProposalStoreError("Proposal expired")
-            if proposal.status not in {"PREVIEWED", "AWAITING_APPROVAL"}:
-                raise ProposalStoreError(f"Proposal is {proposal.status.lower()}")
-            if proposal.digest != digest:
-                raise ProposalStoreError("Proposal digest mismatch")
-            if proposal.api_target.rstrip("/") != api_target.rstrip("/"):
-                raise ProposalStoreError("Proposal belongs to a different API target")
-            if proposal.osm_uid is not None and proposal.osm_uid != osm_uid:
-                raise ProposalStoreError("Proposal belongs to a different OSM account")
             connection.execute(
                 """
                 UPDATE proposals
-                SET status='APPLYING', osm_uid=COALESCE(osm_uid, ?), updated_at=?
+                SET status='APPLYING', updated_at=?
                 WHERE proposal_id=? AND status IN ('PREVIEWED','AWAITING_APPROVAL')
                 """,
-                (osm_uid, time.time(), proposal_id),
+                (time.time(), proposal_id),
             )
             connection.execute("COMMIT")
         except Exception:
@@ -349,6 +381,78 @@ class ProposalStore:
                     proposal_id,
                 ),
             )
+
+    def record_reconciliation(
+        self,
+        proposal_id: str,
+        digest: str,
+        api_target: str,
+        osm_uid: int,
+        receipt: Dict[str, Any],
+    ) -> StoredProposal:
+        """Resolve an uncertain upload without claiming or repeating its write."""
+        with self._connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                row = connection.execute(
+                    "SELECT * FROM proposals WHERE proposal_id=?", (proposal_id,)
+                ).fetchone()
+                if row is None:
+                    raise ProposalStoreError("Unknown proposal")
+                proposal = self._from_row(row)
+                if (
+                    proposal.digest != digest
+                    or canonical_digest(
+                        proposal.payload, proposal.api_target, proposal.osm_uid
+                    )
+                    != proposal.digest
+                ):
+                    raise ProposalStoreError("Proposal digest mismatch")
+                if proposal.api_target.rstrip("/") != api_target.rstrip("/"):
+                    raise ProposalStoreError(
+                        "Proposal belongs to a different API target"
+                    )
+                if proposal.osm_uid is not None and proposal.osm_uid != osm_uid:
+                    raise ProposalStoreError(
+                        "Proposal belongs to a different OSM account"
+                    )
+                receipt_changeset = receipt.get("changeset_id")
+                if (
+                    type(receipt_changeset) is not int
+                    or receipt_changeset <= 0
+                    or receipt_changeset != proposal.changeset_id
+                ):
+                    raise ProposalStoreError(
+                        "Reconciliation receipt belongs to a different changeset"
+                    )
+                if proposal.status == "APPLIED":
+                    connection.execute("COMMIT")
+                    return proposal
+                if proposal.status != "RECONCILE_REQUIRED":
+                    raise ProposalStoreError(
+                        "Only a proposal requiring reconciliation can be resolved"
+                    )
+                cursor = connection.execute(
+                    """
+                    UPDATE proposals
+                    SET status='APPLIED', receipt_json=?, error=NULL, updated_at=?
+                    WHERE proposal_id=? AND status='RECONCILE_REQUIRED'
+                    """,
+                    (json.dumps(receipt, ensure_ascii=False), time.time(), proposal_id),
+                )
+                if cursor.rowcount != 1:
+                    raise ProposalStoreError("Proposal reconciliation state changed")
+                row = connection.execute(
+                    "SELECT * FROM proposals WHERE proposal_id=?", (proposal_id,)
+                ).fetchone()
+                assert row is not None
+                resolved = self._from_row(row)
+                connection.execute("COMMIT")
+                return resolved
+            except Exception:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+                raise
 
     def list(
         self, status: Optional[str] = None, limit: int = 50
