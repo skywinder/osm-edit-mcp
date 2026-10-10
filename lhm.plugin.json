@@ -2619,9 +2619,150 @@
         "idempotentHint": true,
         "openWorldHint": true
       }
+    },
+    {
+      "name": "preview_node_tag_edit",
+      "description": "Preview a bounded tag-only patch to one existing OSM node, without upload.\n\nSupply the version inspected by the reviewer. Each tag_changes value replaces\nthat tag; null explicitly removes it. At most 20 tag keys per proposal;\nkeys, non-null values and changeset metadata must be nonempty, at most 255\nUTF-8 bytes, without control characters. Unmentioned tags and exact\ncoordinates are preserved. changeset_source records the actual evidence\n(for example, a user report), not an inferred survey or date.\nRequires verified OAuth/write_api. Review the returned complete\ndiff and digest, then use apply_osm_edit with separate MCP-host elicitation.\n",
+      "inputSchema": {
+        "properties": {
+          "node_id": {
+            "title": "Node Id",
+            "type": "integer"
+          },
+          "expected_version": {
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "tag_changes": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Tag Changes",
+            "type": "object"
+          },
+          "changeset_comment": {
+            "title": "Changeset Comment",
+            "type": "string"
+          },
+          "changeset_source": {
+            "title": "Changeset Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "node_id",
+          "expected_version",
+          "tag_changes",
+          "changeset_comment",
+          "changeset_source"
+        ],
+        "title": "preview_node_tag_editArguments",
+        "type": "object"
+      },
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "preview_node_tag_editOutput",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "preview_node_create",
+      "description": "Preview one new POI without writing to OSM.\n\nCoordinates must be finite, in range and exact at OSM's seven decimal\nplaces. Supply 1..20 nonempty string tags including an explicit POI\nclassification and the actual independent evidence source. Requires\nverified OAuth/write_api. Searches the configured OSM API within about\n100m; same-family POIs and retail areas containing the new shop block apply\nuntil fresh inspection\nresolves it. Failed or incomplete searches never establish absence.\nReview the exact geometry, tags, diff and full SHA-256 digest before a\nlater apply_osm_edit and separate genuine MCP-host user elicitation.\n",
+      "inputSchema": {
+        "properties": {
+          "latitude": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "title": "Latitude"
+          },
+          "longitude": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "title": "Longitude"
+          },
+          "tags": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "object"
+          },
+          "changeset_comment": {
+            "title": "Changeset Comment",
+            "type": "string"
+          },
+          "changeset_source": {
+            "title": "Changeset Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "latitude",
+          "longitude",
+          "tags",
+          "changeset_comment",
+          "changeset_source"
+        ],
+        "title": "preview_node_createArguments",
+        "type": "object"
+      },
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "preview_node_createOutput",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
     }
   ],
-  "version": "0.2.2",
+  "version": "0.3.0",
   "category": "tools",
   "tags": [
     "mcp",

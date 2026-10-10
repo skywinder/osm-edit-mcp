@@ -6,11 +6,13 @@
 [![Python](https://img.shields.io/pypi/pyversions/osm-edit-mcp.svg)](https://pypi.org/project/osm-edit-mcp/)
 [![License](https://img.shields.io/pypi/l/osm-edit-mcp.svg)](LICENSE)
 
-Find places in OpenStreetMap and review road edits from your local GPX surveys
+Find places in OpenStreetMap, preview new POI nodes, and review road edits from your local GPX surveys
 through an MCP-compatible assistant.
 
 **Alpha, review-first:** nothing is edited automatically. Road changes need an
 authenticated OSM account, an exact preview and separate confirmation.
+The safe profile also supports [reviewed POI node creation](docs/reviewed-node-creation.md)
+with duplicate inspection and exact coordinate/tag readback.
 
 ## Fastest start
 

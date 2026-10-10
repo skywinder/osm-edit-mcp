@@ -39,6 +39,8 @@ EXPECTED_TOOLS = {
     "match_track_selection",
     "suggest_track_road_candidates",
     "preview_track_road_edit",
+    "preview_node_create",
+    "preview_node_tag_edit",
     "apply_osm_edit",
     "apply_track_road_edit",
     "get_edit_capabilities",

@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "osm-edit-mcp"
-version = "0.2.2"
-description = "Review-first MCP server for previewed, version-checked OpenStreetMap road edits from local GPX surveys"
+version = "0.3.0"
+description = "Review-first MCP server for safe OpenStreetMap POI creation, node tag edits and road edits from local GPX surveys"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -39,6 +39,7 @@ classifiers = [
 requires-python = ">=3.10"
 dependencies = [
     "mcp>=1.29.1,<2",
+    "pyjwt>=2.15.1,<3",
     "typing-extensions>=4.12,<5",
     "opening-hours-py>=2.1.4,<3",
     "httpx>=0.28.1,<1",

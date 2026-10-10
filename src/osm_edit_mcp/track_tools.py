@@ -23,7 +23,7 @@ import httpx
 from defusedxml.ElementTree import fromstring as parse_xml
 from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictInt
 
 from .app import mcp, profile_resource, profile_tool
 from .auth import verify_write_identity
@@ -33,7 +33,7 @@ from .http_client import (
     get_authenticated_client,
     get_public_client,
 )
-from .proposal_store import ProposalStore, ProposalStoreError
+from .proposal_store import ProposalStore, ProposalStoreError, canonical_digest
 from .token_store import get_current_user_info, load_oauth_token
 from .valhalla import match_track as valhalla_match_track
 from .write_tools import close_changeset
@@ -907,6 +907,7 @@ def _proposal_result(
                 "create_nodes": payload.get("create_nodes", []),
                 "create_ways": payload.get("create_ways", []),
                 "modify_ways": payload.get("modify_ways", []),
+                "modify_nodes": payload.get("modify_nodes", []),
                 "delete_nodes": payload.get("delete_nodes", []),
             },
             "api_target": proposal.api_target,
@@ -1200,18 +1201,28 @@ Review the exact geometry and warnings in the tool result before approval.</head
 <span><i class="swatch" style="background:#e53935"></i>Proposed/selected</span></div>
 <script>
 const layers={serialized}; const canvas=document.getElementById('map');
-const ctx=canvas.getContext('2d'); const lines=[];
-for (const [name,fc] of Object.entries(layers)) for (const f of (fc.features||[])) {{
- const g=f.geometry||{{}}; if(g.type==='LineString') lines.push([name,g.coordinates]);
+const ctx=canvas.getContext('2d'); const lines=[], dots=[];
+function geometry(name,g) {{
+ if(g.type==='Point') dots.push([name,g.coordinates]);
+ else if(g.type==='LineString') lines.push([name,g.coordinates]);
+ else if(g.type==='Polygon') for(const ring of g.coordinates) lines.push([name,ring]);
+ else if(g.type==='GeometryCollection') for(const child of g.geometries) geometry(name,child);
 }}
-const pts=lines.flatMap(x=>x[1]);
+for (const [name,fc] of Object.entries(layers)) for (const f of (fc.features||[])) {{
+ geometry(name,f.geometry||{{}});
+}}
+const pts=[...lines.flatMap(x=>x[1]),...dots.map(x=>x[1])];
 if(pts.length) {{
  const xs=pts.map(p=>p[0]), ys=pts.map(p=>p[1]);
- const minX=Math.min(...xs), maxX=Math.max(...xs), minY=Math.min(...ys), maxY=Math.max(...ys);
+ let minX=Math.min(...xs), maxX=Math.max(...xs), minY=Math.min(...ys), maxY=Math.max(...ys);
+ if(maxX===minX) {{ minX-=0.0005; maxX+=0.0005; }}
+ if(maxY===minY) {{ minY-=0.0005; maxY+=0.0005; }}
  const sx=(canvas.width-80)/Math.max(maxX-minX,1e-9), sy=(canvas.height-80)/Math.max(maxY-minY,1e-9);
  const scale=Math.min(sx,sy); const project=p=>[40+(p[0]-minX)*scale,canvas.height-40-(p[1]-minY)*scale];
  for(const [name,line] of lines) {{ ctx.beginPath(); ctx.strokeStyle=name==='current'?'#637381':'#e53935';
  ctx.lineWidth=name==='current'?7:4; line.forEach((p,i)=>{{const q=project(p); i?ctx.lineTo(...q):ctx.moveTo(...q)}}); ctx.stroke(); }}
+ for(const [name,point] of dots) {{ const q=project(point); ctx.beginPath();
+ ctx.fillStyle=name==='current'?'#637381':'#e53935'; ctx.arc(...q,8,0,2*Math.PI); ctx.fill(); }}
 }}
 </script></body></html>"""
 
@@ -2203,6 +2214,144 @@ async def preview_track_road_edit(
         )
 
 
+@profile_tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=False,
+        openWorldHint=True,
+    )
+)
+async def preview_node_tag_edit(
+    node_id: StrictInt,
+    expected_version: StrictInt,
+    tag_changes: Dict[str, Optional[str]],
+    changeset_comment: str,
+    changeset_source: str,
+) -> Dict[str, Any]:
+    """Preview a bounded tag-only patch to one existing OSM node, without upload.
+
+    Supply the version inspected by the reviewer. Each tag_changes value replaces
+    that tag; null explicitly removes it. At most 20 tag keys per proposal;
+    keys, non-null values and changeset metadata must be nonempty, at most 255
+    UTF-8 bytes, without control characters. Unmentioned tags and exact
+    coordinates are preserved. changeset_source records the actual evidence
+    (for example, a user report), not an inferred survey or date.
+    Requires verified OAuth/write_api. Review the returned complete
+    diff and digest, then use apply_osm_edit with separate MCP-host elicitation.
+    """
+    try:
+        if type(node_id) is not int or node_id <= 0:
+            raise ValueError("node_id must be a positive integer")
+        if type(expected_version) is not int or expected_version <= 0:
+            raise ValueError("expected_version must be a positive integer")
+        if not isinstance(tag_changes, dict) or not 1 <= len(tag_changes) <= 20:
+            raise ValueError("tag_changes must contain between 1 and 20 tags")
+        for text in [
+            changeset_comment,
+            changeset_source,
+            *tag_changes.keys(),
+            *(value for value in tag_changes.values() if value is not None),
+        ]:
+            if (
+                not isinstance(text, str)
+                or not text.strip()
+                or len(text.encode("utf-8")) > 255
+                or any(ord(char) < 32 or ord(char) == 127 for char in text)
+            ):
+                raise ValueError(
+                    "Tags and changeset metadata require nonempty text, at most 255 UTF-8 bytes, without control characters"
+                )
+        if any(name in changeset_source.casefold() for name in ("google", "yandex")):
+            raise ValueError("Restricted map providers are not permitted OSM evidence")
+        async with get_authenticated_client() as client:
+            identity = await verify_write_identity(client)
+            _, server_limit = await _fetch_api_limits(client)
+            if min(config.max_changeset_size, server_limit) < 1:
+                raise ValueError("Node edit exceeds changeset element limit")
+            response = await client.get(f"{config.current_api_base_url}/node/{node_id}")
+            response.raise_for_status()
+        root = parse_xml(response.text)
+        element = root.find("node")
+        if element is None:
+            raise ValueError("OSM response contains no node")
+        before: Dict[str, Any] = {
+            "id": int(element.attrib["id"]),
+            "version": int(element.attrib["version"]),
+            "lat": element.attrib["lat"],
+            "lon": element.attrib["lon"],
+            "tags": {
+                tag.attrib["k"]: tag.attrib["v"] for tag in element.findall("tag")
+            },
+        }
+        if before["id"] != node_id or element.get("visible") == "false":
+            raise ValueError("OSM response does not contain the requested visible node")
+        if not (
+            -90 <= float(before["lat"]) <= 90 and -180 <= float(before["lon"]) <= 180
+        ):
+            raise ValueError("OSM node coordinates must be finite and in range")
+        if before["version"] != expected_version:
+            raise ValueError(
+                "Node changed since inspection; inspect again and create a fresh proposal"
+            )
+        after_tags = dict(before["tags"])
+        for key, value in tag_changes.items():
+            if value is None:
+                if key not in after_tags:
+                    raise ValueError(f"Cannot remove absent tag {key!r}")
+                del after_tags[key]
+            else:
+                after_tags[key] = value
+        if after_tags == before["tags"]:
+            raise ValueError("Tag patch makes no change")
+        after = {**before, "tags": after_tags}
+        payload = {
+            "action": "node_tag_update",
+            "segment_id": None,
+            "track_hash": None,
+            "changeset_comment": changeset_comment,
+            "changeset_source": changeset_source,
+            "create_nodes": [],
+            "create_ways": [],
+            "modify_ways": [],
+            "delete_nodes": [],
+            "modify_nodes": [after],
+            "snapshot_nodes": {str(node_id): before},
+            "snapshot_ways": {},
+            "tag_changes": tag_changes,
+            "warnings": [
+                "Review lifecycle, name and operating-information tags against the stated evidence."
+            ],
+            "blocking_issues": [],
+            "summary": {
+                "modified_nodes": 1,
+                "element_operations": 1,
+                "node_id": node_id,
+                "tag_changes": tag_changes,
+            },
+        }
+        geometry = {
+            "type": "Point",
+            "coordinates": [float(before["lon"]), float(before["lat"])],
+        }
+        current = _feature_collection(
+            [{"type": "Feature", "geometry": geometry, "properties": before}]
+        )
+        proposed = _feature_collection(
+            [{"type": "Feature", "geometry": geometry, "properties": after}]
+        )
+        proposal = _store_proposal(payload, int(identity["user_id"]))
+        result = _proposal_result(proposal, current, proposed)
+        result["message"] = "Node tag edit preview is ready for explicit confirmation"
+        return result
+    except Exception as exc:
+        return _failure(
+            type(exc).__name__,
+            "Failed to preview node tag edit",
+            detail=describe_exception(exc),
+        )
+
+
 def _append_tags(parent: ET.Element, tags: Dict[str, str]) -> None:
     for key, value in tags.items():
         ET.SubElement(parent, "tag", {"k": str(key), "v": str(value)})
@@ -2234,8 +2383,21 @@ def _build_osm_change(payload: Dict[str, Any], changeset_id: int) -> str:
                 ET.SubElement(element, "nd", {"ref": str(node_id)})
             _append_tags(element, way["tags"])
 
-    if payload["modify_ways"]:
+    if payload["modify_ways"] or payload.get("modify_nodes"):
         modify = ET.SubElement(root, "modify")
+        for node in payload.get("modify_nodes", []):
+            element = ET.SubElement(
+                modify,
+                "node",
+                {
+                    "id": str(node["id"]),
+                    "version": str(node["version"]),
+                    "changeset": str(changeset_id),
+                    "lat": str(node["lat"]),
+                    "lon": str(node["lon"]),
+                },
+            )
+            _append_tags(element, node["tags"])
         for way in payload["modify_ways"]:
             element = ET.SubElement(
                 modify,
@@ -2269,6 +2431,8 @@ def _build_osm_change(payload: Dict[str, Any], changeset_id: int) -> str:
 
 def _parse_diff_result(xml_text: str) -> List[Dict[str, Any]]:
     root = parse_xml(xml_text)
+    if root.tag != "diffResult":
+        raise ValueError("Upload response must contain a diffResult root")
     results = []
     for element in root:
         item = {
@@ -2282,6 +2446,58 @@ def _parse_diff_result(xml_text: str) -> List[Dict[str, Any]]:
 
 
 async def _validate_proposal_versions(client: Any, payload: Dict[str, Any]) -> None:
+    if payload.get("action") == "node_create":
+        from .node_tools import validate_node_create_context
+
+        await validate_node_create_context(client, payload)
+        return
+    modified_nodes = payload.get("modify_nodes", [])
+    if modified_nodes or payload.get("action") == "node_tag_update":
+        if (
+            payload.get("action") != "node_tag_update"
+            or len(modified_nodes) != 1
+            or any(
+                payload.get(key)
+                for key in (
+                    "create_nodes",
+                    "create_ways",
+                    "modify_ways",
+                    "delete_nodes",
+                )
+            )
+        ):
+            raise ValueError(
+                "Node tag-only proposal must modify exactly one existing node"
+            )
+        node = modified_nodes[0]
+        snapshot = payload.get("snapshot_nodes", {}).get(str(node.get("id")))
+        if (
+            not snapshot
+            or type(node.get("id")) is not int
+            or node["id"] <= 0
+            or type(node.get("version")) is not int
+            or node["version"] <= 0
+            or any(
+                node.get(key) != snapshot.get(key)
+                for key in ("id", "version", "lat", "lon")
+            )
+        ):
+            raise ValueError(
+                "Node tag-only update requires an unchanged geometry and version snapshot"
+            )
+        _, server_limit = await _fetch_api_limits(client)
+        operation_count = sum(
+            len(payload.get(key, []))
+            for key in (
+                "modify_nodes",
+                "create_nodes",
+                "create_ways",
+                "modify_ways",
+                "delete_nodes",
+            )
+        )
+        if operation_count > min(config.max_changeset_size, server_limit):
+            raise ValueError("Node edit exceeds changeset element limit")
     context_points = payload.get("context_points")
     context_highways = payload.get("context_highways")
     if context_points is not None and context_highways is not None:
@@ -2313,6 +2529,15 @@ async def _validate_proposal_versions(client: Any, payload: Dict[str, Any]) -> N
         root = parse_xml(response.text)
         node = root.find(".//node")
         if node is None or int(node.get("version", "0")) != snapshot["version"]:
+            raise ValueError(f"Referenced node {node_id} changed after preview")
+        if "tags" in snapshot and (
+            int(node.get("id", "0")) != node_id
+            or node.get("visible") == "false"
+            or node.get("lat") != snapshot["lat"]
+            or node.get("lon") != snapshot["lon"]
+            or {tag.get("k"): tag.get("v") for tag in node.findall("tag")}
+            != snapshot["tags"]
+        ):
             raise ValueError(f"Referenced node {node_id} changed after preview")
     delete_nodes = payload.get("delete_nodes", [])
     if delete_nodes:
@@ -2382,10 +2607,33 @@ async def _close_owned_changeset(client: Any, changeset_id: int) -> bool:
 
 
 async def _verify_diff_results(
-    client: Any, diff_results: Sequence[Dict[str, Any]]
+    client: Any,
+    diff_results: Sequence[Dict[str, Any]],
+    expected_nodes: Optional[Sequence[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     verified: List[Dict[str, Any]] = []
     failures: List[Dict[str, Any]] = []
+    expected_by_id = {node["id"]: node for node in (expected_nodes or [])}
+    if expected_nodes is not None:
+        expected_diff = [
+            {
+                "type": "node",
+                "old_id": node["id"],
+                "new_id": node["id"],
+                "new_version": node["version"] + 1,
+            }
+            for node in expected_nodes
+        ]
+        if not expected_diff or list(diff_results) != expected_diff:
+            return {
+                "status": "verification_incomplete",
+                "verified": [],
+                "failures": [
+                    {
+                        "verification_error": "Upload diff does not match the approved node operation"
+                    }
+                ],
+            }
     for item in diff_results:
         element_type = item["type"]
         element_id = int(item["new_id"])
@@ -2403,6 +2651,18 @@ async def _verify_diff_results(
                 element = root.find(f".//{element_type}")
                 if element is not None:
                     actual_version = int(element.get("version", "0"))
+                    expected = expected_by_id.get(element_id)
+                    if expected is not None and (
+                        int(element.get("id", "0")) != element_id
+                        or element.get("visible") == "false"
+                        or element.get("lat") != expected["lat"]
+                        or element.get("lon") != expected["lon"]
+                        or {
+                            tag.get("k"): tag.get("v") for tag in element.findall("tag")
+                        }
+                        != expected["tags"]
+                    ):
+                        verification_error = "Node readback differs from the approved tags or coordinates"
             else:
                 verification_error = f"HTTP {response.status_code}"
         except Exception as exc:
@@ -2413,7 +2673,7 @@ async def _verify_diff_results(
             "actual_version": actual_version,
             "verification_error": verification_error,
         }
-        if actual_version == expected_version:
+        if actual_version == expected_version and verification_error is None:
             verified.append(record)
         else:
             failures.append(record)
@@ -2485,6 +2745,11 @@ async def _apply_osm_edit_internal(
             "The reviewed proposal changed; review a fresh preview",
         )
     payload = proposal.payload
+    if payload.get("action") == "node_create" and changeset_id is not None:
+        return _failure(
+            "Dedicated changeset required",
+            "Node creation uses its own changeset for unambiguous recovery",
+        )
     if payload.get("blocking_issues"):
         return _failure(
             "Proposal is blocked",
@@ -2501,6 +2766,8 @@ async def _apply_osm_edit_internal(
     active_changeset_id = changeset_id
     upload_started = False
     upload_confirmed = False
+    diff_results: List[Dict[str, Any]] = []
+    verification: Optional[Dict[str, Any]] = None
     try:
         async with get_authenticated_client() as client:
             identity = await verify_write_identity(client)
@@ -2517,6 +2784,9 @@ async def _apply_osm_edit_internal(
                     "data": claimed.receipt,
                     "message": "Proposal was already applied; returning its receipt",
                 }
+            payload = claimed.payload
+            if payload.get("blocking_issues"):
+                raise ValueError("Persisted proposal contains blocking issues")
             await _validate_proposal_versions(client, payload)
             if active_changeset_id is not None:
                 await _validate_supplied_changeset(
@@ -2540,7 +2810,26 @@ async def _apply_osm_edit_internal(
                 )
             upload_confirmed = True
             diff_results = _parse_diff_result(response.text)
-            verification = await _verify_diff_results(client, diff_results)
+            if payload.get("action") == "node_create":
+                from .node_create_verification import verify_node_create
+
+                verification = await verify_node_create(
+                    client, diff_results, payload, int(active_changeset_id)
+                )
+                if verification["status"] != "verified":
+                    raise RuntimeError(
+                        "Created node could not be verified; reconcile before any retry"
+                    )
+            elif payload.get("modify_nodes"):
+                verification = await _verify_diff_results(
+                    client, diff_results, expected_nodes=payload["modify_nodes"]
+                )
+                if verification["status"] != "verified":
+                    raise RuntimeError(
+                        "Uploaded node could not be verified against the approved operation; reconcile before any retry"
+                    )
+            else:
+                verification = await _verify_diff_results(client, diff_results)
             changeset_closed = (
                 await _close_owned_changeset(client, int(active_changeset_id))
                 if owned_changeset
@@ -2560,6 +2849,11 @@ async def _apply_osm_edit_internal(
             "changeset_closed": changeset_closed,
             "summary": payload["summary"],
         }
+        if payload.get("action") == "node_create":
+            receipt["node_id"] = diff_results[0]["new_id"]
+            receipt["node_url"] = (
+                f"{config.current_web_base_url}/node/{receipt['node_id']}"
+            )
         _PROPOSAL_STORE.finish(proposal_id, "APPLIED", receipt=receipt)
         proposal.status = "APPLIED"
         return {
@@ -2575,30 +2869,65 @@ async def _apply_osm_edit_internal(
         )
     except Exception as exc:
         is_ambiguous_upload = upload_confirmed or (
-            upload_started and isinstance(exc, httpx.TransportError)
+            upload_started
+            and (
+                isinstance(exc, httpx.TransportError)
+                or payload.get("action") == "node_create"
+            )
         )
         status = "RECONCILE_REQUIRED" if is_ambiguous_upload else "FAILED"
         reconciliation: Optional[Dict[str, Any]] = None
         if is_ambiguous_upload and active_changeset_id is not None:
-            reconciliation = await _inspect_changeset_download(int(active_changeset_id))
+            if payload.get("action") == "node_create":
+                reconciliation = await _reconcile_created_node(
+                    proposal, int(active_changeset_id)
+                )
+                if reconciliation.get("status") == "reconciled":
+                    receipt = _node_create_receipt(
+                        proposal, int(active_changeset_id), reconciliation
+                    )
+                    _PROPOSAL_STORE.finish(proposal_id, "APPLIED", receipt=receipt)
+                    proposal.status = "APPLIED"
+                    return {
+                        "success": True,
+                        "data": receipt,
+                        "message": "Created node reconciled and verified; no upload was retried",
+                    }
+            else:
+                reconciliation = await _inspect_changeset_download(
+                    int(active_changeset_id)
+                )
+        pending_receipt: Dict[str, Any] = {
+            "proposal_id": proposal_id,
+            "proposal_digest": proposal_digest,
+            "api_target": proposal.api_target,
+            "osm_uid": proposal.osm_uid,
+            "changeset_id": active_changeset_id,
+            "changeset_url": (
+                f"{config.current_web_base_url}/changeset/{active_changeset_id}"
+            ),
+            "reconciliation": reconciliation,
+        }
+        if payload.get("action") == "node_create" and upload_confirmed:
+            pending_receipt["diff_results"] = diff_results
+            pending_receipt["verification"] = verification
+            if (
+                len(diff_results) == 1
+                and diff_results[0].get("type") == "node"
+                and diff_results[0].get("old_id") == -1
+                and diff_results[0].get("new_version") == 1
+                and type(diff_results[0].get("new_id")) is int
+                and diff_results[0]["new_id"] > 0
+            ):
+                pending_receipt["node_id"] = diff_results[0]["new_id"]
+                pending_receipt["node_url"] = (
+                    f"{config.current_web_base_url}/node/{pending_receipt['node_id']}"
+                )
         try:
             _PROPOSAL_STORE.finish(
                 proposal_id,
                 status,
-                receipt=(
-                    {
-                        "proposal_id": proposal_id,
-                        "proposal_digest": proposal_digest,
-                        "changeset_id": active_changeset_id,
-                        "changeset_url": (
-                            f"{config.current_web_base_url}/changeset/"
-                            f"{active_changeset_id}"
-                        ),
-                        "reconciliation": reconciliation,
-                    }
-                    if reconciliation
-                    else None
-                ),
+                receipt=pending_receipt if is_ambiguous_upload else None,
                 error=describe_exception(exc),
             )
         except Exception:
@@ -2620,6 +2949,65 @@ async def _apply_osm_edit_internal(
             proposal_status=status,
             reconciliation=reconciliation,
         )
+
+
+async def _reconcile_created_node(
+    proposal: Proposal,
+    changeset_id: int,
+    known_diff: Optional[Sequence[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """Gather recovery evidence under the original API and account binding."""
+    from .node_create_verification import reconcile_node_create
+
+    try:
+        if proposal.api_target != config.current_api_base_url:
+            raise ValueError("Proposal belongs to a different API target")
+        if (
+            canonical_digest(proposal.payload, proposal.api_target, proposal.osm_uid)
+            != proposal.digest
+        ):
+            raise ValueError("Stored proposal content differs from its digest")
+        async with get_authenticated_client() as client:
+            identity = await verify_write_identity(client)
+            if int(identity["user_id"]) != proposal.osm_uid:
+                raise ValueError("Proposal belongs to a different OSM account")
+            if known_diff:
+                from .node_create_verification import verify_node_create
+
+                verification = await verify_node_create(
+                    client, known_diff, proposal.payload, changeset_id
+                )
+                if verification["status"] == "verified":
+                    return {
+                        "status": "reconciled",
+                        "diff_results": list(known_diff),
+                        "verification": verification,
+                        "evidence": "confirmed upload mapping and exact node readback",
+                    }
+            return await reconcile_node_create(client, proposal.payload, changeset_id)
+    except Exception as exc:
+        return {"status": "unresolved", "error": describe_exception(exc)}
+
+
+def _node_create_receipt(
+    proposal: Proposal, changeset_id: int, reconciliation: Dict[str, Any]
+) -> Dict[str, Any]:
+    node_id = reconciliation["diff_results"][0]["new_id"]
+    return {
+        "proposal_id": proposal.proposal_id,
+        "proposal_digest": proposal.digest,
+        "api_target": proposal.api_target,
+        "osm_uid": proposal.osm_uid,
+        "changeset_id": changeset_id,
+        "changeset_url": f"{config.current_web_base_url}/changeset/{changeset_id}",
+        "node_id": node_id,
+        "node_url": f"{config.current_web_base_url}/node/{node_id}",
+        "diff_results": reconciliation["diff_results"],
+        "verification": reconciliation["verification"],
+        "reconciliation": reconciliation,
+        "changeset_closed": False,
+        "summary": proposal.payload["summary"],
+    }
 
 
 async def _request_host_confirmation(
@@ -2693,11 +3081,35 @@ async def apply_osm_edit(
             "Proposal digest mismatch",
             "The exact reviewed digest is required",
         )
+    if (
+        canonical_digest(proposal.payload, proposal.api_target, proposal.osm_uid)
+        != proposal_digest
+    ):
+        return _failure("Proposal digest mismatch", "Stored proposal content changed")
+    if proposal.payload.get("action") == "node_create":
+        stored = _PROPOSAL_STORE.get(proposal_id, include_expired=True)
+        if stored is None or stored.status == "EXPIRED":
+            return _failure("Unknown or expired proposal", "Create a fresh preview")
+        proposal.status = stored.status
+        if changeset_id is not None:
+            return _failure(
+                "Dedicated changeset required", "Omit changeset_id for node creation"
+            )
+        if proposal.payload.get("blocking_issues"):
+            return _failure(
+                "Proposal is blocked",
+                "Resolve duplicate-search issues first",
+                blocking_issues=proposal.payload["blocking_issues"],
+            )
     if proposal.status == "APPLIED":
         return await _apply_osm_edit_internal(
             proposal_id, proposal_digest, changeset_id
         )
-    if config.osm_require_host_confirmation or not config.is_development_api:
+    if (
+        config.osm_require_host_confirmation
+        or not config.is_development_api
+        or proposal.payload.get("action") == "node_create"
+    ):
         confirmation_failure = await _request_host_confirmation(proposal, context)
         if confirmation_failure is not None:
             return confirmation_failure
@@ -2757,6 +3169,7 @@ __all__ = [
     "apply_track_road_edit",
     "create_track_selection",
     "match_track_selection",
+    "preview_node_tag_edit",
     "preview_track_road_edit",
     "suggest_track_road_candidates",
 ]
