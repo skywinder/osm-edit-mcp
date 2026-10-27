@@ -15,8 +15,8 @@ POI_KEYS = frozenset(
 )
 UNSPECIFIED = frozenset(("yes", "no", "none", "unknown", "fixme"))
 POLICY: Dict[str, Any] = {
-    "version": 1,
-    "distance_method": "minimum distance to returned geometry; zero inside areas",
+    "version": 2,
+    "distance_method": "minimum distance between reviewed geometries; zero for overlap or containment",
     "default": {"possible_m": 25.0, "likely_m": 5.0},
     "leisure=pitch": {
         "possible_m": 35.0,
@@ -124,17 +124,101 @@ def _identities(tags: Dict[str, str]) -> Tuple[set[str], set[str]]:
     return names, contacts
 
 
+def geometry_vertices(geometry: Dict[str, Any]) -> List[List[float]]:
+    if geometry["type"] == "GeometryCollection":
+        return [p for g in geometry["geometries"] for p in geometry_vertices(g)]
+    if geometry["type"] == "Point":
+        return [geometry["coordinates"]]
+    if geometry["type"] == "LineString":
+        return list(geometry["coordinates"])
+    if geometry["type"] == "Polygon":
+        return [p for ring in geometry["coordinates"] for p in ring]
+    raise ValueError("Unsupported duplicate geometry")
+
+
+def geometry_segments(
+    geometry: Dict[str, Any],
+) -> List[Tuple[List[float], List[float]]]:
+    if geometry["type"] == "GeometryCollection":
+        return [s for g in geometry["geometries"] for s in geometry_segments(g)]
+    if geometry["type"] == "Point":
+        return []
+    rings = (
+        geometry["coordinates"]
+        if geometry["type"] == "Polygon"
+        else [geometry["coordinates"]]
+    )
+    return [(a, b) for ring in rings for a, b in zip(ring, ring[1:])]
+
+
+def segments_intersect(
+    a: List[float], b: List[float], c: List[float], d: List[float]
+) -> bool:
+    origin = (a[1], a[0])
+    aa, bb, cc, dd = (_xy(p, origin) for p in (a, b, c, d))
+
+    def cross(
+        p: Tuple[float, float], q: Tuple[float, float], r: Tuple[float, float]
+    ) -> float:
+        return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+
+    def on(
+        p: Tuple[float, float], q: Tuple[float, float], r: Tuple[float, float]
+    ) -> bool:
+        return (
+            min(p[0], q[0]) - 1e-8 <= r[0] <= max(p[0], q[0]) + 1e-8
+            and min(p[1], q[1]) - 1e-8 <= r[1] <= max(p[1], q[1]) + 1e-8
+        )
+
+    ab_c, ab_d, cd_a, cd_b = (
+        cross(aa, bb, cc),
+        cross(aa, bb, dd),
+        cross(cc, dd, aa),
+        cross(cc, dd, bb),
+    )
+    if ((ab_c > 0 > ab_d) or (ab_d > 0 > ab_c)) and (
+        (cd_a > 0 > cd_b) or (cd_b > 0 > cd_a)
+    ):
+        return True
+    return any(
+        abs(value) <= 1e-8 and on(p, q, r)
+        for value, p, q, r in (
+            (ab_c, aa, bb, cc),
+            (ab_d, aa, bb, dd),
+            (cd_a, cc, dd, aa),
+            (cd_b, cc, dd, bb),
+        )
+    )
+
+
+def geometries_distance(a: Dict[str, Any], b: Dict[str, Any]) -> float:
+    """Minimum distance, including crossing edges with no contained vertices."""
+    av, bv = geometry_vertices(a), geometry_vertices(b)
+    distances = [geometry_distance(b, (p[1], p[0])) for p in av]
+    distances.extend(geometry_distance(a, (p[1], p[0])) for p in bv)
+    if min(distances) == 0 or any(
+        segments_intersect(p, q, r, s)
+        for p, q in geometry_segments(a)
+        for r, s in geometry_segments(b)
+    ):
+        return 0.0
+    return min(distances)
+
+
 def review_candidates(
     candidates: List[Dict[str, Any]], node: Dict[str, Any]
 ) -> List[Dict[str, Any]]:
     tags = node["tags"]
     point = (float(node["lat"]), float(node["lon"]))
+    proposed_geometry = node.get(
+        "geometry", {"type": "Point", "coordinates": [point[1], point[0]]}
+    )
     names, contacts = _identities(tags)
     thresholds = POLICY.get(f"leisure={tags.get('leisure')}", POLICY["default"])
     reviewed = []
     for candidate in candidates:
         other = candidate["tags"]
-        distance = geometry_distance(candidate["geometry"], point)
+        distance = geometries_distance(proposed_geometry, candidate["geometry"])
         shared_keys = POI_KEYS & tags.keys() & other.keys()
         same_kind = any(
             (_values(tags[key]) - UNSPECIFIED) & (_values(other[key]) - UNSPECIFIED)

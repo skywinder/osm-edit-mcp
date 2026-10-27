@@ -41,6 +41,8 @@ EXPECTED_TOOLS = {
     "preview_track_road_edit",
     "preview_node_create",
     "review_node_create_duplicates",
+    "preview_poi_polygon_create",
+    "review_poi_polygon_duplicates",
     "preview_node_tag_edit",
     "apply_osm_edit",
     "apply_track_road_edit",

@@ -15,6 +15,9 @@ The safe profile also supports [reviewed POI node creation](docs/reviewed-node-c
 with duplicate inspection and exact coordinate/tag readback. False matches can
 be resolved with evidence in `review_node_create_duplicates`; its new proposal
 revision still requires separate user confirmation before upload.
+For a POI with known boundaries, [reviewed four-sided polygons](docs/reviewed-poi-polygons.md)
+create a closed OSM way with tags on the area and can explicitly replace an
+isolated POI node in the same upload.
 
 ## Fastest start
 

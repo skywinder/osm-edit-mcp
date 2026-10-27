@@ -41,7 +41,7 @@ results are not proof of absence. Failed, malformed, oversized or incomplete
 responses return an unknown search state and no applyable proposal.
 
 Duplicate thresholds are review heuristics in metres, selected by the proposed
-object type, and returned in `duplicate_search.policy` (version 1):
+object type, and returned in `duplicate_search.policy` (version 2):
 
 | Proposed type | Possible duplicate within | Likely duplicate within |
 | --- | ---: | ---: |
@@ -69,7 +69,8 @@ spherical great-circle calculation. Relation geometry remains a conservative
 union of returned member geometries, so holes or fragmented boundaries can
 produce extra candidates for review. Search limits remain visible even when
 all candidates are resolved. This feature creates points only; it does not add
-polygon creation or change neighbouring geometry.
+polygon creation or change neighbouring geometry. Use the separate
+[four-sided polygon workflow](reviewed-poi-polygons.md) when its boundary is known.
 
 Resolve a blocked preview with a separate, non-writing tool:
 

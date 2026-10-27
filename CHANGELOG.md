@@ -9,6 +9,17 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `preview_poi_polygon_create` and `review_poi_polygon_duplicates` for four
+  explicitly supplied corners, four untagged vertices and one closed POI way.
+  Optional isolated-node conversion preserves all tags on the area and removes
+  the inspected point atomically; its version and parentage are rechecked.
+- Polygon duplicate checks measure distances between complete geometries,
+  including crossing edges. Synthetic demo areas are allowed only on the
+  official dev API and must be labelled as synthetic evidence.
+- Exact polygon readback verifies all four vertices, ordered way refs, closure,
+  tags, versions and changeset, plus any source deletion. Ambiguous uploads
+  recover only from an exact changeset download and readback, without retrying.
+
 - `review_node_create_duplicates` records evidence-backed, version-bound decisions
   in a new proposal revision, atomically superseding the old preview. Distinct
   objects can be resolved without bypass flags; same/uncertain matches stay blocked.

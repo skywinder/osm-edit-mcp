@@ -64,6 +64,6 @@ async def test_lobehub_capabilities_match_the_server() -> None:
     assert {prompt["name"] for prompt in manifest_prompts} == {
         prompt.name for prompt in prompts
     }
-    assert len(manifest_tools) == 34
+    assert len(manifest_tools) == 36
     assert len(manifest_resources) == 2
     assert len(manifest_prompts) == 1

@@ -35,6 +35,7 @@ from .natural_language import (
     parse_opening_hours,
 )
 from .node_tools import preview_node_create, review_node_create_duplicates
+from .polygon_tools import preview_poi_polygon_create, review_poi_polygon_duplicates
 from .prompts import review_gpx_road_edit
 from .read_tools import (
     check_authentication,
@@ -177,6 +178,8 @@ __all__ = [
     "parse_osm_xml",
     "preview_node_tag_edit",
     "preview_node_create",
+    "preview_poi_polygon_create",
+    "review_poi_polygon_duplicates",
     "review_node_create_duplicates",
     "preview_track_road_edit",
     "review_gpx_road_edit",

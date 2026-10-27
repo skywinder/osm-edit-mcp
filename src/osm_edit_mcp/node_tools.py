@@ -102,9 +102,11 @@ def _validate_tags_and_metadata(
         raise ValueError("Restricted map providers are not permitted OSM evidence")
 
 
-def _context_bboxes(lat: float, lon: float) -> List[str]:
+def _context_bboxes(
+    lat: float, lon: float, radius_m: float = CONTEXT_RADIUS_M
+) -> List[str]:
     """Cover the survey point conservatively, including dateline/polar cases."""
-    latitude_delta = CONTEXT_RADIUS_M / 110_000.0
+    latitude_delta = radius_m / 110_000.0
     min_lat = max(-90.0, lat - latitude_delta)
     max_lat = min(90.0, lat + latitude_delta)
     cosine = abs(math.cos(math.radians(lat)))
