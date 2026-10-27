@@ -1,7 +1,7 @@
 {
   "author": "skywinder",
   "authorUrl": "https://github.com/skywinder",
-  "description": "Review-first MCP server for turning selected local GPX surveys into previewed, version-checked OpenStreetMap road edits.",
+  "description": "Review-first MCP server for safe OpenStreetMap POI nodes and four-sided polygons, duplicate review, and road edits from local GPX surveys.",
   "homepage": "https://github.com/skywinder/osm-edit-mcp",
   "identifier": "pk-osm-edit-mcp",
   "name": "OSM Edit MCP Server",
@@ -2689,7 +2689,7 @@
     },
     {
       "name": "preview_node_create",
-      "description": "Preview one new POI without writing to OSM.\n\nCoordinates must be finite, in range and exact at OSM's seven decimal\nplaces. Supply 1..20 nonempty string tags including an explicit POI\nclassification and the actual independent evidence source. Requires\nverified OAuth/write_api. Searches the configured OSM API within about\n100m; same-family POIs and retail areas containing the new shop block apply\nuntil fresh inspection\nresolves it. Failed or incomplete searches never establish absence.\nReview the exact geometry, tags, diff and full SHA-256 digest before a\nlater apply_osm_edit and separate genuine MCP-host user elicitation.\n",
+      "description": "Preview one new POI without writing to OSM.\n\nCoordinates must be finite, in range and exact at OSM's seven decimal\nplaces. Supply 1..20 nonempty string tags including an explicit POI\nclassification and the actual independent evidence source. Requires\nverified OAuth/write_api. Searches the configured OSM API within about\n100m; classifies nearby geometry by explicit POI type, sport, distance\nand identity signals. Blocking candidates need review_node_create_duplicates.\nThat tool creates a new digest; it never uploads or approves a write.\nFailed or incomplete searches never establish absence.\nReview the exact geometry, tags, diff and full SHA-256 digest before a\nlater apply_osm_edit and separate genuine MCP-host user elicitation.\n",
       "inputSchema": {
         "properties": {
           "latitude": {
@@ -2760,9 +2760,339 @@
         "idempotentHint": false,
         "openWorldHint": true
       }
+    },
+    {
+      "name": "review_node_create_duplicates",
+      "description": "Review every blocking candidate and return a new node-create revision.\n\nDecisions bind exact candidate type, ID and expected_version. Every decision\nrequires a reason and independent evidence_source. distinct_object resolves\nthat match; same_object requires editing the existing object; uncertain\nstays blocked. Unknown candidates, omitted blockers and changed versions\nare rejected. This only stores a preview: review the new complete digest,\nthen obtain separate user confirmation through apply_osm_edit. No OSM write\nor user approval occurs here. Superseded proposals cannot be applied.\n",
+      "inputSchema": {
+        "$defs": {
+          "DuplicateDecision": {
+            "additionalProperties": false,
+            "description": "An evidence-backed decision about one exact candidate version.",
+            "properties": {
+              "osm_type": {
+                "enum": [
+                  "node",
+                  "way",
+                  "relation"
+                ],
+                "title": "Osm Type",
+                "type": "string"
+              },
+              "osm_id": {
+                "exclusiveMinimum": 0,
+                "title": "Osm Id",
+                "type": "integer"
+              },
+              "expected_version": {
+                "exclusiveMinimum": 0,
+                "title": "Expected Version",
+                "type": "integer"
+              },
+              "decision": {
+                "enum": [
+                  "distinct_object",
+                  "same_object",
+                  "uncertain"
+                ],
+                "title": "Decision",
+                "type": "string"
+              },
+              "reason": {
+                "title": "Reason",
+                "type": "string"
+              },
+              "evidence_source": {
+                "title": "Evidence Source",
+                "type": "string"
+              }
+            },
+            "required": [
+              "osm_type",
+              "osm_id",
+              "expected_version",
+              "decision",
+              "reason",
+              "evidence_source"
+            ],
+            "title": "DuplicateDecision",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "proposal_id": {
+            "title": "Proposal Id",
+            "type": "string"
+          },
+          "proposal_digest": {
+            "title": "Proposal Digest",
+            "type": "string"
+          },
+          "decisions": {
+            "items": {
+              "$ref": "#/$defs/DuplicateDecision"
+            },
+            "title": "Decisions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "proposal_id",
+          "proposal_digest",
+          "decisions"
+        ],
+        "title": "review_node_create_duplicatesArguments",
+        "type": "object"
+      },
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "review_node_create_duplicatesOutput",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "preview_poi_polygon_create",
+      "description": "Preview four ordered corners as a closed POI area, without uploading.\n\nSupply exactly four distinct latitude/longitude pairs at OSM precision.\nThe server creates four untagged vertices and one closed way bearing all\nPOI tags. No self-intersections, collinear corners, polar/dateline geometry\nor diameter over 500m. Searches the WHOLE polygon plus a 100m margin.\nOptional replace_node_id and expected_node_version explicitly replace one\nisolated, unchanged POI node inside the area, preserving all its tags on\nthe new way and deleting it atomically. Parent ways/relations block this.\ndemonstration=true permits synthetic geometry only on the official dev API;\nchangeset_source must say synthetic or demonstration. Never infer a real\nboundary from one point. Review geometry, any deletion and the full digest;\nuse apply_osm_edit with separate digest-bound host confirmation afterwards.\n",
+      "inputSchema": {
+        "$defs": {
+          "PolygonCorner": {
+            "additionalProperties": false,
+            "properties": {
+              "latitude": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "integer"
+                  }
+                ],
+                "title": "Latitude"
+              },
+              "longitude": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "integer"
+                  }
+                ],
+                "title": "Longitude"
+              }
+            },
+            "required": [
+              "latitude",
+              "longitude"
+            ],
+            "title": "PolygonCorner",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "corners": {
+            "items": {
+              "$ref": "#/$defs/PolygonCorner"
+            },
+            "title": "Corners",
+            "type": "array"
+          },
+          "tags": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "object"
+          },
+          "changeset_comment": {
+            "title": "Changeset Comment",
+            "type": "string"
+          },
+          "changeset_source": {
+            "title": "Changeset Source",
+            "type": "string"
+          },
+          "replace_node_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Replace Node Id"
+          },
+          "expected_node_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Expected Node Version"
+          },
+          "demonstration": {
+            "default": false,
+            "title": "Demonstration",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "corners",
+          "tags",
+          "changeset_comment",
+          "changeset_source"
+        ],
+        "title": "preview_poi_polygon_createArguments",
+        "type": "object"
+      },
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "preview_poi_polygon_createOutput",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "review_poi_polygon_duplicates",
+      "description": "Resolve every blocking polygon candidate in a new digest-bound revision.\n\nSame decisions and evidence requirements as review_node_create_duplicates.\nThe explicitly replaced source node is reviewed as a conversion, never as\na distinct object. Search, source version and parentage are rechecked.\nThis stores a new preview only; separate final host approval is required.\n",
+      "inputSchema": {
+        "$defs": {
+          "DuplicateDecision": {
+            "additionalProperties": false,
+            "description": "An evidence-backed decision about one exact candidate version.",
+            "properties": {
+              "osm_type": {
+                "enum": [
+                  "node",
+                  "way",
+                  "relation"
+                ],
+                "title": "Osm Type",
+                "type": "string"
+              },
+              "osm_id": {
+                "exclusiveMinimum": 0,
+                "title": "Osm Id",
+                "type": "integer"
+              },
+              "expected_version": {
+                "exclusiveMinimum": 0,
+                "title": "Expected Version",
+                "type": "integer"
+              },
+              "decision": {
+                "enum": [
+                  "distinct_object",
+                  "same_object",
+                  "uncertain"
+                ],
+                "title": "Decision",
+                "type": "string"
+              },
+              "reason": {
+                "title": "Reason",
+                "type": "string"
+              },
+              "evidence_source": {
+                "title": "Evidence Source",
+                "type": "string"
+              }
+            },
+            "required": [
+              "osm_type",
+              "osm_id",
+              "expected_version",
+              "decision",
+              "reason",
+              "evidence_source"
+            ],
+            "title": "DuplicateDecision",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "proposal_id": {
+            "title": "Proposal Id",
+            "type": "string"
+          },
+          "proposal_digest": {
+            "title": "Proposal Digest",
+            "type": "string"
+          },
+          "decisions": {
+            "items": {
+              "$ref": "#/$defs/DuplicateDecision"
+            },
+            "title": "Decisions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "proposal_id",
+          "proposal_digest",
+          "decisions"
+        ],
+        "title": "review_poi_polygon_duplicatesArguments",
+        "type": "object"
+      },
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "review_poi_polygon_duplicatesOutput",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
     }
   ],
-  "version": "0.3.0",
+  "version": "0.4.0",
   "category": "tools",
   "tags": [
     "mcp",

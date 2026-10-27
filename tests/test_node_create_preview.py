@@ -200,8 +200,13 @@ async def test_poi_nodes_ways_relations_and_different_classifications_block_appl
     }
     assert candidates[1]["geometry"]["type"] == "Polygon"
     assert candidates[2]["geometry"]["type"] == "GeometryCollection"
-    assert [item["potential_duplicate"] for item in candidates] == [False, True, True]
-    assert data["duplicate_search"]["possible_duplicate_count"] == 2
+    assert [item["classification"] for item in candidates] == [
+        "context_only",
+        "context_only",
+        "likely_duplicate",
+    ]
+    assert [item["blocking"] for item in candidates] == [False, False, True]
+    assert data["duplicate_search"]["possible_duplicate_count"] == 1
     assert len(data["current_geojson"]["features"]) == 3
     assert data["blocking_issues"]
     proposal = track_tools._get_proposal(data["proposal_id"])
@@ -221,7 +226,7 @@ async def test_other_classification_remains_visible_with_warning(node_create_cli
     assert result["success"], result
     search = result["data"]["duplicate_search"]
     assert search["possible_duplicate_count"] == 0
-    assert search["candidates"][0]["potential_duplicate"] is False
+    assert search["candidates"][0]["blocking"] is False
     assert result["data"]["current_geojson"]["features"]
     assert any("Other nearby POIs" in warning for warning in result["data"]["warnings"])
     payload = track_tools._get_proposal(result["data"]["proposal_id"]).payload
@@ -242,7 +247,7 @@ async def test_only_containing_retail_area_blocks_new_shop(node_create_client, i
         for item in result["data"]["duplicate_search"]["candidates"]
         if item["type"] == "way"
     )
-    assert way["potential_duplicate"] is inside
+    assert way["blocking"] is inside
 
 
 @pytest.mark.asyncio

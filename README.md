@@ -6,13 +6,18 @@
 [![Python](https://img.shields.io/pypi/pyversions/osm-edit-mcp.svg)](https://pypi.org/project/osm-edit-mcp/)
 [![License](https://img.shields.io/pypi/l/osm-edit-mcp.svg)](LICENSE)
 
-Find places in OpenStreetMap, preview new POI nodes, and review road edits from your local GPX surveys
+Find places in OpenStreetMap, preview POI nodes and four-sided polygons, and review road edits from your local GPX surveys
 through an MCP-compatible assistant.
 
 **Alpha, review-first:** nothing is edited automatically. Road changes need an
 authenticated OSM account, an exact preview and separate confirmation.
 The safe profile also supports [reviewed POI node creation](docs/reviewed-node-creation.md)
-with duplicate inspection and exact coordinate/tag readback.
+with duplicate inspection and exact coordinate/tag readback. False matches can
+be resolved with evidence in `review_node_create_duplicates`; its new proposal
+revision still requires separate user confirmation before upload.
+For a POI with known boundaries, [reviewed four-sided polygons](docs/reviewed-poi-polygons.md)
+create a closed OSM way with tags on the area and can explicitly replace an
+isolated POI node in the same upload.
 
 ## Fastest start
 

@@ -22,6 +22,7 @@ TERMINAL_STATUSES = {
     "STALE",
     "EXPIRED",
     "RECONCILE_REQUIRED",
+    "SUPERSEDED",
 }
 
 
@@ -270,6 +271,81 @@ class ProposalStore:
                 "WHERE proposal_id=? AND status IN ('PREVIEWED','AWAITING_APPROVAL')",
                 (time.time(), proposal_id),
             )
+
+    def supersede_preview(
+        self,
+        proposal_id: str,
+        expected_digest: str,
+        new_proposal_id: str,
+        payload: Dict[str, Any],
+        api_target: str,
+        osm_uid: int,
+        ttl_seconds: int,
+    ) -> StoredProposal:
+        """Atomically create a revision and retire its exact unclaimed parent.
+
+        Competes with upload claims and other reviews in the same transaction.
+        A confirmation already in flight cannot authorize the new revision.
+        """
+        with self._connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                row = connection.execute(
+                    "SELECT * FROM proposals WHERE proposal_id=?", (proposal_id,)
+                ).fetchone()
+                if row is None:
+                    raise ProposalStoreError("Unknown proposal")
+                parent = self._from_row(row)
+                now = time.time()
+                if parent.status not in {"PREVIEWED", "AWAITING_APPROVAL"}:
+                    raise ProposalStoreError(f"Proposal is {parent.status.lower()}")
+                if parent.expires_at <= now:
+                    raise ProposalStoreError("Proposal expired")
+                if (
+                    parent.digest != expected_digest
+                    or canonical_digest(
+                        parent.payload, parent.api_target, parent.osm_uid
+                    )
+                    != expected_digest
+                ):
+                    raise ProposalStoreError("Proposal digest mismatch")
+                if (
+                    parent.api_target != api_target.rstrip("/")
+                    or parent.osm_uid != osm_uid
+                ):
+                    raise ProposalStoreError(
+                        "Proposal API target or OSM account changed"
+                    )
+                connection.execute(
+                    """INSERT INTO proposals (
+                        proposal_id, created_at, expires_at, status, api_target,
+                        osm_uid, digest, payload_json, updated_at
+                    ) VALUES (?, ?, ?, 'PREVIEWED', ?, ?, ?, ?, ?)""",
+                    (
+                        new_proposal_id,
+                        now,
+                        now + ttl_seconds,
+                        parent.api_target,
+                        osm_uid,
+                        canonical_digest(payload, parent.api_target, osm_uid),
+                        json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+                        now,
+                    ),
+                )
+                parent.payload["_superseded_by"] = new_proposal_id
+                connection.execute(
+                    "UPDATE proposals SET status='SUPERSEDED', payload_json=?, updated_at=? "
+                    "WHERE proposal_id=?",
+                    (json.dumps(parent.payload, ensure_ascii=False), now, proposal_id),
+                )
+                connection.execute("COMMIT")
+            except Exception:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+                raise
+        revision = self.get(new_proposal_id, include_expired=True)
+        assert revision is not None
+        return revision
 
     def mark_awaiting_approval(self, proposal_id: str) -> None:
         with self._connection() as connection:

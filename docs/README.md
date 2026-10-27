@@ -306,6 +306,11 @@ Review and editing:
 - `match_track_selection`
 - `suggest_track_road_candidates`
 - `preview_track_road_edit`
+- `preview_node_create`
+- `preview_poi_polygon_create`
+- `review_poi_polygon_duplicates`
+- `review_node_create_duplicates`
+- `preview_node_tag_edit`
 - `apply_osm_edit`
 - `list_edit_proposals`
 - `verify_osm_edit`

@@ -13,7 +13,7 @@ from .http_client import (
     get_authenticated_client,
     get_public_client,
 )
-from .track_tools import _PROPOSAL_STORE, _verify_diff_results
+from .track_tools import _PROPOSAL_STORE, POI_CREATE_ACTIONS, _verify_diff_results
 from .valhalla import status as valhalla_status
 
 READ_ONLY = ToolAnnotations(
@@ -79,6 +79,9 @@ async def get_edit_capabilities() -> Dict[str, Any]:
             },
             "safe_write_tools": [
                 "preview_node_create",
+                "preview_poi_polygon_create",
+                "review_poi_polygon_duplicates",
+                "review_node_create_duplicates",
                 "preview_node_tag_edit",
                 "preview_track_road_edit",
                 "apply_osm_edit",
@@ -234,9 +237,8 @@ async def verify_osm_edit(proposal_id: str) -> Dict[str, Any]:
         return {"success": False, "error": "Unknown proposal"}
     if proposal.api_target != config.current_api_base_url:
         return {"success": False, "error": "Proposal belongs to a different API target"}
-    if proposal.payload.get("action") == "node_create":
+    if proposal.payload.get("action") in POI_CREATE_ACTIONS:
         from . import track_tools
-        from .node_create_verification import verify_node_create
         from .proposal_store import canonical_digest
 
         if (
@@ -286,7 +288,7 @@ async def verify_osm_edit(proposal_id: str) -> Dict[str, Any]:
                 "status": proposal.status,
             }
         async with get_public_client() as client:
-            verification = await verify_node_create(
+            verification = await track_tools._verify_created_poi(
                 client,
                 proposal.receipt.get("diff_results", []),
                 proposal.payload,
@@ -296,9 +298,10 @@ async def verify_osm_edit(proposal_id: str) -> Dict[str, Any]:
             "success": verification["status"] == "verified",
             "data": {
                 "proposal_id": proposal_id,
-                "node_id": proposal.receipt.get("node_id"),
+                **track_tools._poi_create_identity(
+                    proposal.payload, proposal.receipt.get("diff_results", [])
+                ),
                 "changeset_id": proposal.receipt["changeset_id"],
-                "node_url": proposal.receipt.get("node_url"),
                 "changeset_url": proposal.receipt.get("changeset_url"),
                 "verification": verification,
             },

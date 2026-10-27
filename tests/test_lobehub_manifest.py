@@ -23,7 +23,7 @@ def test_lobehub_owner_metadata_is_release_metadata() -> None:
 
     assert manifest["identifier"] == "pk-osm-edit-mcp"
     assert manifest["name"] == "OSM Edit MCP Server"
-    assert manifest["version"] == __version__ == "0.3.0"
+    assert manifest["version"] == __version__ == "0.4.0"
     assert manifest["author"] == "skywinder"
     assert manifest["authorUrl"] == "https://github.com/skywinder"
     assert manifest["homepage"] == "https://github.com/skywinder/osm-edit-mcp"
@@ -64,6 +64,6 @@ async def test_lobehub_capabilities_match_the_server() -> None:
     assert {prompt["name"] for prompt in manifest_prompts} == {
         prompt.name for prompt in prompts
     }
-    assert len(manifest_tools) == 33
+    assert len(manifest_tools) == 36
     assert len(manifest_resources) == 2
     assert len(manifest_prompts) == 1

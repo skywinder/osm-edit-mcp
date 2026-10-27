@@ -7,6 +7,40 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-28
+
+### Added
+
+- `preview_poi_polygon_create` and `review_poi_polygon_duplicates` for four
+  explicitly supplied corners, four untagged vertices and one closed POI way.
+  Optional isolated-node conversion preserves all tags on the area and removes
+  the inspected point atomically; its version and parentage are rechecked.
+- Polygon duplicate checks measure distances between complete geometries,
+  including crossing edges. Synthetic demo areas are allowed only on the
+  official dev API and must be labelled as synthetic evidence.
+- Exact polygon readback verifies all four vertices, ordered way refs, closure,
+  tags, versions and changeset, plus any source deletion. Ambiguous uploads
+  recover only from an exact changeset download and readback, without retrying.
+
+- `review_node_create_duplicates` records evidence-backed, version-bound decisions
+  in a new proposal revision, atomically superseding the old preview. Distinct
+  objects can be resolved without bypass flags; same/uncertain matches stay blocked.
+- Node previews classify context, possible duplicates and likely duplicates using
+  explicit POI types, sport lists, geometry distance, names and contacts. Pools and
+  resorts no longer block pitches merely because they share `leisure`.
+- Duplicate review maps distinguish context, suspicions and resolved matches,
+  with reasons, evidence and existing-object OSM links. Responses explicitly
+  distinguish the internal MCP preview resource from an unavailable web page.
+
+### Security
+
+- Require patched MCP SDK 1.30.0 and Authlib 1.9.1, and refresh the certificate
+  bundle to certifi 2026.10.23. Keep the MCP SDK below 2 for the existing stdio
+  and elicitation interfaces.
+- Recheck reviewed context and candidate versions before node creation; changes
+  and incomplete searches require a fresh review. Final host approval binds the
+  revision and duplicate decisions; superseded or expired proposals cannot upload.
+
 ## [0.3.0] - 2026-10-10
 
 ### Added

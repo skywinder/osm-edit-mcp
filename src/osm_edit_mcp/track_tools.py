@@ -39,6 +39,7 @@ from .valhalla import match_track as valhalla_match_track
 from .write_tools import close_changeset
 
 Point = Tuple[float, float]  # (lat, lon)
+POI_CREATE_ACTIONS = frozenset({"node_create", "polygon_create"})
 MAX_WAY_NODES_FALLBACK = 2_000
 MAX_CHANGESET_ELEMENTS_FALLBACK = 10_000
 DEFAULT_SIMPLIFY_TOLERANCE_M = 3.0
@@ -1183,33 +1184,60 @@ async def match_track_selection(
         )
 
 
-def _map_preview_html(title: str, layers: Dict[str, Dict[str, Any]]) -> str:
+def _map_preview_html(
+    title: str, layers: Dict[str, Dict[str, Any]], details: str = ""
+) -> str:
     """Render a dependency-free review map for MCP resource-capable hosts."""
     serialized = json.dumps(layers, ensure_ascii=False).replace("</", "<\\/")
+    colors = {
+        "current": "#637381",
+        "proposed": "#e53935",
+        "selected": "#e53935",
+        "suspected": "#ef8c00",
+        "dismissed": "#238636",
+        "replaced": "#8957e5",
+    }
+    labels = {
+        "current": "Current / nearby context",
+        "proposed": "Proposed point/edit",
+        "selected": "Selected",
+        "suspected": "Suspected duplicates",
+        "dismissed": "Reviewed as distinct",
+        "replaced": "Source point replaced by polygon",
+    }
+    legend = "".join(
+        f'<span><i class="swatch" style="background:{colors[name]}"></i>{labels[name]}</span>'
+        for name in layers
+    )
     return f"""<!doctype html>
 <html><head><meta charset="utf-8"><title>{html.escape(title)}</title>
 <style>
 body {{ margin:0; font:14px system-ui; background:#101418; color:#eef2f5; }}
 header {{ padding:12px 16px; background:#182028; }}
 canvas {{ width:100%; height:70vh; display:block; background:#e8eee4; }}
+a {{ color:#80c7ff; }}
 .legend {{ padding:10px 16px; display:flex; gap:18px; }}
 .swatch {{ display:inline-block; width:18px; height:4px; margin-right:6px; }}
+section {{ padding:12px 16px; overflow-wrap:anywhere; }}
+pre {{ white-space:pre-wrap; }}
 </style></head><body><header><strong>{html.escape(title)}</strong><br>
 Review the exact geometry and warnings in the tool result before approval.</header>
 <canvas id="map" width="1200" height="760"></canvas>
-<div class="legend"><span><i class="swatch" style="background:#637381"></i>Current</span>
-<span><i class="swatch" style="background:#e53935"></i>Proposed/selected</span></div>
+<div class="legend">{legend}</div>{details}
 <script>
 const layers={serialized}; const canvas=document.getElementById('map');
+const colors={json.dumps(colors)};
 const ctx=canvas.getContext('2d'); const lines=[], dots=[];
-function geometry(name,g) {{
- if(g.type==='Point') dots.push([name,g.coordinates]);
- else if(g.type==='LineString') lines.push([name,g.coordinates]);
- else if(g.type==='Polygon') for(const ring of g.coordinates) lines.push([name,ring]);
- else if(g.type==='GeometryCollection') for(const child of g.geometries) geometry(name,child);
+function geometry(name,g,label) {{
+ if(g.type==='Point') dots.push([name,g.coordinates,label]);
+ else if(g.type==='LineString') lines.push([name,g.coordinates,label]);
+ else if(g.type==='Polygon') for(const ring of g.coordinates) lines.push([name,ring,label]);
+ else if(g.type==='GeometryCollection') for(const child of g.geometries) geometry(name,child,label);
 }}
 for (const [name,fc] of Object.entries(layers)) for (const f of (fc.features||[])) {{
- geometry(name,f.geometry||{{}});
+ const p=f.properties||{{}};
+ const label=p.review_state==='proposed'?'New POI':p.type&&p.id?`${{p.type}}/${{p.id}}`:'';
+ geometry(name,f.geometry||{{}},label);
 }}
 const pts=[...lines.flatMap(x=>x[1]),...dots.map(x=>x[1])];
 if(pts.length) {{
@@ -1219,10 +1247,15 @@ if(pts.length) {{
  if(maxY===minY) {{ minY-=0.0005; maxY+=0.0005; }}
  const sx=(canvas.width-80)/Math.max(maxX-minX,1e-9), sy=(canvas.height-80)/Math.max(maxY-minY,1e-9);
  const scale=Math.min(sx,sy); const project=p=>[40+(p[0]-minX)*scale,canvas.height-40-(p[1]-minY)*scale];
- for(const [name,line] of lines) {{ ctx.beginPath(); ctx.strokeStyle=name==='current'?'#637381':'#e53935';
+ function labelAt(label,p) {{ if(!label) return; const q=project(p); ctx.font='16px system-ui';
+ ctx.lineWidth=3; ctx.strokeStyle='#fff'; ctx.strokeText(label,q[0]+10,q[1]-10);
+ ctx.fillStyle='#182028'; ctx.fillText(label,q[0]+10,q[1]-10); }}
+ for(const [name,line,label] of lines) {{ ctx.beginPath(); ctx.strokeStyle=colors[name];
  ctx.lineWidth=name==='current'?7:4; line.forEach((p,i)=>{{const q=project(p); i?ctx.lineTo(...q):ctx.moveTo(...q)}}); ctx.stroke(); }}
- for(const [name,point] of dots) {{ const q=project(point); ctx.beginPath();
- ctx.fillStyle=name==='current'?'#637381':'#e53935'; ctx.arc(...q,8,0,2*Math.PI); ctx.fill(); }}
+ for(const [name,line,label] of lines) labelAt(label,line[0]);
+ for(const [name,point,label] of dots) {{ const q=project(point); ctx.beginPath();
+ ctx.fillStyle=colors[name]; ctx.arc(...q,8,0,2*Math.PI); ctx.fill(); }}
+ for(const [name,point,label] of dots) labelAt(label,point);
 }}
 </script></body></html>"""
 
@@ -1256,6 +1289,67 @@ def proposal_preview_resource(proposal_id: str) -> str:
     if proposal is None:
         raise ValueError("Unknown or expired proposal")
     review = proposal.payload.get("_review", {})
+    if proposal.payload.get("action") in POI_CREATE_ACTIONS:
+        stored = _PROPOSAL_STORE.get(proposal_id)
+        if stored is None:
+            raise ValueError("Unknown or expired proposal")
+        layers = {
+            "current": _feature_collection([]),
+            "suspected": _feature_collection([]),
+            "dismissed": _feature_collection([]),
+            "replaced": _feature_collection([]),
+            "proposed": review.get("proposed_geojson", _feature_collection([])),
+        }
+        rows = []
+        for feature in review.get("current_geojson", {}).get("features", []):
+            candidate = feature["properties"]
+            decision = candidate.get("review_decision", {})
+            layer = (
+                "replaced"
+                if candidate.get("replacement_source")
+                else (
+                    "dismissed"
+                    if decision.get("decision") == "distinct_object"
+                    else "suspected" if candidate["blocking"] else "current"
+                )
+            )
+            layers[layer]["features"].append(feature)
+            label = f"{candidate['type']}/{candidate['id']} v{candidate['version']}"
+            explanation = "; ".join(candidate["reasons"])
+            if decision:
+                explanation += f"; {decision['decision']}: {decision['reason']} (source: {decision['evidence_source']})"
+            rows.append(
+                f'<li style="border-left:4px solid {dict(current="#637381", suspected="#ef8c00", dismissed="#238636", replaced="#8957e5")[layer]};padding-left:8px">'
+                f'<a href="{html.escape(candidate["osm_url"], quote=True)}" rel="noreferrer">{html.escape(label)}</a>: '
+                f'{html.escape(candidate["classification"])} — {html.escape(explanation)}'
+                f'<pre>{html.escape(json.dumps(candidate["tags"], ensure_ascii=False, sort_keys=True))}</pre></li>'
+            )
+        proposed_label = (
+            "Proposed polygon"
+            if proposal.payload.get("action") == "polygon_create"
+            else "Proposed point"
+        )
+        reviewed_operations = {
+            "create_nodes": proposal.payload["create_nodes"],
+            "create_ways": proposal.payload["create_ways"],
+            "delete_nodes": proposal.payload["delete_nodes"],
+        }
+        warning_html = "".join(
+            f"<p>{html.escape(warning)}</p>"
+            for warning in proposal.payload.get("warnings", [])
+        )
+        details = (
+            f"<section><p>Status: {html.escape(stored.status)}. SHA-256: {html.escape(stored.digest)}</p>"
+            f"<h2>{proposed_label}</h2><pre>{html.escape(json.dumps(reviewed_operations, ensure_ascii=False, indent=2))}</pre>{warning_html}"
+            "<h2>Existing objects and review decisions</h2>"
+            + "<ul>"
+            + "".join(rows)
+            + "</ul>"
+        )
+        if stored.status == "SUPERSEDED":
+            details += f"<p>Replaced by proposal {html.escape(stored.payload['_superseded_by'])}. This revision cannot be applied.</p>"
+        details += "</section>"
+        return _map_preview_html(f"OSM POI proposal {proposal_id}", layers, details)
     return _map_preview_html(
         f"OSM proposal {proposal_id}",
         {
@@ -2413,7 +2507,11 @@ def _build_osm_change(payload: Dict[str, Any], changeset_id: int) -> str:
             _append_tags(element, way["tags"])
 
     if payload["delete_nodes"]:
-        delete = ET.SubElement(root, "delete", {"if-unused": "true"})
+        delete = ET.SubElement(
+            root,
+            "delete",
+            {} if payload.get("action") == "polygon_create" else {"if-unused": "true"},
+        )
         for node in payload["delete_nodes"]:
             ET.SubElement(
                 delete,
@@ -2446,10 +2544,15 @@ def _parse_diff_result(xml_text: str) -> List[Dict[str, Any]]:
 
 
 async def _validate_proposal_versions(client: Any, payload: Dict[str, Any]) -> None:
-    if payload.get("action") == "node_create":
-        from .node_tools import validate_node_create_context
+    if payload.get("action") in POI_CREATE_ACTIONS:
+        if payload.get("action") == "polygon_create":
+            from .polygon_tools import validate_polygon_context
 
-        await validate_node_create_context(client, payload)
+            await validate_polygon_context(client, payload)
+        else:
+            from .node_tools import validate_node_create_context
+
+            await validate_node_create_context(client, payload)
         return
     modified_nodes = payload.get("modify_nodes", [])
     if modified_nodes or payload.get("action") == "node_tag_update":
@@ -2745,10 +2848,10 @@ async def _apply_osm_edit_internal(
             "The reviewed proposal changed; review a fresh preview",
         )
     payload = proposal.payload
-    if payload.get("action") == "node_create" and changeset_id is not None:
+    if payload.get("action") in POI_CREATE_ACTIONS and changeset_id is not None:
         return _failure(
             "Dedicated changeset required",
-            "Node creation uses its own changeset for unambiguous recovery",
+            "POI creation uses its own changeset for unambiguous recovery",
         )
     if payload.get("blocking_issues"):
         return _failure(
@@ -2810,15 +2913,13 @@ async def _apply_osm_edit_internal(
                 )
             upload_confirmed = True
             diff_results = _parse_diff_result(response.text)
-            if payload.get("action") == "node_create":
-                from .node_create_verification import verify_node_create
-
-                verification = await verify_node_create(
+            if payload.get("action") in POI_CREATE_ACTIONS:
+                verification = await _verify_created_poi(
                     client, diff_results, payload, int(active_changeset_id)
                 )
                 if verification["status"] != "verified":
                     raise RuntimeError(
-                        "Created node could not be verified; reconcile before any retry"
+                        "Created POI geometry could not be verified; reconcile before any retry"
                     )
             elif payload.get("modify_nodes"):
                 verification = await _verify_diff_results(
@@ -2849,11 +2950,8 @@ async def _apply_osm_edit_internal(
             "changeset_closed": changeset_closed,
             "summary": payload["summary"],
         }
-        if payload.get("action") == "node_create":
-            receipt["node_id"] = diff_results[0]["new_id"]
-            receipt["node_url"] = (
-                f"{config.current_web_base_url}/node/{receipt['node_id']}"
-            )
+        if payload.get("action") in POI_CREATE_ACTIONS:
+            receipt.update(_poi_create_identity(payload, diff_results))
         _PROPOSAL_STORE.finish(proposal_id, "APPLIED", receipt=receipt)
         proposal.status = "APPLIED"
         return {
@@ -2872,13 +2970,13 @@ async def _apply_osm_edit_internal(
             upload_started
             and (
                 isinstance(exc, httpx.TransportError)
-                or payload.get("action") == "node_create"
+                or payload.get("action") in POI_CREATE_ACTIONS
             )
         )
         status = "RECONCILE_REQUIRED" if is_ambiguous_upload else "FAILED"
         reconciliation: Optional[Dict[str, Any]] = None
         if is_ambiguous_upload and active_changeset_id is not None:
-            if payload.get("action") == "node_create":
+            if payload.get("action") in POI_CREATE_ACTIONS:
                 reconciliation = await _reconcile_created_node(
                     proposal, int(active_changeset_id)
                 )
@@ -2908,21 +3006,10 @@ async def _apply_osm_edit_internal(
             ),
             "reconciliation": reconciliation,
         }
-        if payload.get("action") == "node_create" and upload_confirmed:
+        if payload.get("action") in POI_CREATE_ACTIONS and upload_confirmed:
             pending_receipt["diff_results"] = diff_results
             pending_receipt["verification"] = verification
-            if (
-                len(diff_results) == 1
-                and diff_results[0].get("type") == "node"
-                and diff_results[0].get("old_id") == -1
-                and diff_results[0].get("new_version") == 1
-                and type(diff_results[0].get("new_id")) is int
-                and diff_results[0]["new_id"] > 0
-            ):
-                pending_receipt["node_id"] = diff_results[0]["new_id"]
-                pending_receipt["node_url"] = (
-                    f"{config.current_web_base_url}/node/{pending_receipt['node_id']}"
-                )
+            pending_receipt.update(_poi_create_identity(payload, diff_results))
         try:
             _PROPOSAL_STORE.finish(
                 proposal_id,
@@ -2951,6 +3038,53 @@ async def _apply_osm_edit_internal(
         )
 
 
+async def _verify_created_poi(
+    client: Any,
+    diff_results: Sequence[Dict[str, Any]],
+    payload: Dict[str, Any],
+    changeset_id: int,
+) -> Dict[str, Any]:
+    if payload.get("action") == "polygon_create":
+        from .polygon_verification import verify_polygon_create
+
+        return await verify_polygon_create(client, diff_results, payload, changeset_id)
+    from .node_create_verification import verify_node_create
+
+    return await verify_node_create(client, diff_results, payload, changeset_id)
+
+
+def _poi_create_identity(
+    payload: Dict[str, Any], diff: Sequence[Dict[str, Any]]
+) -> Dict[str, Any]:
+    kind = "way" if payload.get("action") == "polygon_create" else "node"
+    expected = payload["create_ways"][0]["id"] if kind == "way" else -1
+    matches = [
+        item
+        for item in diff
+        if item.get("type") == kind
+        and item.get("old_id") == expected
+        and type(item.get("new_id")) is int
+        and item["new_id"] > 0
+        and item.get("new_version") == 1
+    ]
+    if len(matches) != 1:
+        return {}
+    identifier = matches[0]["new_id"]
+    result = {
+        f"{kind}_id": identifier,
+        f"{kind}_url": f"{config.current_web_base_url}/{kind}/{identifier}",
+    }
+    if kind == "way":
+        result["corner_node_ids"] = [
+            item["new_id"]
+            for node in payload["create_nodes"]
+            for item in diff
+            if item.get("type") == "node" and item.get("old_id") == node["id"]
+        ]
+        result["replaced_node_id"] = (payload.get("replacement") or {}).get("id")
+    return result
+
+
 async def _reconcile_created_node(
     proposal: Proposal,
     changeset_id: int,
@@ -2972,9 +3106,7 @@ async def _reconcile_created_node(
             if int(identity["user_id"]) != proposal.osm_uid:
                 raise ValueError("Proposal belongs to a different OSM account")
             if known_diff:
-                from .node_create_verification import verify_node_create
-
-                verification = await verify_node_create(
+                verification = await _verify_created_poi(
                     client, known_diff, proposal.payload, changeset_id
                 )
                 if verification["status"] == "verified":
@@ -2982,8 +3114,18 @@ async def _reconcile_created_node(
                         "status": "reconciled",
                         "diff_results": list(known_diff),
                         "verification": verification,
-                        "evidence": "confirmed upload mapping and exact node readback",
+                        "evidence": (
+                            "confirmed upload mapping and exact polygon readback"
+                            if proposal.payload.get("action") == "polygon_create"
+                            else "confirmed upload mapping and exact node readback"
+                        ),
                     }
+            if proposal.payload.get("action") == "polygon_create":
+                from .polygon_verification import reconcile_polygon_create
+
+                return await reconcile_polygon_create(
+                    client, proposal.payload, changeset_id
+                )
             return await reconcile_node_create(client, proposal.payload, changeset_id)
     except Exception as exc:
         return {"status": "unresolved", "error": describe_exception(exc)}
@@ -2992,7 +3134,6 @@ async def _reconcile_created_node(
 def _node_create_receipt(
     proposal: Proposal, changeset_id: int, reconciliation: Dict[str, Any]
 ) -> Dict[str, Any]:
-    node_id = reconciliation["diff_results"][0]["new_id"]
     return {
         "proposal_id": proposal.proposal_id,
         "proposal_digest": proposal.digest,
@@ -3000,8 +3141,7 @@ def _node_create_receipt(
         "osm_uid": proposal.osm_uid,
         "changeset_id": changeset_id,
         "changeset_url": f"{config.current_web_base_url}/changeset/{changeset_id}",
-        "node_id": node_id,
-        "node_url": f"{config.current_web_base_url}/node/{node_id}",
+        **_poi_create_identity(proposal.payload, reconciliation["diff_results"]),
         "diff_results": reconciliation["diff_results"],
         "verification": reconciliation["verification"],
         "reconciliation": reconciliation,
@@ -3086,14 +3226,19 @@ async def apply_osm_edit(
         != proposal_digest
     ):
         return _failure("Proposal digest mismatch", "Stored proposal content changed")
-    if proposal.payload.get("action") == "node_create":
+    if proposal.payload.get("action") in POI_CREATE_ACTIONS:
         stored = _PROPOSAL_STORE.get(proposal_id, include_expired=True)
         if stored is None or stored.status == "EXPIRED":
             return _failure("Unknown or expired proposal", "Create a fresh preview")
         proposal.status = stored.status
+        if stored.status not in {"PREVIEWED", "AWAITING_APPROVAL", "APPLIED"}:
+            return _failure(
+                "Proposal is unavailable",
+                f"Proposal is {stored.status.lower()}; review the current revision",
+            )
         if changeset_id is not None:
             return _failure(
-                "Dedicated changeset required", "Omit changeset_id for node creation"
+                "Dedicated changeset required", "Omit changeset_id for POI creation"
             )
         if proposal.payload.get("blocking_issues"):
             return _failure(
@@ -3108,7 +3253,7 @@ async def apply_osm_edit(
     if (
         config.osm_require_host_confirmation
         or not config.is_development_api
-        or proposal.payload.get("action") == "node_create"
+        or proposal.payload.get("action") in POI_CREATE_ACTIONS
     ):
         confirmation_failure = await _request_host_confirmation(proposal, context)
         if confirmation_failure is not None:
