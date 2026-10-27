@@ -1,7 +1,7 @@
 {
   "author": "skywinder",
   "authorUrl": "https://github.com/skywinder",
-  "description": "Review-first MCP server for turning selected local GPX surveys into previewed, version-checked OpenStreetMap road edits.",
+  "description": "Review-first MCP server for safe OpenStreetMap POI nodes and four-sided polygons, duplicate review, and road edits from local GPX surveys.",
   "homepage": "https://github.com/skywinder/osm-edit-mcp",
   "identifier": "pk-osm-edit-mcp",
   "name": "OSM Edit MCP Server",
@@ -3092,7 +3092,7 @@
       }
     }
   ],
-  "version": "0.3.0",
+  "version": "0.4.0",
   "category": "tools",
   "tags": [
     "mcp",

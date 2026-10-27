@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-28
+
 ### Added
 
 - `preview_poi_polygon_create` and `review_poi_polygon_duplicates` for four
@@ -32,6 +34,9 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
+- Require patched MCP SDK 1.30.0 and Authlib 1.9.1, and refresh the certificate
+  bundle to certifi 2026.10.23. Keep the MCP SDK below 2 for the existing stdio
+  and elicitation interfaces.
 - Recheck reviewed context and candidate versions before node creation; changes
   and incomplete searches require a fresh review. Final host approval binds the
   revision and duplicate decisions; superseded or expired proposals cannot upload.

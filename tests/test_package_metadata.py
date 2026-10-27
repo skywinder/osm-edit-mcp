@@ -23,7 +23,7 @@ def _project_metadata() -> dict[str, Any]:
 def test_distribution_and_runtime_versions_match_pyproject() -> None:
     project = _project_metadata()
 
-    assert project["version"] == "0.3.0"
+    assert project["version"] == "0.4.0"
     assert version(project["name"]) == project["version"]
     assert __version__ == project["version"]
 
@@ -34,7 +34,7 @@ def test_release_metadata_and_entrypoint_are_canonical() -> None:
     assert project["authors"] == [{"name": "skywinder"}]
     assert project["scripts"] == {"osm-edit-mcp": "osm_edit_mcp.server:main"}
     assert any(
-        dependency.startswith("mcp>=1.29.1") and "<2" in dependency
+        dependency.startswith("mcp>=1.30.0") and "<2" in dependency
         for dependency in project["dependencies"]
     )
     assert not (ROOT / "setup.py").exists()

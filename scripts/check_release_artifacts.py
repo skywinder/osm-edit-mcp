@@ -30,6 +30,11 @@ SQLITE_TRANSIENT_SUFFIXES = {"-journal", "-shm", "-wal"}
 EXPECTED_WHEEL_FILES = {
     "osm_edit_mcp/_version.py",
     "osm_edit_mcp/config.py",
+    "osm_edit_mcp/node_tools.py",
+    "osm_edit_mcp/node_create_verification.py",
+    "osm_edit_mcp/poi_duplicates.py",
+    "osm_edit_mcp/polygon_tools.py",
+    "osm_edit_mcp/polygon_verification.py",
     "osm_edit_mcp/server.py",
     "osm_edit_mcp/track_tools.py",
 }
@@ -93,9 +98,7 @@ def relative_archive_names(names: set[str]) -> set[str]:
     if len(roots) != 1:
         return populated
     root = roots.pop()
-    return {
-        name.removeprefix(f"{root}/") for name in populated if name != root
-    }
+    return {name.removeprefix(f"{root}/") for name in populated if name != root}
 
 
 def validate_wheel(wheel: Path, project: dict[str, Any]) -> None:
