@@ -12,7 +12,9 @@ through an MCP-compatible assistant.
 **Alpha, review-first:** nothing is edited automatically. Road changes need an
 authenticated OSM account, an exact preview and separate confirmation.
 The safe profile also supports [reviewed POI node creation](docs/reviewed-node-creation.md)
-with duplicate inspection and exact coordinate/tag readback.
+with duplicate inspection and exact coordinate/tag readback. False matches can
+be resolved with evidence in `review_node_create_duplicates`; its new proposal
+revision still requires separate user confirmation before upload.
 
 ## Fastest start
 

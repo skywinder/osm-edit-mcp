@@ -52,6 +52,46 @@ def test_proposal_claim_is_atomic_and_idempotent(tmp_path):
     assert repeated.receipt == receipt
 
 
+def test_revision_and_upload_claim_compete_atomically(tmp_path):
+    store = ProposalStore(tmp_path / "proposals.sqlite3")
+    parent = store.create(
+        "parent", _payload(), "https://api.example.test/api/0.6", 7, 1800
+    )
+
+    def claim():
+        try:
+            store.claim(parent.proposal_id, parent.digest, parent.api_target, 7)
+            return "claimed"
+        except ProposalStoreError:
+            return "blocked"
+
+    def revise():
+        try:
+            store.supersede_preview(
+                parent.proposal_id,
+                parent.digest,
+                "revision",
+                _payload(),
+                parent.api_target,
+                7,
+                1800,
+            )
+            return "revised"
+        except ProposalStoreError:
+            return "blocked"
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(lambda operation: operation(), [claim, revise]))
+
+    assert results.count("blocked") == 1
+    if "revised" in results:
+        assert store.get("parent").status == "SUPERSEDED"
+        assert store.get("revision").status == "PREVIEWED"
+    else:
+        assert store.get("parent").status == "APPLYING"
+        assert store.get("revision") is None
+
+
 @pytest.mark.parametrize(
     ("digest", "api_target", "uid", "message"),
     [

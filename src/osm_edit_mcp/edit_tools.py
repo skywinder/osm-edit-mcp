@@ -79,6 +79,7 @@ async def get_edit_capabilities() -> Dict[str, Any]:
             },
             "safe_write_tools": [
                 "preview_node_create",
+                "review_node_create_duplicates",
                 "preview_node_tag_edit",
                 "preview_track_road_edit",
                 "apply_osm_edit",

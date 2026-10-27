@@ -269,6 +269,7 @@ async def get_server_info() -> Dict[str, Any]:
                     "suggest_track_road_candidates",
                     "preview_node_tag_edit",
                     "preview_node_create",
+                    "review_node_create_duplicates",
                     "preview_track_road_edit",
                     "apply_osm_edit",
                     "list_edit_proposals",

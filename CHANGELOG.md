@@ -7,6 +7,24 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `review_node_create_duplicates` records evidence-backed, version-bound decisions
+  in a new proposal revision, atomically superseding the old preview. Distinct
+  objects can be resolved without bypass flags; same/uncertain matches stay blocked.
+- Node previews classify context, possible duplicates and likely duplicates using
+  explicit POI types, sport lists, geometry distance, names and contacts. Pools and
+  resorts no longer block pitches merely because they share `leisure`.
+- Duplicate review maps distinguish context, suspicions and resolved matches,
+  with reasons, evidence and existing-object OSM links. Responses explicitly
+  distinguish the internal MCP preview resource from an unavailable web page.
+
+### Security
+
+- Recheck reviewed context and candidate versions before node creation; changes
+  and incomplete searches require a fresh review. Final host approval binds the
+  revision and duplicate decisions; superseded or expired proposals cannot upload.
+
 ## [0.3.0] - 2026-10-10
 
 ### Added

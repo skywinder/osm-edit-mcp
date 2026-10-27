@@ -2689,7 +2689,7 @@
     },
     {
       "name": "preview_node_create",
-      "description": "Preview one new POI without writing to OSM.\n\nCoordinates must be finite, in range and exact at OSM's seven decimal\nplaces. Supply 1..20 nonempty string tags including an explicit POI\nclassification and the actual independent evidence source. Requires\nverified OAuth/write_api. Searches the configured OSM API within about\n100m; same-family POIs and retail areas containing the new shop block apply\nuntil fresh inspection\nresolves it. Failed or incomplete searches never establish absence.\nReview the exact geometry, tags, diff and full SHA-256 digest before a\nlater apply_osm_edit and separate genuine MCP-host user elicitation.\n",
+      "description": "Preview one new POI without writing to OSM.\n\nCoordinates must be finite, in range and exact at OSM's seven decimal\nplaces. Supply 1..20 nonempty string tags including an explicit POI\nclassification and the actual independent evidence source. Requires\nverified OAuth/write_api. Searches the configured OSM API within about\n100m; classifies nearby geometry by explicit POI type, sport, distance\nand identity signals. Blocking candidates need review_node_create_duplicates.\nThat tool creates a new digest; it never uploads or approves a write.\nFailed or incomplete searches never establish absence.\nReview the exact geometry, tags, diff and full SHA-256 digest before a\nlater apply_osm_edit and separate genuine MCP-host user elicitation.\n",
       "inputSchema": {
         "properties": {
           "latitude": {
@@ -2752,6 +2752,110 @@
           "result"
         ],
         "title": "preview_node_createOutput",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "review_node_create_duplicates",
+      "description": "Review every blocking candidate and return a new node-create revision.\n\nDecisions bind exact candidate type, ID and expected_version. Every decision\nrequires a reason and independent evidence_source. distinct_object resolves\nthat match; same_object requires editing the existing object; uncertain\nstays blocked. Unknown candidates, omitted blockers and changed versions\nare rejected. This only stores a preview: review the new complete digest,\nthen obtain separate user confirmation through apply_osm_edit. No OSM write\nor user approval occurs here. Superseded proposals cannot be applied.\n",
+      "inputSchema": {
+        "$defs": {
+          "DuplicateDecision": {
+            "additionalProperties": false,
+            "description": "An evidence-backed decision about one exact candidate version.",
+            "properties": {
+              "osm_type": {
+                "enum": [
+                  "node",
+                  "way",
+                  "relation"
+                ],
+                "title": "Osm Type",
+                "type": "string"
+              },
+              "osm_id": {
+                "exclusiveMinimum": 0,
+                "title": "Osm Id",
+                "type": "integer"
+              },
+              "expected_version": {
+                "exclusiveMinimum": 0,
+                "title": "Expected Version",
+                "type": "integer"
+              },
+              "decision": {
+                "enum": [
+                  "distinct_object",
+                  "same_object",
+                  "uncertain"
+                ],
+                "title": "Decision",
+                "type": "string"
+              },
+              "reason": {
+                "title": "Reason",
+                "type": "string"
+              },
+              "evidence_source": {
+                "title": "Evidence Source",
+                "type": "string"
+              }
+            },
+            "required": [
+              "osm_type",
+              "osm_id",
+              "expected_version",
+              "decision",
+              "reason",
+              "evidence_source"
+            ],
+            "title": "DuplicateDecision",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "proposal_id": {
+            "title": "Proposal Id",
+            "type": "string"
+          },
+          "proposal_digest": {
+            "title": "Proposal Digest",
+            "type": "string"
+          },
+          "decisions": {
+            "items": {
+              "$ref": "#/$defs/DuplicateDecision"
+            },
+            "title": "Decisions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "proposal_id",
+          "proposal_digest",
+          "decisions"
+        ],
+        "title": "review_node_create_duplicatesArguments",
+        "type": "object"
+      },
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "review_node_create_duplicatesOutput",
         "type": "object"
       },
       "annotations": {

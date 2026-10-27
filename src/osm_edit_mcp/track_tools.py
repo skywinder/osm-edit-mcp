@@ -1183,33 +1183,58 @@ async def match_track_selection(
         )
 
 
-def _map_preview_html(title: str, layers: Dict[str, Dict[str, Any]]) -> str:
+def _map_preview_html(
+    title: str, layers: Dict[str, Dict[str, Any]], details: str = ""
+) -> str:
     """Render a dependency-free review map for MCP resource-capable hosts."""
     serialized = json.dumps(layers, ensure_ascii=False).replace("</", "<\\/")
+    colors = {
+        "current": "#637381",
+        "proposed": "#e53935",
+        "selected": "#e53935",
+        "suspected": "#ef8c00",
+        "dismissed": "#238636",
+    }
+    labels = {
+        "current": "Current / nearby context",
+        "proposed": "Proposed point/edit",
+        "selected": "Selected",
+        "suspected": "Suspected duplicates",
+        "dismissed": "Reviewed as distinct",
+    }
+    legend = "".join(
+        f'<span><i class="swatch" style="background:{colors[name]}"></i>{labels[name]}</span>'
+        for name in layers
+    )
     return f"""<!doctype html>
 <html><head><meta charset="utf-8"><title>{html.escape(title)}</title>
 <style>
 body {{ margin:0; font:14px system-ui; background:#101418; color:#eef2f5; }}
 header {{ padding:12px 16px; background:#182028; }}
 canvas {{ width:100%; height:70vh; display:block; background:#e8eee4; }}
+a {{ color:#80c7ff; }}
 .legend {{ padding:10px 16px; display:flex; gap:18px; }}
 .swatch {{ display:inline-block; width:18px; height:4px; margin-right:6px; }}
+section {{ padding:12px 16px; overflow-wrap:anywhere; }}
+pre {{ white-space:pre-wrap; }}
 </style></head><body><header><strong>{html.escape(title)}</strong><br>
 Review the exact geometry and warnings in the tool result before approval.</header>
 <canvas id="map" width="1200" height="760"></canvas>
-<div class="legend"><span><i class="swatch" style="background:#637381"></i>Current</span>
-<span><i class="swatch" style="background:#e53935"></i>Proposed/selected</span></div>
+<div class="legend">{legend}</div>{details}
 <script>
 const layers={serialized}; const canvas=document.getElementById('map');
+const colors={json.dumps(colors)};
 const ctx=canvas.getContext('2d'); const lines=[], dots=[];
-function geometry(name,g) {{
- if(g.type==='Point') dots.push([name,g.coordinates]);
- else if(g.type==='LineString') lines.push([name,g.coordinates]);
- else if(g.type==='Polygon') for(const ring of g.coordinates) lines.push([name,ring]);
- else if(g.type==='GeometryCollection') for(const child of g.geometries) geometry(name,child);
+function geometry(name,g,label) {{
+ if(g.type==='Point') dots.push([name,g.coordinates,label]);
+ else if(g.type==='LineString') lines.push([name,g.coordinates,label]);
+ else if(g.type==='Polygon') for(const ring of g.coordinates) lines.push([name,ring,label]);
+ else if(g.type==='GeometryCollection') for(const child of g.geometries) geometry(name,child,label);
 }}
 for (const [name,fc] of Object.entries(layers)) for (const f of (fc.features||[])) {{
- geometry(name,f.geometry||{{}});
+ const p=f.properties||{{}};
+ const label=p.review_state==='proposed'?'New POI':p.type&&p.id?`${{p.type}}/${{p.id}}`:'';
+ geometry(name,f.geometry||{{}},label);
 }}
 const pts=[...lines.flatMap(x=>x[1]),...dots.map(x=>x[1])];
 if(pts.length) {{
@@ -1219,10 +1244,15 @@ if(pts.length) {{
  if(maxY===minY) {{ minY-=0.0005; maxY+=0.0005; }}
  const sx=(canvas.width-80)/Math.max(maxX-minX,1e-9), sy=(canvas.height-80)/Math.max(maxY-minY,1e-9);
  const scale=Math.min(sx,sy); const project=p=>[40+(p[0]-minX)*scale,canvas.height-40-(p[1]-minY)*scale];
- for(const [name,line] of lines) {{ ctx.beginPath(); ctx.strokeStyle=name==='current'?'#637381':'#e53935';
+ function labelAt(label,p) {{ if(!label) return; const q=project(p); ctx.font='16px system-ui';
+ ctx.lineWidth=3; ctx.strokeStyle='#fff'; ctx.strokeText(label,q[0]+10,q[1]-10);
+ ctx.fillStyle='#182028'; ctx.fillText(label,q[0]+10,q[1]-10); }}
+ for(const [name,line,label] of lines) {{ ctx.beginPath(); ctx.strokeStyle=colors[name];
  ctx.lineWidth=name==='current'?7:4; line.forEach((p,i)=>{{const q=project(p); i?ctx.lineTo(...q):ctx.moveTo(...q)}}); ctx.stroke(); }}
- for(const [name,point] of dots) {{ const q=project(point); ctx.beginPath();
- ctx.fillStyle=name==='current'?'#637381':'#e53935'; ctx.arc(...q,8,0,2*Math.PI); ctx.fill(); }}
+ for(const [name,line,label] of lines) labelAt(label,line[0]);
+ for(const [name,point,label] of dots) {{ const q=project(point); ctx.beginPath();
+ ctx.fillStyle=colors[name]; ctx.arc(...q,8,0,2*Math.PI); ctx.fill(); }}
+ for(const [name,point,label] of dots) labelAt(label,point);
 }}
 </script></body></html>"""
 
@@ -1256,6 +1286,48 @@ def proposal_preview_resource(proposal_id: str) -> str:
     if proposal is None:
         raise ValueError("Unknown or expired proposal")
     review = proposal.payload.get("_review", {})
+    if proposal.payload.get("action") == "node_create":
+        stored = _PROPOSAL_STORE.get(proposal_id)
+        if stored is None:
+            raise ValueError("Unknown or expired proposal")
+        layers = {
+            "current": _feature_collection([]),
+            "suspected": _feature_collection([]),
+            "dismissed": _feature_collection([]),
+            "proposed": review.get("proposed_geojson", _feature_collection([])),
+        }
+        rows = []
+        for feature in review.get("current_geojson", {}).get("features", []):
+            candidate = feature["properties"]
+            decision = candidate.get("review_decision", {})
+            layer = (
+                "dismissed"
+                if decision.get("decision") == "distinct_object"
+                else "suspected" if candidate["blocking"] else "current"
+            )
+            layers[layer]["features"].append(feature)
+            label = f"{candidate['type']}/{candidate['id']} v{candidate['version']}"
+            explanation = "; ".join(candidate["reasons"])
+            if decision:
+                explanation += f"; {decision['decision']}: {decision['reason']} (source: {decision['evidence_source']})"
+            rows.append(
+                f'<li style="border-left:4px solid {dict(current="#637381", suspected="#ef8c00", dismissed="#238636")[layer]};padding-left:8px">'
+                f'<a href="{html.escape(candidate["osm_url"], quote=True)}" rel="noreferrer">{html.escape(label)}</a>: '
+                f'{html.escape(candidate["classification"])} — {html.escape(explanation)}'
+                f'<pre>{html.escape(json.dumps(candidate["tags"], ensure_ascii=False, sort_keys=True))}</pre></li>'
+            )
+        details = (
+            f"<section><p>Status: {html.escape(stored.status)}. SHA-256: {html.escape(stored.digest)}</p>"
+            f'<h2>Proposed point</h2><pre>{html.escape(json.dumps(proposal.payload["create_nodes"][0], ensure_ascii=False, indent=2))}</pre>'
+            "<h2>Existing objects and review decisions</h2>"
+            + "<ul>"
+            + "".join(rows)
+            + "</ul>"
+        )
+        if stored.status == "SUPERSEDED":
+            details += f"<p>Replaced by proposal {html.escape(stored.payload['_superseded_by'])}. This revision cannot be applied.</p>"
+        details += "</section>"
+        return _map_preview_html(f"OSM node proposal {proposal_id}", layers, details)
     return _map_preview_html(
         f"OSM proposal {proposal_id}",
         {
@@ -3091,6 +3163,11 @@ async def apply_osm_edit(
         if stored is None or stored.status == "EXPIRED":
             return _failure("Unknown or expired proposal", "Create a fresh preview")
         proposal.status = stored.status
+        if stored.status not in {"PREVIEWED", "AWAITING_APPROVAL", "APPLIED"}:
+            return _failure(
+                "Proposal is unavailable",
+                f"Proposal is {stored.status.lower()}; review the current revision",
+            )
         if changeset_id is not None:
             return _failure(
                 "Dedicated changeset required", "Omit changeset_id for node creation"

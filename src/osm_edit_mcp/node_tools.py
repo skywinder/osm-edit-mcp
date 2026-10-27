@@ -2,17 +2,22 @@
 
 import math
 import unicodedata
+import uuid
+from copy import deepcopy
 from decimal import Decimal, InvalidOperation
-from typing import Any, Dict, List, Tuple, Union, cast
+from typing import Any, Dict, List, Literal, Tuple, Union, cast
 
 from defusedxml.ElementTree import fromstring as parse_xml
 from mcp.types import ToolAnnotations
-from pydantic import StrictFloat, StrictInt
+from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt
 
 from . import track_tools
 from .app import profile_tool
 from .config import config
 from .http_client import describe_exception
+from .poi_duplicates import POLICY
+from .poi_duplicates import review_candidates as _classify_candidates
+from .proposal_store import canonical_digest
 
 CONTEXT_RADIUS_M = 100.0
 MAX_CONTEXT_ELEMENTS = 10_000
@@ -281,67 +286,73 @@ def _node_in_bboxes(node: Dict[str, Any], bboxes: List[str]) -> bool:
     )
 
 
-def _contains_point(geometry: Dict[str, Any], point: Tuple[float, float]) -> bool:
-    """Conservative polygon membership, including member areas of relations."""
-    if geometry["type"] == "GeometryCollection":
-        return any(_contains_point(member, point) for member in geometry["geometries"])
-    if geometry["type"] != "Polygon":
-        return False
-    lat, lon = point
-    # Put dateline-spanning polygon vertices on the same longitude branch.
-    ring = [
-        (lat_value, lon + ((lon_value - lon + 180) % 360 - 180))
-        for lon_value, lat_value in geometry["coordinates"][0]
-    ]
-    if track_tools._nearest_on_polyline(point, ring)[0] < 0.01:
-        return True
-    inside = False
-    for (lat_a, lon_a), (lat_b, lon_b) in zip(ring, ring[1:]):
-        if (lat_a > lat) != (lat_b > lat) and lon < (
-            (lon_b - lon_a) * (lat - lat_a) / (lat_b - lat_a) + lon_a
-        ):
-            inside = not inside
-    return inside
+class DuplicateDecision(BaseModel):
+    """An evidence-backed decision about one exact candidate version."""
+
+    model_config = ConfigDict(extra="forbid")
+    osm_type: Literal["node", "way", "relation"]
+    osm_id: StrictInt = Field(gt=0)
+    expected_version: StrictInt = Field(gt=0)
+    decision: Literal["distinct_object", "same_object", "uncertain"]
+    reason: str
+    evidence_source: str
 
 
 def _review_candidates(
-    candidates: List[Dict[str, Any]], node: Dict[str, Any]
+    candidates: List[Dict[str, Any]],
+    node: Dict[str, Any],
+    decisions: List[Dict[str, Any]] | None = None,
 ) -> List[Dict[str, Any]]:
-    proposed_families = {
-        key
-        for key, value in node["tags"].items()
-        if key in POI_KEYS and value.casefold() not in UNSPECIFIED_CLASSIFICATIONS
+    # Strip derived annotations before reclassification so validation can detect
+    # stale or altered signals and review decisions.
+    derived = {
+        "classification",
+        "reasons",
+        "blocking",
+        "distance_m",
+        "osm_url",
+        "review_decision",
     }
-    point = (float(node["lat"]), float(node["lon"]))
-    reviewed = []
-    for candidate in candidates:
-        tags = candidate["tags"]
-        same_family = any(
-            key in proposed_families and value.strip().casefold() not in ("no", "none")
-            for key, value in tags.items()
-        )
-        containing_retail_area = (
-            "shop" in proposed_families
-            and tags.get("building") in ("retail", "supermarket")
-            and _contains_point(candidate["geometry"], point)
-        )
-        reviewed.append(
-            {
-                **candidate,
-                "potential_duplicate": same_family or containing_retail_area,
-                "review_reason": (
-                    "Same POI classification family"
-                    if same_family
-                    else (
-                        "Retail area contains proposed point"
-                        if containing_retail_area
-                        else "Nearby POI of another classification; "
-                        "review its geometry and tags"
-                    )
-                ),
-            }
-        )
+    raw = [
+        {key: value for key, value in item.items() if key not in derived}
+        for item in candidates
+    ]
+    reviewed = _classify_candidates(raw, node)
+    by_id = {(item["type"], item["id"]): item for item in reviewed}
+    decision_map = {}
+    for value in decisions or []:
+        decision = DuplicateDecision.model_validate(value).model_dump()
+        for text in (decision["reason"], decision["evidence_source"]):
+            _text(text)
+        _validate_evidence_source(decision["evidence_source"])
+        key = (decision["osm_type"], decision["osm_id"])
+        if key in decision_map or key not in by_id:
+            raise ValueError(
+                "Decision must identify one unique candidate in the proposal"
+            )
+        candidate = by_id[key]
+        if candidate["version"] != decision["expected_version"]:
+            raise ValueError(
+                "Decision expected_version does not match the candidate version"
+            )
+        decision_map[key] = decision
+    if decisions is not None and any(
+        candidate["blocking"] and key not in decision_map
+        for key, candidate in by_id.items()
+    ):
+        raise ValueError("A decision is required for every blocking candidate")
+    for key, candidate in by_id.items():
+        candidate["osm_url"] = f"{config.current_web_base_url}/{key[0]}/{key[1]}"
+        if key in decision_map:
+            decision = decision_map[key]
+            candidate["review_decision"] = decision
+            candidate["blocking"] = decision["decision"] != "distinct_object"
     return reviewed
+
+
+def _validate_evidence_source(source: str) -> None:
+    if any(provider in source.casefold() for provider in ("google", "yandex")):
+        raise ValueError("Restricted map providers are not permitted OSM evidence")
 
 
 async def _fetch_context(client: Any, bboxes: List[str]) -> Dict[str, Any]:
@@ -464,8 +475,7 @@ def _validate_node_create_shape(payload: Dict[str, Any]) -> Dict[str, Any]:
     return node
 
 
-async def validate_node_create_context(client: Any, payload: Dict[str, Any]) -> None:
-    """Reject altered node operations or uncertain/stale duplicate-search context."""
+def _checked_search(payload: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
     node = _validate_node_create_shape(payload)
     search = payload.get("duplicate_search", {})
     bboxes = _context_bboxes(float(node["lat"]), float(node["lon"]))
@@ -474,31 +484,113 @@ async def validate_node_create_context(client: Any, payload: Dict[str, Any]) -> 
         or search.get("completed") is not True
         or search.get("radius_m") != CONTEXT_RADIUS_M
         or search.get("bboxes") != bboxes
+        or search.get("policy") != POLICY
         or not isinstance(search.get("candidates"), list)
         or not isinstance(payload.get("context_snapshot"), dict)
         or set(payload["context_snapshot"]) != {"node", "way", "relation"}
     ):
         raise ValueError(
-            "Node-create duplicate search is incomplete or has unresolved nearby POIs"
+            "Node-create duplicate search is incomplete or stale; create a fresh preview"
         )
-    if _review_candidates(search["candidates"], node) != search["candidates"] or any(
-        candidate["potential_duplicate"] for candidate in search["candidates"]
+    candidates = _review_candidates(
+        search["candidates"], node, payload.get("duplicate_decisions")
+    )
+    if candidates != search["candidates"]:
+        raise ValueError(
+            "Stored duplicate classifications or decisions changed; create a fresh preview"
+        )
+    return node, bboxes
+
+
+async def _recheck_context(client: Any, payload: Dict[str, Any]) -> None:
+    node, bboxes = _checked_search(payload)
+    current = await _fetch_context(client, bboxes)
+    candidates = _review_candidates(
+        current["candidates"], node, payload.get("duplicate_decisions")
+    )
+    if (
+        current["snapshot"] != payload["context_snapshot"]
+        or candidates != payload["duplicate_search"]["candidates"]
+    ):
+        raise ValueError(
+            "POI map context or candidate version changed after preview; create a fresh proposal and repeat duplicate review"
+        )
+
+
+async def validate_node_create_context(client: Any, payload: Dict[str, Any]) -> None:
+    """Require a complete, freshly unchanged search and resolved candidates."""
+    _checked_search(payload)
+    if any(
+        candidate["blocking"] for candidate in payload["duplicate_search"]["candidates"]
     ):
         raise ValueError("Node-create duplicate search has unresolved nearby POIs")
     _, server_limit = await track_tools._fetch_api_limits(client)
     if min(config.max_changeset_size, server_limit) < 1:
         raise ValueError("Node creation exceeds changeset element limit")
-    current = await _fetch_context(client, bboxes)
-    candidates = _review_candidates(current["candidates"], node)
-    if (
-        current["snapshot"] != payload["context_snapshot"]
-        or candidates != search["candidates"]
-        or any(candidate["potential_duplicate"] for candidate in candidates)
+    await _recheck_context(client, payload)
+
+
+def _blocking_issues(candidates: List[Dict[str, Any]]) -> List[str]:
+    blockers = [item for item in candidates if item["blocking"]]
+    if not blockers:
+        return []
+    issues = [
+        "Nearby possible POI duplicates require review_node_create_duplicates before applying"
+    ]
+    if any(
+        item.get("review_decision", {}).get("decision") == "same_object"
+        for item in blockers
     ):
-        raise ValueError(
-            "POI map context changed after preview; inspect it and "
-            "create a fresh proposal"
+        issues.append(
+            "An existing candidate is the same object; edit the existing OSM object instead of creating a node"
         )
+    return issues
+
+
+def _node_create_result(proposal: track_tools.Proposal) -> Dict[str, Any]:
+    payload = proposal.payload
+    candidates = payload["duplicate_search"]["candidates"]
+    current = track_tools._feature_collection(
+        [
+            {
+                "type": "Feature",
+                "geometry": candidate["geometry"],
+                "properties": {
+                    key: value for key, value in candidate.items() if key != "geometry"
+                },
+            }
+            for candidate in candidates
+        ]
+    )
+    proposed = track_tools._feature_collection(
+        [
+            {
+                "type": "Feature",
+                "geometry": payload["summary"]["geometry"],
+                "properties": {
+                    **payload["create_nodes"][0],
+                    "review_state": "proposed",
+                },
+            }
+        ]
+    )
+    result: Dict[str, Any] = track_tools._proposal_result(proposal, current, proposed)
+    result["data"].update(
+        {
+            "duplicate_search": payload["duplicate_search"],
+            "duplicate_decisions": payload.get("duplicate_decisions"),
+            "revision": payload["revision"],
+            "diff": payload["diff"],
+            "web_preview_url": None,
+            "web_preview_status": "No web preview page is configured. preview_uri is an internal MCP HTML resource, not a web link.",
+        }
+    )
+    result["message"] = (
+        "Node-create preview contains unresolved duplicates and cannot be applied"
+        if payload["blocking_issues"]
+        else "Node-create preview is ready for separate explicit confirmation"
+    )
+    return result
 
 
 @profile_tool(
@@ -522,9 +614,10 @@ async def preview_node_create(
     places. Supply 1..20 nonempty string tags including an explicit POI
     classification and the actual independent evidence source. Requires
     verified OAuth/write_api. Searches the configured OSM API within about
-    100m; same-family POIs and retail areas containing the new shop block apply
-    until fresh inspection
-    resolves it. Failed or incomplete searches never establish absence.
+    100m; classifies nearby geometry by explicit POI type, sport, distance
+    and identity signals. Blocking candidates need review_node_create_duplicates.
+    That tool creates a new digest; it never uploads or approves a write.
+    Failed or incomplete searches never establish absence.
     Review the exact geometry, tags, diff and full SHA-256 digest before a
     later apply_osm_edit and separate genuine MCP-host user elicitation.
     """
@@ -538,6 +631,7 @@ async def preview_node_create(
         search.update(
             {
                 "source": "configured_osm_api_map",
+                "policy": deepcopy(POLICY),
                 "radius_m": CONTEXT_RADIUS_M,
                 "bboxes": bboxes,
                 "coverage": "Bounded OSM map query and returned POI relations",
@@ -556,7 +650,7 @@ async def preview_node_create(
             context = await _fetch_context(client, bboxes)
         candidates = _review_candidates(context["candidates"], node)
         possible_duplicates = [
-            item for item in candidates if item["potential_duplicate"]
+            item for item in candidates if item["classification"] != "context_only"
         ]
         search.update(
             {
@@ -565,16 +659,12 @@ async def preview_node_create(
                 "candidates": candidates,
                 "element_count": context["element_count"],
                 "possible_duplicate_count": len(possible_duplicates),
+                "blocking_duplicate_count": sum(
+                    item["blocking"] for item in candidates
+                ),
             }
         )
-        blockers = (
-            [
-                "Nearby possible POI duplicates require inspection and a fresh "
-                "preview; this proposal cannot be applied"
-            ]
-            if possible_duplicates
-            else []
-        )
+        blockers = _blocking_issues(candidates)
         payload = {
             "action": "node_create",
             "segment_id": None,
@@ -589,6 +679,8 @@ async def preview_node_create(
             "snapshot_nodes": {},
             "snapshot_ways": {},
             "duplicate_search": search,
+            "duplicate_decisions": None,
+            "revision": {"number": 1},
             "context_snapshot": context["snapshot"],
             "diff": {"before": None, "after": node},
             "warnings": [
@@ -613,39 +705,13 @@ async def preview_node_create(
                 "possible_duplicate_count": len(possible_duplicates),
             },
         }
-        current = track_tools._feature_collection(
-            [
-                {
-                    "type": "Feature",
-                    "geometry": candidate["geometry"],
-                    "properties": {
-                        key: value
-                        for key, value in candidate.items()
-                        if key != "geometry"
-                    },
-                }
-                for candidate in candidates
-            ]
-        )
-        proposed = track_tools._feature_collection(
-            [{"type": "Feature", "geometry": geometry, "properties": node}]
-        )
         if len(candidates) > len(possible_duplicates):
             payload["warnings"].append(
                 "Other nearby POIs are shown for review; their different "
                 "classification does not establish that they are distinct businesses."
             )
         proposal = track_tools._store_proposal(payload, int(identity["user_id"]))
-        result: Dict[str, Any] = track_tools._proposal_result(
-            proposal, current, proposed
-        )
-        result["data"].update({"duplicate_search": search, "diff": payload["diff"]})
-        result["message"] = (
-            "Node-create preview contains possible duplicates and cannot be applied"
-            if blockers
-            else "Node-create preview is ready for explicit confirmation"
-        )
-        return result
+        return _node_create_result(proposal)
     except Exception as exc:
         return cast(
             Dict[str, Any],
@@ -654,5 +720,97 @@ async def preview_node_create(
                 "Failed to preview node creation; no OSM write was sent",
                 detail=describe_exception(exc),
                 duplicate_search=search,
+            ),
+        )
+
+
+@profile_tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=False,
+        openWorldHint=True,
+    )
+)
+async def review_node_create_duplicates(
+    proposal_id: str,
+    proposal_digest: str,
+    decisions: List[DuplicateDecision],
+) -> Dict[str, Any]:
+    """Review every blocking candidate and return a new node-create revision.
+
+    Decisions bind exact candidate type, ID and expected_version. Every decision
+    requires a reason and independent evidence_source. distinct_object resolves
+    that match; same_object requires editing the existing object; uncertain
+    stays blocked. Unknown candidates, omitted blockers and changed versions
+    are rejected. This only stores a preview: review the new complete digest,
+    then obtain separate user confirmation through apply_osm_edit. No OSM write
+    or user approval occurs here. Superseded proposals cannot be applied.
+    """
+    try:
+        stored = track_tools._PROPOSAL_STORE.get(proposal_id)
+        if stored is None or stored.status not in {"PREVIEWED", "AWAITING_APPROVAL"}:
+            raise ValueError(
+                "Unknown, expired or superseded proposal; create a fresh preview"
+            )
+        if (
+            stored.digest != proposal_digest
+            or canonical_digest(stored.payload, stored.api_target, stored.osm_uid)
+            != proposal_digest
+        ):
+            raise ValueError("Proposal digest mismatch")
+        if stored.api_target != config.current_api_base_url:
+            raise ValueError("Proposal belongs to a different API target")
+        payload = deepcopy(stored.payload)
+        node, _ = _checked_search(payload)
+        parsed = [
+            DuplicateDecision.model_validate(item).model_dump() for item in decisions
+        ]
+        parsed.sort(key=lambda item: (item["osm_type"], item["osm_id"]))
+        candidates = _review_candidates(
+            payload["duplicate_search"]["candidates"], node, parsed
+        )
+        async with track_tools.get_authenticated_client() as client:
+            identity = await track_tools.verify_write_identity(client)
+            if int(identity["user_id"]) != stored.osm_uid:
+                raise ValueError("Proposal belongs to a different OSM account")
+            await _recheck_context(client, stored.payload)
+        payload.pop("_review", None)
+        payload["duplicate_decisions"] = parsed
+        search = payload["duplicate_search"]
+        search["candidates"] = candidates
+        search["blocking_duplicate_count"] = sum(
+            item["blocking"] for item in candidates
+        )
+        payload["blocking_issues"] = _blocking_issues(candidates)
+        payload["revision"] = {
+            "number": payload["revision"]["number"] + 1,
+            "supersedes_proposal_id": stored.proposal_id,
+            "supersedes_proposal_digest": stored.digest,
+        }
+        payload["summary"]["duplicate_decisions"] = parsed
+        payload["summary"]["blocking_duplicate_count"] = search[
+            "blocking_duplicate_count"
+        ]
+        revision = track_tools._PROPOSAL_STORE.supersede_preview(
+            stored.proposal_id,
+            stored.digest,
+            str(uuid.uuid4()),
+            payload,
+            stored.api_target,
+            int(identity["user_id"]),
+            config.osm_track_proposal_ttl_seconds,
+        )
+        track_tools._PROPOSALS.pop(proposal_id, None)
+        proposal = track_tools._get_proposal(revision.proposal_id)
+        assert proposal is not None
+        return _node_create_result(proposal)
+    except Exception as exc:
+        return cast(
+            Dict[str, Any],
+            track_tools._failure(
+                type(exc).__name__,
+                "Failed to review node-create duplicates; no OSM write was sent",
+                detail=describe_exception(exc),
             ),
         )

@@ -40,6 +40,7 @@ EXPECTED_TOOLS = {
     "suggest_track_road_candidates",
     "preview_track_road_edit",
     "preview_node_create",
+    "review_node_create_duplicates",
     "preview_node_tag_edit",
     "apply_osm_edit",
     "apply_track_road_edit",
