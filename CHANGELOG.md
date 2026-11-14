@@ -16,6 +16,11 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   conversational confirmation. The tool's exact-digest MCP elicitation remains
   the single mandatory approval before an OSM upload.
 
+### Security
+
+- Require `joserfc` 1.7.6 or later to avoid CVE-2026-119284 in the previously
+  locked 1.7.5 release.
+
 ## [0.4.0] - 2026-10-28
 
 ### Added

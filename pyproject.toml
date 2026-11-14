@@ -47,6 +47,7 @@ dependencies = [
     "pydantic-settings>=2.10.0,<3",
     "python-dotenv>=1.2.3,<2",
     "authlib>=1.9.1,<2",
+    "joserfc>=1.7.6,<2",
     "certifi>=2026.10.23",
     "cryptography>=50.0.1,<51",
     "keyring>=25.7.0,<26",
