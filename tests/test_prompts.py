@@ -57,9 +57,11 @@ async def test_prompts_get_returns_ordered_workflow_and_exact_confirmation_gate(
     assert "complete proposal_digest" in text
     assert "Do not call apply_osm_edit" in text
     assert "or apply_track_road_edit" in text
-    assert "user later explicitly requests application" in text
-    assert "MCP host separately confirms the same exact proposal_digest" in text
-    assert "are not write confirmation" in text
+    assert "user later explicitly requests" in text
+    assert "call apply_osm_edit immediately" in text
+    assert "do not ask for another chat confirmation" in text
+    assert "single final MCP-host confirmation" in text
+    assert "are not a request to publish" in text
 
 
 @pytest.mark.asyncio

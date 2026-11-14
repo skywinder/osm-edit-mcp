@@ -917,7 +917,11 @@ def _proposal_result(
             "confirmation_required": True,
         },
         "message": (
-            "Track edit preview is ready for explicit confirmation"
+            (
+                "Track edit preview is ready. After an explicit user request to "
+                "publish it, call apply_osm_edit immediately; that tool opens the "
+                "single required digest-bound confirmation."
+            )
             if not payload["blocking_issues"]
             else "Track edit preview contains blocking issues and cannot be applied"
         ),
@@ -2198,7 +2202,9 @@ async def preview_track_road_edit(
     OSM account and API target before review. Read-only means no OSM upload,
     not anonymous access. For an OAuth-free geometry view use
     analyze_gpx_track, create_track_selection and its preview_uri instead.
-    Applying this proposal still requires a separate digest-bound confirmation.
+    After the user explicitly asks to publish the reviewed proposal, call
+    apply_osm_edit immediately. Do not ask for another chat confirmation:
+    apply_osm_edit itself opens the single required digest-bound confirmation.
     """
     try:
         action = action.lower().strip()
@@ -2332,7 +2338,8 @@ async def preview_node_tag_edit(
     coordinates are preserved. changeset_source records the actual evidence
     (for example, a user report), not an inferred survey or date.
     Requires verified OAuth/write_api. Review the returned complete
-    diff and digest, then use apply_osm_edit with separate MCP-host elicitation.
+    diff and digest. After an explicit user request to publish it, call
+    apply_osm_edit immediately; it performs the single final MCP-host elicitation.
     """
     try:
         if type(node_id) is not int or node_id <= 0:
@@ -2436,7 +2443,11 @@ async def preview_node_tag_edit(
         )
         proposal = _store_proposal(payload, int(identity["user_id"]))
         result = _proposal_result(proposal, current, proposed)
-        result["message"] = "Node tag edit preview is ready for explicit confirmation"
+        result["message"] = (
+            "Node tag edit preview is ready. After an explicit user request to "
+            "publish it, call apply_osm_edit immediately; that tool opens the "
+            "single required digest-bound confirmation."
+        )
         return result
     except Exception as exc:
         return _failure(
@@ -3153,7 +3164,7 @@ def _node_create_receipt(
 async def _request_host_confirmation(
     proposal: Proposal, context: Context
 ) -> Optional[Dict[str, Any]]:
-    """Request a separate host confirmation bound to one exact proposal."""
+    """Request the single final host confirmation bound to one exact proposal."""
     try:
         _PROPOSAL_STORE.mark_awaiting_approval(proposal.proposal_id)
     except ProposalStoreError as exc:
@@ -3209,7 +3220,13 @@ async def apply_osm_edit(
     context: Context,
     changeset_id: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """Apply a reviewed proposal after a separate client-host confirmation."""
+    """Apply a reviewed proposal with one final digest-bound confirmation.
+
+    When the user explicitly asks to publish or apply the exact reviewed
+    proposal, call this tool immediately instead of asking another conversational
+    confirmation. The tool itself asks the MCP host for the single final approval
+    before any OSM upload.
+    """
     proposal = _get_proposal(proposal_id)
     if proposal is None:
         return _failure(
@@ -3268,7 +3285,12 @@ async def apply_track_road_edit(
     context: Context,
     changeset_id: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """Apply an exact dev-API digest after separate host confirmation."""
+    """Apply an exact dev-API digest with one final host confirmation.
+
+    After an explicit publish request, call this tool immediately without an
+    extra chat question. ``confirm`` records the caller's intent; the tool still
+    performs the single digest-bound MCP-host confirmation before upload.
+    """
     if not config.is_development_api:
         return _failure(
             "Development API required",

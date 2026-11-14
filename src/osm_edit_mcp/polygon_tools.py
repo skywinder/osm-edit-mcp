@@ -371,7 +371,11 @@ def _result(proposal: track_tools.Proposal) -> Dict[str, Any]:
         web_preview_status="No web preview page is configured. preview_uri is an internal MCP HTML resource, not a web link.",
     )
     result["message"] = (
-        "Four-sided POI polygon preview is ready for separate confirmation"
+        (
+            "Four-sided POI polygon preview is ready. After an explicit user "
+            "request to publish it, call apply_osm_edit immediately; that tool "
+            "opens the single required digest-bound confirmation."
+        )
         if not p["blocking_issues"]
         else "Polygon preview has unresolved duplicates"
     )
@@ -400,7 +404,8 @@ async def preview_poi_polygon_create(
     demonstration=true permits synthetic geometry only on the official dev API;
     changeset_source must say synthetic or demonstration. Never infer a real
     boundary from one point. Review geometry, any deletion and the full digest;
-    use apply_osm_edit with separate digest-bound host confirmation afterwards.
+    after an explicit user request to publish it, call apply_osm_edit immediately;
+    it performs the single final digest-bound host confirmation.
     """
     search: Dict[str, Any] = {"status": "unknown", "completed": False}
     try:
@@ -550,7 +555,8 @@ async def review_poi_polygon_duplicates(
     Same decisions and evidence requirements as review_node_create_duplicates.
     The explicitly replaced source node is reviewed as a conversion, never as
     a distinct object. Search, source version and parentage are rechecked.
-    This stores a new preview only; separate final host approval is required.
+    This stores a new preview only. After an explicit user request to publish it,
+    call apply_osm_edit immediately; it performs the single final host approval.
     """
     try:
         stored = track_tools._PROPOSAL_STORE.get(proposal_id)

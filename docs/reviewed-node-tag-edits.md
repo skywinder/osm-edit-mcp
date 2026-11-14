@@ -50,8 +50,10 @@ limits apply at preview and again before upload.
    coordinates, `operations.modify_nodes`, warning, account, target, proposal ID
    and complete SHA-256 digest. Other lifecycle/name/operating-information tags
    are preserved, not automatically declared correct; review them explicitly.
-5. In a later call use normal `apply_osm_edit(proposal_id, proposal_digest)`.
-   The client must support genuine structured MCP form elicitation. Display the
+5. Once the user explicitly asks to publish, call normal
+   `apply_osm_edit(proposal_id, proposal_digest)` immediately; do not ask another
+   chat question. The client must support genuine structured MCP form
+   elicitation as the single final confirmation. Display the
    actual server request and collect the human response for `confirm` and the
    full `proposal_digest`. Only relay that real response; never synthesize or
    automatically accept it. A host returning `accept` with `{}` cannot approve

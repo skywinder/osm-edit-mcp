@@ -56,12 +56,14 @@ mapping practice, and permitted evidence.
 ## Writes are deliberately separate
 
 The safe profile does not register natural-language create, update, delete, or
-batch-write tools. A conversational “yes” is not write confirmation.
+batch-write tools. Once the user explicitly asks to publish an exact reviewed
+proposal, call `apply_osm_edit` immediately without another chat question. Its
+digest-bound MCP-host elicitation is the single final write confirmation.
 
 For surveyed road geometry, use the `review_gpx_road_edit` prompt. It requires
 an explicit segment, explicit create/update decision, exact target way IDs for
 updates, a non-writing preview, and review of the complete proposal digest. A
-later production apply also requires a separate MCP host elicitation bound to
+later production apply performs the single final MCP-host elicitation bound to
 that same digest.
 
 Other feature-edit workflows are outside the supported 0.2.0 safe surface. Use

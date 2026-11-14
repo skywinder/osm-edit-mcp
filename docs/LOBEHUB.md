@@ -23,8 +23,9 @@ release does not automatically update the live marketplace listing.
 
 Resource templates belong in the manifest's `resources` array with their
 standard `uriTemplate` field. They are not concrete `resources/list` entries.
-The review prompt must stop before applying an edit and require separate,
-digest-bound host confirmation; do not weaken it to satisfy a directory check.
+The review prompt must stop before applying an edit. A later explicit publish
+request calls apply immediately, and the tool's digest-bound host elicitation is
+the single final confirmation; do not weaken it to satisfy a directory check.
 
 LobeHub's score fields are:
 

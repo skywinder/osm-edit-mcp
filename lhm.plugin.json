@@ -2175,7 +2175,7 @@
     },
     {
       "name": "preview_track_road_edit",
-      "description": "Build a non-writing GeoJSON and element diff preview for a road edit.\n    Requires OAuth with write_api: the stored proposal is bound to the verified\n    OSM account and API target before review. Read-only means no OSM upload,\n    not anonymous access. For an OAuth-free geometry view use\n    analyze_gpx_track, create_track_selection and its preview_uri instead.\n    Applying this proposal still requires a separate digest-bound confirmation.\n    ",
+      "description": "Build a non-writing GeoJSON and element diff preview for a road edit.\n    Requires OAuth with write_api: the stored proposal is bound to the verified\n    OSM account and API target before review. Read-only means no OSM upload,\n    not anonymous access. For an OAuth-free geometry view use\n    analyze_gpx_track, create_track_selection and its preview_uri instead.\n    After the user explicitly asks to publish the reviewed proposal, call\n    apply_osm_edit immediately. Do not ask for another chat confirmation:\n    apply_osm_edit itself opens the single required digest-bound confirmation.\n    ",
       "inputSchema": {
         "properties": {
           "action": {
@@ -2349,7 +2349,7 @@
     },
     {
       "name": "apply_osm_edit",
-      "description": "Apply a reviewed proposal after a separate client-host confirmation.",
+      "description": "Apply a reviewed proposal with one final digest-bound confirmation.\n\n    When the user explicitly asks to publish or apply the exact reviewed\n    proposal, call this tool immediately instead of asking another conversational\n    confirmation. The tool itself asks the MCP host for the single final approval\n    before any OSM upload.\n    ",
       "inputSchema": {
         "properties": {
           "proposal_id": {
@@ -2403,7 +2403,7 @@
     },
     {
       "name": "apply_track_road_edit",
-      "description": "Apply an exact dev-API digest after separate host confirmation.",
+      "description": "Apply an exact dev-API digest with one final host confirmation.\n\n    After an explicit publish request, call this tool immediately without an\n    extra chat question. ``confirm`` records the caller's intent; the tool still\n    performs the single digest-bound MCP-host confirmation before upload.\n    ",
       "inputSchema": {
         "properties": {
           "proposal_id": {
@@ -2622,7 +2622,7 @@
     },
     {
       "name": "preview_node_tag_edit",
-      "description": "Preview a bounded tag-only patch to one existing OSM node, without upload.\n\nSupply the version inspected by the reviewer. Each tag_changes value replaces\nthat tag; null explicitly removes it. At most 20 tag keys per proposal;\nkeys, non-null values and changeset metadata must be nonempty, at most 255\nUTF-8 bytes, without control characters. Unmentioned tags and exact\ncoordinates are preserved. changeset_source records the actual evidence\n(for example, a user report), not an inferred survey or date.\nRequires verified OAuth/write_api. Review the returned complete\ndiff and digest, then use apply_osm_edit with separate MCP-host elicitation.\n",
+      "description": "Preview a bounded tag-only patch to one existing OSM node, without upload.\n\nSupply the version inspected by the reviewer. Each tag_changes value replaces\nthat tag; null explicitly removes it. At most 20 tag keys per proposal;\nkeys, non-null values and changeset metadata must be nonempty, at most 255\nUTF-8 bytes, without control characters. Unmentioned tags and exact\ncoordinates are preserved. changeset_source records the actual evidence\n(for example, a user report), not an inferred survey or date.\nRequires verified OAuth/write_api. Review the returned complete\ndiff and digest. After an explicit user request to publish it, call\napply_osm_edit immediately; it performs the single final MCP-host elicitation.\n",
       "inputSchema": {
         "properties": {
           "node_id": {
@@ -2689,7 +2689,7 @@
     },
     {
       "name": "preview_node_create",
-      "description": "Preview one new POI without writing to OSM.\n\nCoordinates must be finite, in range and exact at OSM's seven decimal\nplaces. Supply 1..20 nonempty string tags including an explicit POI\nclassification and the actual independent evidence source. Requires\nverified OAuth/write_api. Searches the configured OSM API within about\n100m; classifies nearby geometry by explicit POI type, sport, distance\nand identity signals. Blocking candidates need review_node_create_duplicates.\nThat tool creates a new digest; it never uploads or approves a write.\nFailed or incomplete searches never establish absence.\nReview the exact geometry, tags, diff and full SHA-256 digest before a\nlater apply_osm_edit and separate genuine MCP-host user elicitation.\n",
+      "description": "Preview one new POI without writing to OSM.\n\nCoordinates must be finite, in range and exact at OSM's seven decimal\nplaces. Supply 1..20 nonempty string tags including an explicit POI\nclassification and the actual independent evidence source. Requires\nverified OAuth/write_api. Searches the configured OSM API within about\n100m; classifies nearby geometry by explicit POI type, sport, distance\nand identity signals. Blocking candidates need review_node_create_duplicates.\nThat tool creates a new digest; it never uploads or approves a write.\nFailed or incomplete searches never establish absence.\nReview the exact geometry, tags, diff and full SHA-256 digest before a\nlater apply_osm_edit. After an explicit user request to publish it, call\napply_osm_edit immediately; it performs the single final MCP-host elicitation.\n",
       "inputSchema": {
         "properties": {
           "latitude": {
@@ -2763,7 +2763,7 @@
     },
     {
       "name": "review_node_create_duplicates",
-      "description": "Review every blocking candidate and return a new node-create revision.\n\nDecisions bind exact candidate type, ID and expected_version. Every decision\nrequires a reason and independent evidence_source. distinct_object resolves\nthat match; same_object requires editing the existing object; uncertain\nstays blocked. Unknown candidates, omitted blockers and changed versions\nare rejected. This only stores a preview: review the new complete digest,\nthen obtain separate user confirmation through apply_osm_edit. No OSM write\nor user approval occurs here. Superseded proposals cannot be applied.\n",
+      "description": "Review every blocking candidate and return a new node-create revision.\n\nDecisions bind exact candidate type, ID and expected_version. Every decision\nrequires a reason and independent evidence_source. distinct_object resolves\nthat match; same_object requires editing the existing object; uncertain\nstays blocked. Unknown candidates, omitted blockers and changed versions\nare rejected. This only stores a preview: review the new complete digest.\nAfter an explicit user request to publish it, call apply_osm_edit immediately;\nthat tool performs the single final host confirmation. No OSM write or user\napproval occurs here. Superseded proposals cannot be applied.\n",
       "inputSchema": {
         "$defs": {
           "DuplicateDecision": {
@@ -2867,7 +2867,7 @@
     },
     {
       "name": "preview_poi_polygon_create",
-      "description": "Preview four ordered corners as a closed POI area, without uploading.\n\nSupply exactly four distinct latitude/longitude pairs at OSM precision.\nThe server creates four untagged vertices and one closed way bearing all\nPOI tags. No self-intersections, collinear corners, polar/dateline geometry\nor diameter over 500m. Searches the WHOLE polygon plus a 100m margin.\nOptional replace_node_id and expected_node_version explicitly replace one\nisolated, unchanged POI node inside the area, preserving all its tags on\nthe new way and deleting it atomically. Parent ways/relations block this.\ndemonstration=true permits synthetic geometry only on the official dev API;\nchangeset_source must say synthetic or demonstration. Never infer a real\nboundary from one point. Review geometry, any deletion and the full digest;\nuse apply_osm_edit with separate digest-bound host confirmation afterwards.\n",
+      "description": "Preview four ordered corners as a closed POI area, without uploading.\n\nSupply exactly four distinct latitude/longitude pairs at OSM precision.\nThe server creates four untagged vertices and one closed way bearing all\nPOI tags. No self-intersections, collinear corners, polar/dateline geometry\nor diameter over 500m. Searches the WHOLE polygon plus a 100m margin.\nOptional replace_node_id and expected_node_version explicitly replace one\nisolated, unchanged POI node inside the area, preserving all its tags on\nthe new way and deleting it atomically. Parent ways/relations block this.\ndemonstration=true permits synthetic geometry only on the official dev API;\nchangeset_source must say synthetic or demonstration. Never infer a real\nboundary from one point. Review geometry, any deletion and the full digest;\nafter an explicit user request to publish it, call apply_osm_edit immediately;\nit performs the single final digest-bound host confirmation.\n",
       "inputSchema": {
         "$defs": {
           "PolygonCorner": {
@@ -2989,7 +2989,7 @@
     },
     {
       "name": "review_poi_polygon_duplicates",
-      "description": "Resolve every blocking polygon candidate in a new digest-bound revision.\n\nSame decisions and evidence requirements as review_node_create_duplicates.\nThe explicitly replaced source node is reviewed as a conversion, never as\na distinct object. Search, source version and parentage are rechecked.\nThis stores a new preview only; separate final host approval is required.\n",
+      "description": "Resolve every blocking polygon candidate in a new digest-bound revision.\n\nSame decisions and evidence requirements as review_node_create_duplicates.\nThe explicitly replaced source node is reviewed as a conversion, never as\na distinct object. Search, source version and parentage are rechecked.\nThis stores a new preview only. After an explicit user request to publish it,\ncall apply_osm_edit immediately; it performs the single final host approval.\n",
       "inputSchema": {
         "$defs": {
           "DuplicateDecision": {
@@ -3092,7 +3092,7 @@
       }
     }
   ],
-  "version": "0.4.0",
+  "version": "0.4.1",
   "category": "tools",
   "tags": [
     "mcp",

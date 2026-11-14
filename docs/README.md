@@ -141,7 +141,7 @@ Read the returned `data.preview_uri` with the MCP client's `resources/read`, or
 inspect the returned `data.geojson` if the host cannot display the resource.
 Stop here: this previews the selected track, **not an OSM road-edit diff**. It
 needs no OSM credentials, Valhalla service, or OSM API request. A road-edit
-proposal in step 4 requires OAuth; applying it requires separate confirmation.
+proposal in step 4 requires OAuth; applying it opens one final confirmation.
 
 ### 1. Analyze the track
 
@@ -240,10 +240,11 @@ endpoint connections, warnings, blocking issues, API target, expiry, and
 
 ### 5. Confirm and apply
 
-`apply_osm_edit` accepts the exact proposal ID and digest. In production, the
-MCP host must display a separate elicitation request for that digest. Apply then
-checks the live OSM account, `write_api` permission, referenced versions, and
-affected highways before sending one transactional upload.
+`apply_osm_edit` accepts the exact proposal ID and digest. Once the user asks to
+publish that reviewed proposal, call it immediately without asking another chat
+question. In production, the tool displays the single final MCP-host elicitation
+for that digest. Apply then checks the live OSM account, `write_api` permission,
+referenced versions, and affected highways before one transactional upload.
 
 A network failure after an upload starts becomes `RECONCILE_REQUIRED`; the
 server does not blindly retry an ambiguous write.

@@ -105,7 +105,7 @@ marking the parent `SUPERSEDED`. Concurrent reviews or upload claims cannot
 reuse the parent. `revision` identifies the parent ID/digest and revision number.
 The new digest binds exact coordinates/tags, all candidates and context,
 candidate versions, decisions, reasons and evidence. Review the new proposal
-before requesting separate approval; approval of an older digest is invalid.
+before requesting the final approval; approval of an older digest is invalid.
 
 The map resource shows the proposed point in red, context in grey, unresolved
 suspicions in orange and matches reviewed as distinct in green. Its object list
@@ -121,8 +121,10 @@ default TTL is 1800 seconds. Expired proposals require a new preview and fresh
 approval.
 
 Only a later `apply_osm_edit(proposal_id=..., proposal_digest=...)` can request
-an upload. A separate, genuine MCP elicitation must accept `confirm=true` and
-the same complete digest. Node creation requires this on development too,
+an upload. Once the user explicitly asks to publish, call it immediately without
+another chat question. Its genuine MCP elicitation is the single final approval
+and must accept `confirm=true` with the same complete digest. Node creation
+requires this on development too,
 even when generic development confirmation is disabled. Unsupported or empty
 structured approval fails closed.
 

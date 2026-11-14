@@ -135,12 +135,15 @@ apply_osm_edit(
 )
 ```
 
-Against production, the MCP host must present a separate confirmation request
-for this exact digest. The server then re-verifies the API target, OSM account,
+After the user explicitly asks to publish the reviewed proposal, call
+`apply_osm_edit` immediately; do not ask for another chat confirmation. Against
+production, the tool itself presents the single final MCP-host confirmation for
+this exact digest. The server then re-verifies the API target, OSM account,
 `write_api` permission, referenced versions, and affected highways.
 
-Do not translate a conversational “yes” into a raw write call. If the host does
-not support elicitation, production apply must remain unavailable.
+A request to prepare or review a preview is not a request to publish it. Never
+pre-answer the host confirmation. If the host does not support elicitation,
+production apply must remain unavailable.
 
 ## Verify an applied proposal
 

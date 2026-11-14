@@ -7,6 +7,20 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-15
+
+### Changed
+
+- Clarify the one-confirmation apply UX: an explicit request to publish a
+  reviewed proposal should call `apply_osm_edit` immediately, without another
+  conversational confirmation. The tool's exact-digest MCP elicitation remains
+  the single mandatory approval before an OSM upload.
+
+### Security
+
+- Require `joserfc` 1.7.6 or later to avoid CVE-2026-119284 in the previously
+  locked 1.7.5 release.
+
 ## [0.4.0] - 2026-10-28
 
 ### Added
@@ -168,7 +182,9 @@ release does not implement them or weaken account/API-bound edit safeguards.
 - Production writes fail closed when the host cannot provide digest-bound
   elicitation.
 
-[Unreleased]: https://github.com/skywinder/osm-edit-mcp/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/skywinder/osm-edit-mcp/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/skywinder/osm-edit-mcp/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/skywinder/osm-edit-mcp/releases/tag/v0.4.0
 [0.3.0]: https://github.com/skywinder/osm-edit-mcp/releases/tag/v0.3.0
 [0.2.2]: https://github.com/skywinder/osm-edit-mcp/releases/tag/v0.2.2
 [0.2.1]: https://github.com/skywinder/osm-edit-mcp/releases/tag/v0.2.1
