@@ -75,11 +75,13 @@ def review_gpx_road_edit(gpx_path: str, edit_goal: str) -> UserMessage:
             "",
             (
                 "Applying is forbidden unless the user later explicitly requests "
-                "application of that exact proposal_digest and the MCP host "
-                "separately confirms the same exact proposal_digest through its "
-                "confirmation flow. The edit_goal, a segment or candidate choice, "
-                "and approval to create a preview are not write confirmation. Never "
-                "weaken, bypass, pre-answer, or assume either confirmation."
+                "publication or application of that exact reviewed proposal. Once "
+                "they do, call apply_osm_edit immediately: do not ask for another "
+                "chat confirmation. apply_osm_edit itself opens the single final "
+                "MCP-host confirmation bound to the exact proposal_digest. The "
+                "edit_goal, a segment or candidate choice, and approval to create a "
+                "preview are not a request to publish. Never bypass, pre-answer, or "
+                "assume the host confirmation."
             ),
         ]
     )

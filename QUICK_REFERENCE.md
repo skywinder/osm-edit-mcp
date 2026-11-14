@@ -113,8 +113,10 @@ apply_osm_edit(proposal_id="...", proposal_digest="...")
 ```
 
 For existing roads use `action="update"`, omit `tags`, and provide the explicitly
-selected ordered `target_way_ids`. One segment is handled per preview. Applying
-also requires the MCP host to confirm the same exact proposal digest.
+selected ordered `target_way_ids`. One segment is handled per preview. After an
+explicit request to publish the reviewed proposal, call `apply_osm_edit`
+immediately without another chat question. The tool's MCP-host elicitation is
+the single final confirmation of that exact proposal digest.
 
 Crop a long history export to the one surveyed path first. On macOS, use JOSM to
 compare the GPX with OSM, gpx.studio to crop/split, GPXSee for quick GPX/KML

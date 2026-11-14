@@ -88,9 +88,11 @@ areas and source-point replacement; synthetic geometry is prominently labelled.
 `preview_uri` is an internal MCP HTML resource, not an HTTP link; no web
 proposal page is currently hosted (`web_preview_url=null`).
 
-Use ordinary `apply_osm_edit` with that exact final digest. Genuine separate
-host confirmation is required on **development too**, even if generic dev
-confirmation is disabled. Shared changesets are rejected. Before upload the
+After the user explicitly asks to publish, call ordinary `apply_osm_edit` with
+that exact final digest without another chat question. Its genuine MCP-host
+confirmation is the single final approval and is required on **development
+too**, even if generic dev confirmation is disabled. Shared changesets are
+rejected. Before upload the
 server rechecks account, complete context, source version/tags/coordinates,
 source parentage and the 5-operation (6 with conversion) API limits.
 

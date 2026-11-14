@@ -10,11 +10,11 @@ Find places in OpenStreetMap, preview POI nodes and four-sided polygons, and rev
 through an MCP-compatible assistant.
 
 **Alpha, review-first:** nothing is edited automatically. Road changes need an
-authenticated OSM account, an exact preview and separate confirmation.
+authenticated OSM account, an exact preview and one final MCP-host confirmation.
 The safe profile also supports [reviewed POI node creation](docs/reviewed-node-creation.md)
 with duplicate inspection and exact coordinate/tag readback. False matches can
 be resolved with evidence in `review_node_create_duplicates`; its new proposal
-revision still requires separate user confirmation before upload.
+revision still requires that final confirmation before upload.
 For a POI with known boundaries, [reviewed four-sided polygons](docs/reviewed-poi-polygons.md)
 create a closed OSM way with tags on the area and can explicitly replace an
 isolated POI node in the same upload.
@@ -98,7 +98,7 @@ acceptance first, and an MCP host that supports confirmation (elicitation).
 | Inspect a GPX and preview a selected section | No OAuth. Set `OSM_TRACK_IMPORT_DIR` to your private GPX folder, or supply inline GPX XML. |
 | Find candidate roads | Uses the selected editing API. The dev sandbox is **not a copy of the real map**. |
 | Preview a road-edit diff | Set up OSM OAuth: the proposal is bound to your account and API target even before any write. |
-| Apply an edit | Review the exact proposal and confirm its digest separately in the MCP client. Production needs a host that supports elicitation. |
+| Apply an edit | After an explicit publish request, call `apply_osm_edit` immediately. Its MCP elicitation is the single final digest confirmation; do not add another chat question. |
 | Optionally match a track to a routing graph | Run local Valhalla with regional routing tiles. Skip this if you do not need matching; nothing installs it automatically. |
 
 A selected-track preview is **not** an OSM edit proposal. Start with the

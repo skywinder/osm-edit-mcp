@@ -590,7 +590,11 @@ def _node_create_result(proposal: track_tools.Proposal) -> Dict[str, Any]:
     result["message"] = (
         "Node-create preview contains unresolved duplicates and cannot be applied"
         if payload["blocking_issues"]
-        else "Node-create preview is ready for separate explicit confirmation"
+        else (
+            "Node-create preview is ready. After an explicit user request to "
+            "publish it, call apply_osm_edit immediately; that tool opens the "
+            "single required digest-bound confirmation."
+        )
     )
     return result
 
@@ -621,7 +625,8 @@ async def preview_node_create(
     That tool creates a new digest; it never uploads or approves a write.
     Failed or incomplete searches never establish absence.
     Review the exact geometry, tags, diff and full SHA-256 digest before a
-    later apply_osm_edit and separate genuine MCP-host user elicitation.
+    later apply_osm_edit. After an explicit user request to publish it, call
+    apply_osm_edit immediately; it performs the single final MCP-host elicitation.
     """
     search: Dict[str, Any] = {"status": "unknown", "completed": False}
     try:
@@ -745,9 +750,10 @@ async def review_node_create_duplicates(
     requires a reason and independent evidence_source. distinct_object resolves
     that match; same_object requires editing the existing object; uncertain
     stays blocked. Unknown candidates, omitted blockers and changed versions
-    are rejected. This only stores a preview: review the new complete digest,
-    then obtain separate user confirmation through apply_osm_edit. No OSM write
-    or user approval occurs here. Superseded proposals cannot be applied.
+    are rejected. This only stores a preview: review the new complete digest.
+    After an explicit user request to publish it, call apply_osm_edit immediately;
+    that tool performs the single final host confirmation. No OSM write or user
+    approval occurs here. Superseded proposals cannot be applied.
     """
     try:
         stored = track_tools._PROPOSAL_STORE.get(proposal_id)

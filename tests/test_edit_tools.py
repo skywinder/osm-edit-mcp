@@ -75,6 +75,16 @@ def test_safe_profile_does_not_register_raw_write_tools():
 
 
 @pytest.mark.asyncio
+async def test_apply_tool_requests_no_extra_chat_confirmation():
+    tools = {tool.name: tool for tool in await mcp.list_tools()}
+    description = tools["apply_osm_edit"].description or ""
+
+    assert "call this tool immediately" in description
+    assert "instead of asking another conversational" in description
+    assert "single final approval" in description
+
+
+@pytest.mark.asyncio
 async def test_http_write_endpoints_are_retired(monkeypatch):
     import web_server
 
