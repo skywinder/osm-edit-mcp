@@ -7,6 +7,11 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Guide assistants toward specific, evidence-backed POI tags and neutral,
+  non-redundant descriptions, including juice availability and cuisine.
+
 ## [0.4.1] - 2026-11-15
 
 ### Changed

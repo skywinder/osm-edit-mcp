@@ -19,6 +19,14 @@ For a POI with known boundaries, [reviewed four-sided polygons](docs/reviewed-po
 create a closed OSM way with tags on the area and can explicitly replace an
 isolated POI node in the same upload.
 
+For POI edits, the server guides assistants to use specific, verifiable OSM tags
+instead of promotional or redundant descriptions. For example, juice
+availability can be recorded as `drink:juice=yes`; this does not encode fresh
+preparation or the fruit. `cuisine=juice` is appropriate when supported by the
+place's cuisine, not simply because juice is offered. Inspect and preserve
+existing values. See [drink tags](https://wiki.openstreetmap.org/wiki/Key:drink:*)
+and [description guidance](https://wiki.openstreetmap.org/wiki/Key:description).
+
 ## Fastest start
 
 You need **Python 3.10+**, [uv](https://docs.astral.sh/uv/), and an MCP client
