@@ -13,6 +13,7 @@ from .http_client import (
     get_authenticated_client,
     get_public_client,
 )
+from .proposal_store import TRANSIT_ACTIONS
 from .track_tools import _PROPOSAL_STORE, POI_CREATE_ACTIONS, _verify_diff_results
 from .valhalla import status as valhalla_status
 
@@ -79,6 +80,7 @@ async def get_edit_capabilities() -> Dict[str, Any]:
             },
             "safe_write_tools": [
                 "preview_bus_route",
+                "preview_bus_route_update",
                 "preview_bus_way_split",
                 "preview_node_create",
                 "preview_poi_polygon_create",
@@ -94,6 +96,7 @@ async def get_edit_capabilities() -> Dict[str, Any]:
                 "suggest_bus_route_stops",
                 "review_bus_return_trip",
                 "preview_bus_route",
+                "preview_bus_route_update",
                 "preview_bus_way_split",
                 "apply_osm_edit",
                 "verify_osm_edit",
@@ -250,7 +253,7 @@ async def verify_osm_edit(proposal_id: str) -> Dict[str, Any]:
         return {"success": False, "error": "Unknown proposal"}
     if proposal.api_target != config.current_api_base_url:
         return {"success": False, "error": "Proposal belongs to a different API target"}
-    if proposal.payload.get("action") in {"bus_route_create", "bus_way_split"}:
+    if proposal.payload.get("action") in TRANSIT_ACTIONS:
         from .transit_apply import verify_transit_edit
 
         return await verify_transit_edit(proposal_id)

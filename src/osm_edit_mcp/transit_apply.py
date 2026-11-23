@@ -12,13 +12,14 @@ from . import track_tools
 from .auth import verify_write_identity
 from .config import config
 from .http_client import describe_exception, get_authenticated_client, get_public_client
-from .proposal_store import StoredProposal, canonical_digest
+from .proposal_store import TRANSIT_ACTIONS, StoredProposal, canonical_digest
 from .transit_data import (
     element_tags,
     fetch_route_objects,
     restriction_snapshot,
     restriction_via_ways,
 )
+from .transit_update import read_bus_direction
 
 
 def _members(element: ET.Element) -> list[tuple[str, int, str]]:
@@ -125,12 +126,39 @@ def duplicate_route_ids(
     return sorted(duplicates)
 
 
+def conflicting_bus_routes(
+    parents: dict[int, ET.Element],
+    tags: dict[str, str],
+    members: list[dict[str, Any]],
+    before: dict[str, Any] | None,
+) -> list[int]:
+    if before is None:
+        return duplicate_route_ids(parents, tags, members)
+    # Separate variants commonly share a number, endpoints and road segments.
+    # An update to an existing ID can introduce a duplicate when the reviewed
+    # member sequence and route number reproduce a different direction relation.
+    refs = [(m["type"], m["ref"], m["role"]) for m in members]
+    old_refs = [(m["type"], m["ref"], m["role"]) for m in before["members"]]
+    if refs == old_refs and tags.get("ref") == before["tags"].get("ref"):
+        return []
+    duplicates = []
+    for relation_id, relation in parents.items():
+        other = element_tags(relation)
+        if (
+            relation_id != before["id"]
+            and other.get("type") == "route"
+            and other.get("route") == "bus"
+            and _normalized_text(other.get("ref", ""))
+            == _normalized_text(tags.get("ref", ""))
+            and _members(relation) == refs
+        ):
+            duplicates.append(relation_id)
+    return sorted(duplicates)
+
+
 def _transit_proposal(proposal_id: str) -> StoredProposal:
     p = track_tools._PROPOSAL_STORE.get(proposal_id, include_expired=True)
-    if p is None or p.payload.get("action") not in {
-        "bus_route_create",
-        "bus_way_split",
-    }:
+    if p is None or p.payload.get("action") not in TRANSIT_ACTIONS:
         raise ValueError("Unknown transit proposal")
     if p.api_target != config.current_api_base_url or p.osm_uid is None:
         raise ValueError("Proposal is unbound or belongs to another OSM API")
@@ -145,6 +173,9 @@ def _transit_proposal(proposal_id: str) -> StoredProposal:
 
 
 async def _check_live_route(client: Any, payload: dict[str, Any]) -> None:
+    before = payload.get("relation_before")
+    if before is not None and await read_bus_direction(client, before["id"]) != before:
+        raise ValueError("The existing route changed since preview")
     members, tags = payload["members"], payload["relation_tags"]
     way_ids = [m["ref"] for m in members if m["type"] == "way"]
     stop_ids = [m["ref"] for m in members if m["type"] == "node"]
@@ -166,7 +197,7 @@ async def _check_live_route(client: Any, payload: dict[str, Any]) -> None:
         "restriction_via_versions", {}
     ):
         raise ValueError("Turn restriction via ways changed since preview")
-    duplicates = duplicate_route_ids(parents, tags, members)
+    duplicates = conflicting_bus_routes(parents, tags, members, before)
     if duplicates:
         raise ValueError(f"Possible existing bus route relations: {duplicates}")
 
@@ -175,9 +206,22 @@ def _route_xml(payload: dict[str, Any], changeset_id: int) -> str:
     root = ET.Element(
         "osmChange", version="0.6", generator=config.default_changeset_created_by
     )
-    relation = ET.SubElement(
-        ET.SubElement(root, "create"), "relation", id="-1", changeset=str(changeset_id)
-    )
+    before = payload.get("relation_before")
+    if before is None:
+        relation = ET.SubElement(
+            ET.SubElement(root, "create"),
+            "relation",
+            id="-1",
+            changeset=str(changeset_id),
+        )
+    else:
+        relation = ET.SubElement(
+            ET.SubElement(root, "modify"),
+            "relation",
+            id=str(before["id"]),
+            version=str(before["version"]),
+            changeset=str(changeset_id),
+        )
     for m in payload["members"]:
         ET.SubElement(
             relation, "member", type=m["type"], ref=str(m["ref"]), role=m["role"]
@@ -186,17 +230,19 @@ def _route_xml(payload: dict[str, Any], changeset_id: int) -> str:
     return ET.tostring(root, encoding="unicode")
 
 
-def _validate_created(
+def _validate_relation(
     element: ET.Element,
     p: StoredProposal,
     changeset: int,
     relation_id: int,
 ) -> None:
+    before = p.payload.get("relation_before")
     expected = [(m["type"], m["ref"], m["role"]) for m in p.payload["members"]]
     if (
         element.tag != "relation"
         or int(element.get("id", "0")) != relation_id
-        or int(element.get("version", "0")) != 1
+        or (before is not None and relation_id != before["id"])
+        or int(element.get("version", "0")) != (before["version"] + 1 if before else 1)
         or int(element.get("changeset", "0")) != changeset
         or int(element.get("uid", "0")) != p.osm_uid
         or element.get("visible") == "false"
@@ -204,18 +250,23 @@ def _validate_created(
         or element_tags(element) != p.payload["relation_tags"]
         or len(element.findall("tag")) != len(p.payload["relation_tags"])
     ):
-        raise ValueError("OSM relation differs from the approved creation")
+        raise ValueError("OSM relation differs from the approved edit")
 
 
 async def _readback(
     client: Any, p: StoredProposal, changeset: int, relation_id: int
 ) -> None:
-    response = await client.get(f"{p.api_target}/relation/{relation_id}")
+    before = p.payload.get("relation_before")
+    target = f"{p.api_target}/relation/{relation_id}"
+    if before:
+        # Later edits can advance this relation while an uncertain upload is reconciled.
+        target += f"/{before['version'] + 1}"
+    response = await client.get(target)
     response.raise_for_status()
     root = parse_xml(response.content)
     if root.tag != "osm" or len(root) != 1:
         raise ValueError("Expected one OSM relation in readback")
-    _validate_created(root[0], p, changeset, relation_id)
+    _validate_relation(root[0], p, changeset, relation_id)
 
 
 async def _verified_objects(
@@ -231,18 +282,22 @@ async def _verified_objects(
             "verification": check,
             "way_ids": [row["new_id"] for row in check["verified"]],
         }
+    before = p.payload.get("relation_before")
+    old_id = before["id"] if before else -1
+    new_version = before["version"] + 1 if before else 1
     if (
         len(diff) != 1
         or diff[0]["type"] != "relation"
-        or diff[0]["old_id"] != -1
-        or diff[0]["new_version"] != 1
+        or diff[0]["old_id"] != old_id
+        or diff[0]["new_version"] != new_version
+        or (before is not None and diff[0]["new_id"] != old_id)
         or diff[0]["new_id"] <= 0
     ):
         raise ValueError("Upload did not return the expected relation mapping")
     relation_id = diff[0]["new_id"]
     await _readback(client, p, changeset, relation_id)
     return {
-        "verification": {"status": "verified", "version": 1},
+        "verification": {"status": "verified", "version": new_version},
         "relation_id": relation_id,
         "relation_url": f"{config.current_web_base_url}/relation/{relation_id}",
     }
@@ -454,19 +509,21 @@ async def verify_transit_edit(proposal_id: str) -> dict[str, Any]:
 
                 diff = split_diff_from_download(response.content, p.payload, changeset)
             else:
-                if len(objects) != 1 or objects[0][0] != "create":
+                before = p.payload.get("relation_before")
+                operation = "modify" if before else "create"
+                if len(objects) != 1 or objects[0][0] != operation:
                     raise ValueError(
-                        "Dedicated changeset does not show exactly one creation"
+                        f"Dedicated changeset does not show exactly one {operation} operation"
                     )
                 relation = objects[0][1]
                 relation_id = int(relation.attrib["id"])
-                _validate_created(relation, p, changeset, relation_id)
+                _validate_relation(relation, p, changeset, relation_id)
                 diff = [
                     {
                         "type": "relation",
-                        "old_id": -1,
+                        "old_id": before["id"] if before else -1,
                         "new_id": relation_id,
-                        "new_version": 1,
+                        "new_version": int(relation.attrib["version"]),
                     }
                 ]
             verified = await _verified_objects(client, p, changeset, diff)

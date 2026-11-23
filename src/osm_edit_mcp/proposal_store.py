@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
 
+TRANSIT_ACTIONS = frozenset({"bus_route_create", "bus_way_split", "bus_route_update"})
+
 TERMINAL_STATUSES = {
     "APPLIED",
     "FAILED",
@@ -406,7 +408,7 @@ class ProposalStore:
                 )
                 connection.execute("COMMIT")
                 raise ProposalStoreError("Proposal expired")
-            if proposal.payload.get("action") in {"bus_route_create", "bus_way_split"}:
+            if proposal.payload.get("action") in TRANSIT_ACTIONS:
                 self._guard_overlapping_transit(connection, proposal)
             connection.execute(
                 """
@@ -433,13 +435,19 @@ class ProposalStore:
     ) -> None:
         """Reserve overlapping operations under the same transaction as claim."""
 
-        def scope(payload: Dict[str, Any]) -> tuple[str, set[tuple[str, int]]]:
+        def scope(payload: Dict[str, Any]) -> tuple[set[str], set[tuple[str, int]]]:
             if payload["action"] == "bus_way_split":
-                return "", {("way", payload["split_way_id"])}
-            ref = " ".join(payload["relation_tags"]["ref"].casefold().split())
-            return ref, {(m["type"], m["ref"]) for m in payload["members"]}
+                return set(), {("way", payload["split_way_id"])}
+            refs = {payload["relation_tags"].get("ref", "")}
+            members = {(m["type"], m["ref"]) for m in payload["members"]}
+            before = payload.get("relation_before")
+            if before:
+                refs.add(before["tags"].get("ref", ""))
+                members.add(("relation", before["id"]))
+                members.update((m["type"], m["ref"]) for m in before["members"])
+            return {" ".join(ref.casefold().split()) for ref in refs if ref}, members
 
-        ref, members = scope(proposal.payload)
+        refs, members = scope(proposal.payload)
         rows = connection.execute(
             "SELECT proposal_id, payload_json, expires_at, changeset_id FROM proposals "
             "WHERE api_target=? AND status IN ('APPLYING','RECONCILE_REQUIRED')",
@@ -447,7 +455,7 @@ class ProposalStore:
         )
         for row in rows:
             pending = json.loads(row["payload_json"])
-            if pending.get("action") not in {"bus_route_create", "bus_way_split"}:
+            if pending.get("action") not in TRANSIT_ACTIONS:
                 continue
             if row["changeset_id"] is None and row["expires_at"] <= time.time():
                 # Before a changeset ID is bound, no upload can have started.
@@ -461,9 +469,10 @@ class ProposalStore:
                     ),
                 )
                 continue
-            other_ref, other_members = scope(pending)
-            same_operation = not ref or not other_ref or ref == other_ref
-            if same_operation and not members.isdisjoint(other_members):
+            other_refs, other_members = scope(pending)
+            shared = members & other_members
+            same_route = not refs or not other_refs or bool(refs & other_refs)
+            if shared and (same_route or any(kind == "relation" for kind, _ in shared)):
                 raise ProposalStoreError(
                     f"Overlapping transit proposal {row['proposal_id']} has a pending upload"
                 )

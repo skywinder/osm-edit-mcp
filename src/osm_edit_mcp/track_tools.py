@@ -39,6 +39,7 @@ from .http_client import (
 from .overpass import overpass
 from .place_features import ATTRIBUTION
 from .proposal_store import (
+    TRANSIT_ACTIONS,
     ProposalStore,
     ProposalStoreError,
     StoredProposal,
@@ -1483,7 +1484,7 @@ def proposal_preview_resource(proposal_id: str) -> str:
     if proposal is None:
         raise ValueError("Unknown or expired proposal")
     review = proposal.payload.get("_review", {})
-    if proposal.payload.get("action") == "bus_route_create":
+    if proposal.payload.get("action") in {"bus_route_create", "bus_route_update"}:
         from .transit_tools import route_review_html
 
         return route_review_html(proposal)
@@ -3085,7 +3086,7 @@ async def _apply_osm_edit_internal(
             "The reviewed proposal changed; review a fresh preview",
         )
     payload = proposal.payload
-    if payload.get("action") in {"bus_route_create", "bus_way_split"}:
+    if payload.get("action") in TRANSIT_ACTIONS:
         return _failure(
             "Transit proposal", "Use apply_osm_edit for a reviewed transit edit"
         )
@@ -3463,7 +3464,7 @@ async def apply_osm_edit(
             "Unknown or expired proposal",
             "Create and review a fresh proposal",
         )
-    if proposal.payload.get("action") in {"bus_route_create", "bus_way_split"}:
+    if proposal.payload.get("action") in TRANSIT_ACTIONS:
         from .transit_apply import apply_transit_edit
 
         return await apply_transit_edit(
