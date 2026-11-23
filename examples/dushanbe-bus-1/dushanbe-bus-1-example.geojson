@@ -4,8 +4,8 @@
   "attribution": "© OpenStreetMap contributors",
   "copyright": "https://www.openstreetmap.org/copyright",
   "license": "https://opendatacommons.org/licenses/odbl/1-0/",
-  "name": "Автобус № 1, Душанбе · пробный участок для сверки",
-  "description": "Предполагаемый путь на юг, построенный по дорожной сети и пяти нанесённым платформам. Обслуживание платформ автобусом № 1 и выбор дороги у рынка Саховат требуют проверки по поездке.",
+  "name": "Душанбе · автобус № 1 от университета до рынка Саховат",
+  "description": "Пять остановок в порядке, подтверждённом картографом iuvi 23 ноября 2026 года. Прямой путь и места платформ сопоставлены с геометрией OSM.",
   "platform_changeset": "https://www.openstreetmap.org/changeset/192284796",
   "way_ids_in_travel_order": [
     23343714,
@@ -18,9 +18,10 @@
     {
       "type": "Feature",
       "properties": {
-        "name": "Предполагаемый путь к рынку Саховат",
-        "description": "1,6 км. Сверить фактический проезд и подъезд к рынку.",
-        "service_verified": false,
+        "name": "Прямой путь к рынку Саховат",
+        "description": "Около 1,6 км по дорогам OSM. Прямой проезд согласуется с сообщением картографа.",
+        "path_source": "OSM road match",
+        "straight_approach_reported": true,
         "stroke": "#3769d7",
         "stroke-width": 4
       },
@@ -160,9 +161,10 @@
         "name": "Коммерческий и Технологический университет",
         "osm_url": "https://www.openstreetmap.org/node/14366263021",
         "public_transport": "platform",
-        "service_verified": false,
         "marker-color": "#237d57",
-        "candidate_order": 1
+        "stop_sequence": 1,
+        "stop_sequence_confirmed_by_mapper": true,
+        "marker_source": "OSM"
       },
       "geometry": {
         "type": "Point",
@@ -178,9 +180,10 @@
         "name": "43 Микрорайон",
         "osm_url": "https://www.openstreetmap.org/node/14376959050",
         "public_transport": "platform",
-        "service_verified": false,
         "marker-color": "#237d57",
-        "candidate_order": 2
+        "stop_sequence": 2,
+        "stop_sequence_confirmed_by_mapper": true,
+        "marker_source": "OSM"
       },
       "geometry": {
         "type": "Point",
@@ -196,9 +199,10 @@
         "name": "45 Микрорайон",
         "osm_url": "https://www.openstreetmap.org/node/14403934007",
         "public_transport": "platform",
-        "service_verified": false,
         "marker-color": "#237d57",
-        "candidate_order": 3
+        "stop_sequence": 3,
+        "stop_sequence_confirmed_by_mapper": true,
+        "marker_source": "OSM"
       },
       "geometry": {
         "type": "Point",
@@ -214,9 +218,10 @@
         "name": "ТЦ Ганджина",
         "osm_url": "https://www.openstreetmap.org/node/14333645876",
         "public_transport": "platform",
-        "service_verified": false,
         "marker-color": "#237d57",
-        "candidate_order": 4
+        "stop_sequence": 4,
+        "stop_sequence_confirmed_by_mapper": true,
+        "marker_source": "OSM"
       },
       "geometry": {
         "type": "Point",
@@ -232,10 +237,11 @@
         "name": "Рынок Саховат",
         "osm_url": "https://www.openstreetmap.org/node/14403934010",
         "public_transport": "platform",
-        "service_verified": false,
-        "marker-color": "#d48a18",
-        "candidate_order": 5,
-        "description": "Проверить дорогу подъезда и место высадки у рынка."
+        "marker-color": "#237d57",
+        "description": "Пятая остановка участка. По сообщению картографа автобус едет прямо по проспекту.",
+        "stop_sequence": 5,
+        "stop_sequence_confirmed_by_mapper": true,
+        "marker_source": "OSM"
       },
       "geometry": {
         "type": "Point",
@@ -245,5 +251,6 @@
         ]
       }
     }
-  ]
+  ],
+  "itinerary_source": "Сообщение картографа iuvi от 23.11.2026"
 }
