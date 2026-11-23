@@ -13,6 +13,18 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   matching OSM diff entry and versioned element readback. An incomplete
   response is recorded as `RECONCILE_REQUIRED` and cannot trigger another upload.
 
+## [0.7.0] - 2026-11-23
+
+### Added
+
+- Compare a separately observed return trip with outward stops, including
+  different local names, boarding sides, streets, junctions and terminals.
+- Review exact tag and ordered member changes to an existing bus direction.
+  Keep its relation ID and history, and review boarding restrictions when
+  replacing platforms. Record a skipped location even when its OSM ID is unknown.
+- Group reviewed directions in a new bus route master. Check for existing
+  masters and recheck member versions before upload.
+
 ## [0.6.0] - 2026-11-23
 
 ### Added
@@ -230,7 +242,8 @@ release does not implement them or weaken account/API-bound edit safeguards.
 - Production writes fail closed when the host cannot provide digest-bound
   elicitation.
 
-[Unreleased]: https://github.com/skywinder/osm-edit-mcp/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/skywinder/osm-edit-mcp/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/skywinder/osm-edit-mcp/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/skywinder/osm-edit-mcp/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/skywinder/osm-edit-mcp/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/skywinder/osm-edit-mcp/compare/v0.4.1...v0.4.2

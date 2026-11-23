@@ -16,7 +16,7 @@ from .config import config
 from .discovery_models import Latitude, Longitude
 from .http_client import describe_exception, get_authenticated_client, get_public_client
 from .place_features import ATTRIBUTION
-from .transit_apply import duplicate_route_ids, read_route_parents
+from .transit_apply import conflicting_bus_routes, read_route_parents
 from .transit_data import (
     element_tags,
     fetch_route_objects,
@@ -25,18 +25,31 @@ from .transit_data import (
     turn_issues,
 )
 from .transit_geometry import match_stop_candidates, validate_route_geometry
+from .transit_update import (
+    BoardingRole,
+    preserve_boarding_roles,
+    read_bus_direction,
+    route_changes,
+)
 
 ObjectId = Annotated[int, Field(strict=True, gt=0, le=2**63 - 1)]
 Label = Annotated[str, Field(min_length=1, max_length=255)]
+SourceBasis = Literal[
+    "survey", "local_knowledge", "compatible_license", "permission", "unconfirmed"
+]
+RouteTag = Literal["ref", "from", "to", "name", "operator", "network"]
 READ = ToolAnnotations(
     readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
 )
 
 
-class SurveyStop(BaseModel):
+class SurveyLocation(BaseModel):
     model_config = ConfigDict(extra="forbid")
     lat: Latitude
     lon: Longitude
+
+
+class SurveyStop(SurveyLocation):
     label: Label | None = None
 
 
@@ -45,6 +58,7 @@ class OmittedStop(BaseModel):
     label: Label
     reason: Label
     node_id: ObjectId | None = None
+    location: SurveyLocation | None = None
 
 
 @profile_tool(annotations=READ)
@@ -128,7 +142,10 @@ def _text(value: str) -> str:
 
 
 def _geojson(
-    path: list[int], stop_ids: list[int], nodes: dict[int, dict[str, Any]]
+    path: list[int],
+    stop_ids: list[int],
+    nodes: dict[int, dict[str, Any]],
+    omitted_stops: list[OmittedStop] | None,
 ) -> dict[str, Any]:
     def xy(ref: int) -> list[float]:
         return [nodes[ref]["lon"], nodes[ref]["lat"]]
@@ -155,6 +172,28 @@ def _geojson(
                     "node_id": ref,
                 },
                 "geometry": {"type": "Point", "coordinates": xy(ref)},
+            }
+        )
+    for stop in omitted_stops or []:
+        if stop.location is None:
+            continue
+        properties: dict[str, Any] = {
+            "feature": "omitted_stop",
+            "label": stop.label,
+            "reason": stop.reason,
+            "marker-color": "#b45309",
+            "marker-symbol": "cross",
+        }
+        if stop.node_id is not None:
+            properties["node_id"] = stop.node_id
+        features.append(
+            {
+                "type": "Feature",
+                "properties": properties,
+                "geometry": {
+                    "type": "Point",
+                    "coordinates": [stop.location.lon, stop.location.lat],
+                },
             }
         )
     return {**track_tools._feature_collection(features), "attribution": ATTRIBUTION}
@@ -190,13 +229,6 @@ async def preview_bus_route(
     GeoJSON can also be opened as a custom map data layer in iD.
     """
     try:
-        ids = [*way_ids, *stop_ids]
-        if not (1 <= len(way_ids) <= 600 and 2 <= len(stop_ids) <= 250) or any(
-            type(n) is not int or n <= 0 for n in ids
-        ):
-            raise ValueError(
-                "Supply ordered positive OSM way and stop IDs within the schema limits"
-            )
         tags = {
             "type": "route",
             "route": "bus",
@@ -212,129 +244,16 @@ async def preview_bus_route(
         ):
             if value is not None:
                 tags[key] = _text(value)
-        source = _text(source)
-        omitted = [x.model_dump(exclude_none=True) for x in omitted_stops or []]
-        if any(row.get("node_id") in stop_ids for row in omitted):
-            raise ValueError("A stop ID appears in both the selected and omitted lists")
-        async with get_public_client() as client:
-            ways, nodes = await fetch_route_objects(client, way_ids, stop_ids)
-            try:
-                geometry = validate_route_geometry(
-                    way_ids, stop_ids, ways, nodes, driving_side=driving_side
-                )
-            except ValueError as exc:
-                context = _geojson([], stop_ids, nodes)
-                for way_id in dict.fromkeys(way_ids):
-                    way = ways[way_id]
-                    if len(way["nodes"]) >= 2:
-                        context["features"].append(
-                            track_tools._line_feature(
-                                [
-                                    (nodes[n]["lat"], nodes[n]["lon"])
-                                    for n in way["nodes"]
-                                ],
-                                {"way_id": way_id, "name": way["tags"].get("name", "")},
-                            )
-                        )
-                return {
-                    "success": False,
-                    "data": {
-                        "blocking_issues": [str(exc)],
-                        "candidate_geojson": context,
-                        "relation_tags": tags,
-                        "omitted_stops": omitted,
-                        "api_target": config.current_api_base_url,
-                        "attribution": ATTRIBUTION,
-                    },
-                }
-
-            members = [
-                {
-                    "type": "node",
-                    "ref": s["id"],
-                    "role": s["role"],
-                    "version": nodes[s["id"]]["version"],
-                }
-                for s in geometry["stops"]
-            ]
-            members.extend(
-                {"type": "way", "ref": i, "role": "", "version": ways[i]["version"]}
-                for i in way_ids
-            )
-            parents = await read_route_parents(client, members)
-            via_ways = await restriction_via_ways(client, parents, ways)
-        duplicates = duplicate_route_ids(parents, tags, members)
-        issues = turn_issues(parents, geometry["traversals"], via_ways)
-        if duplicates:
-            issues.append(f"Existing bus route may cover this direction: {duplicates}")
-        if source_basis == "unconfirmed":
-            issues.append(
-                "Confirm the surveyed itinerary or document permission or a compatible license before uploading"
-            )
-        geojson = _geojson(geometry["node_ids"], stop_ids, nodes)
-        summary = {
-            "route": f"Bus {tags['ref']}",
-            "from": tags["from"],
-            "to": tags["to"],
-            "stop_members": len(stop_ids),
-            "way_members": len(way_ids),
-            "length_m": geometry["length_m"],
-        }
-        payload = {
-            "action": "bus_route_create",
-            "relation_tags": tags,
-            "members": members,
-            "geometry_node_versions": {
-                str(n): nodes[n]["version"] for w in ways.values() for n in w["nodes"]
-            },
-            "restriction_versions": restriction_snapshot(parents),
-            "restriction_via_versions": {
-                str(k): v["version"] for k, v in via_ways.items()
-            },
-            "blocking_issues": issues,
-            "source_basis": source_basis,
-            "omitted_stops": omitted,
-            "driving_side": driving_side,
-            "changeset_comment": _text(
-                f"Add bus route {tags['ref']} from {tags['from']} to {tags['to']}"[:255]
-            ),
-            "changeset_source": source,
-            "summary": summary,
-            "_review": {"proposed_geojson": geojson},
-        }
-        data = {
-            "summary": summary,
-            "relation_tags": tags,
-            "members": members,
-            "stops": [
-                {
-                    **s,
-                    "name": nodes[s["id"]]["tags"].get("name"),
-                    "osm_url": f"{config.current_web_base_url}/node/{s['id']}",
-                }
-                for s in geometry["stops"]
-            ],
-            "traversals": geometry["traversals"],
-            "omitted_stops": omitted,
-            "source": source,
-            "source_basis": source_basis,
-            "duplicate_relation_ids": duplicates,
-            "blocking_issues": issues,
-            "proposed_geojson": geojson,
-            "api_target": config.current_api_base_url,
-            "attribution": ATTRIBUTION,
-        }
-        if prepare_upload and not issues:
-            async with get_authenticated_client() as client:
-                identity = await verify_write_identity(client)
-            proposal = track_tools._store_proposal(payload, int(identity["user_id"]))
-            data.update(
-                proposal_id=proposal.proposal_id,
-                proposal_digest=proposal.digest,
-                preview_uri=f"ui://osm-edit/proposal/{proposal.proposal_id}",
-                expires_at_unix=proposal.expires_at,
-            )
-        return {"success": not issues, "data": data}
+        return await _review_direction(
+            tags,
+            way_ids,
+            stop_ids,
+            source,
+            source_basis,
+            omitted_stops,
+            driving_side,
+            prepare_upload,
+        )
     except Exception as exc:
         return track_tools._failure(
             type(exc).__name__,
@@ -343,21 +262,270 @@ async def preview_bus_route(
         )
 
 
+@profile_tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=False, destructiveHint=False, openWorldHint=True
+    )
+)
+async def preview_bus_route_update(
+    relation_id: ObjectId,
+    source: Label,
+    way_ids: (
+        Annotated[list[ObjectId], Field(min_length=1, max_length=600)] | None
+    ) = None,
+    stop_ids: (
+        Annotated[list[ObjectId], Field(min_length=2, max_length=250)] | None
+    ) = None,
+    boarding_roles: (
+        Annotated[list[BoardingRole | None], Field(min_length=2, max_length=250)] | None
+    ) = None,
+    tag_changes: dict[RouteTag, Label | None] | None = None,
+    source_basis: SourceBasis = "unconfirmed",
+    omitted_stops: Annotated[list[OmittedStop], Field(max_length=150)] | None = None,
+    driving_side: Literal["right", "left"] = "right",
+    prepare_upload: bool = False,
+) -> dict[str, Any]:
+    """Review updates to a mapped PTv2 bus direction, keeping its relation ID and parent memberships.
+    Supply replacement stop or road IDs in travel order for the lists you want to change.
+    Omitted lists and unrelated tags are preserved. tag_changes can set ref, from, to,
+    name, operator or network. Use null to remove an optional tag. Review the before
+    snapshot and the exact tag and ordered member changes (zero-based half-open ranges).
+    For a relocated restricted stop, supply boarding_roles in stop order with null for
+    retained roles and the observed role for the new stop. prepare_upload binds an
+    eligible edit to the current relation version and account.
+    """
+    try:
+        async with get_public_client() as client:
+            before = await read_bus_direction(client, relation_id)
+        tags = dict(before["tags"])
+        for key, value in (tag_changes or {}).items():
+            if key not in {"ref", "from", "to", "name", "operator", "network"}:
+                raise ValueError(f"Unsupported route tag change: {key}")
+            if value is None:
+                if key in {"ref", "from", "to"}:
+                    raise ValueError(f"An explicit change to {key} needs a value")
+                tags.pop(key, None)
+            else:
+                tags[key] = _text(value)
+        if way_ids is None:
+            way_ids = [m["ref"] for m in before["members"] if m["type"] == "way"]
+        if stop_ids is None:
+            stop_ids = [m["ref"] for m in before["members"] if m["type"] == "node"]
+        return await _review_direction(
+            tags,
+            way_ids,
+            stop_ids,
+            source,
+            source_basis,
+            omitted_stops,
+            driving_side,
+            prepare_upload,
+            before,
+            boarding_roles,
+        )
+    except Exception as exc:
+        return track_tools._failure(
+            type(exc).__name__,
+            "Could not prepare the bus route update",
+            detail=describe_exception(exc),
+        )
+
+
+async def _review_direction(
+    tags: dict[str, str],
+    way_ids: list[int],
+    stop_ids: list[int],
+    source: str,
+    source_basis: SourceBasis,
+    omitted_stops: list[OmittedStop] | None,
+    driving_side: str,
+    prepare_upload: bool,
+    before: dict[str, Any] | None = None,
+    boarding_roles: list[BoardingRole | None] | None = None,
+) -> dict[str, Any]:
+    ids = [*way_ids, *stop_ids]
+    if not (1 <= len(way_ids) <= 600 and 2 <= len(stop_ids) <= 250) or any(
+        type(n) is not int or n <= 0 for n in ids
+    ):
+        raise ValueError(
+            "Supply ordered positive OSM way and stop IDs within the schema limits"
+        )
+    source = _text(source)
+    omitted = [x.model_dump(exclude_none=True) for x in omitted_stops or []]
+    if any(row.get("node_id") in stop_ids for row in omitted):
+        raise ValueError("A stop ID appears in both the selected and omitted lists")
+    async with get_public_client() as client:
+        ways, nodes = await fetch_route_objects(client, way_ids, stop_ids)
+        try:
+            geometry = validate_route_geometry(
+                way_ids, stop_ids, ways, nodes, driving_side=driving_side
+            )
+        except ValueError as exc:
+            context = _geojson([], stop_ids, nodes, omitted_stops)
+            for way_id in dict.fromkeys(way_ids):
+                way = ways[way_id]
+                if len(way["nodes"]) >= 2:
+                    context["features"].append(
+                        track_tools._line_feature(
+                            [(nodes[n]["lat"], nodes[n]["lon"]) for n in way["nodes"]],
+                            {"way_id": way_id, "name": way["tags"].get("name", "")},
+                        )
+                    )
+            return {
+                "success": False,
+                "data": {
+                    "blocking_issues": [str(exc)],
+                    "candidate_geojson": context,
+                    "relation_tags": tags,
+                    "omitted_stops": omitted,
+                    "api_target": config.current_api_base_url,
+                    "attribution": ATTRIBUTION,
+                },
+            }
+
+        members = [
+            {
+                "type": "node",
+                "ref": s["id"],
+                "role": s["role"],
+                "version": nodes[s["id"]]["version"],
+            }
+            for s in geometry["stops"]
+        ]
+        members.extend(
+            {"type": "way", "ref": i, "role": "", "version": ways[i]["version"]}
+            for i in way_ids
+        )
+        parents = await read_route_parents(client, members)
+        via_ways = await restriction_via_ways(client, parents, ways)
+    if before is not None:
+        preserve_boarding_roles(before["members"], members, boarding_roles)
+        for stop, member in zip(geometry["stops"], members):
+            stop["role"] = member["role"]
+    duplicates = conflicting_bus_routes(parents, tags, members, before)
+    issues = turn_issues(parents, geometry["traversals"], via_ways)
+    if duplicates:
+        issues.append(f"Existing bus route may cover this direction: {duplicates}")
+    if source_basis == "unconfirmed":
+        issues.append(
+            "Confirm the surveyed itinerary or document permission or a compatible license before uploading"
+        )
+    geojson = _geojson(geometry["node_ids"], stop_ids, nodes, omitted_stops)
+    summary = {
+        "route": f"Bus {tags.get('ref','')}".strip(),
+        "from": tags.get("from"),
+        "to": tags.get("to"),
+        "stop_members": len(stop_ids),
+        "way_members": len(way_ids),
+        "length_m": geometry["length_m"],
+    }
+    comment = (
+        f"Update bus route relation/{before['id']}"
+        if before
+        else f"Add bus route {tags['ref']} from {tags['from']} to {tags['to']}"
+    )
+    payload = {
+        "action": "bus_route_update" if before else "bus_route_create",
+        "relation_tags": tags,
+        "members": members,
+        "geometry_node_versions": {
+            str(n): nodes[n]["version"] for w in ways.values() for n in w["nodes"]
+        },
+        "restriction_versions": restriction_snapshot(parents),
+        "restriction_via_versions": {str(k): v["version"] for k, v in via_ways.items()},
+        "blocking_issues": issues,
+        "source_basis": source_basis,
+        "omitted_stops": omitted,
+        "driving_side": driving_side,
+        "changeset_comment": _text(comment[:255]),
+        "changeset_source": source,
+        "summary": summary,
+        "_review": {"proposed_geojson": geojson},
+    }
+    data = {
+        "summary": summary,
+        "relation_tags": tags,
+        "members": members,
+        "stops": [
+            {
+                **s,
+                "name": nodes[s["id"]]["tags"].get("name"),
+                "osm_url": f"{config.current_web_base_url}/node/{s['id']}",
+            }
+            for s in geometry["stops"]
+        ],
+        "traversals": geometry["traversals"],
+        "omitted_stops": omitted,
+        "source": source,
+        "source_basis": source_basis,
+        "duplicate_relation_ids": duplicates,
+        "blocking_issues": issues,
+        "proposed_geojson": geojson,
+        "api_target": config.current_api_base_url,
+        "attribution": ATTRIBUTION,
+    }
+    if before is not None:
+        changes = route_changes(before, tags, members)
+        if not changes["tags"] and not changes["members"]:
+            issues.append("The proposed route is identical to its current OSM version")
+        summary.update(relation_id=before["id"], original_version=before["version"])
+        payload["relation_before"] = before
+        data.update(relation_before=before, changes=changes)
+    if prepare_upload and not issues:
+        async with get_authenticated_client() as client:
+            identity = await verify_write_identity(client)
+        proposal = track_tools._store_proposal(payload, int(identity["user_id"]))
+        data.update(
+            proposal_id=proposal.proposal_id,
+            proposal_digest=proposal.digest,
+            preview_uri=f"ui://osm-edit/proposal/{proposal.proposal_id}",
+            expires_at_unix=proposal.expires_at,
+        )
+    return {"success": not issues, "data": data}
+
+
 def route_review_html(proposal: track_tools.Proposal) -> str:
     payload = proposal.payload
     reviewed = {
         k: payload[k]
         for k in ("relation_tags", "members", "omitted_stops", "changeset_source")
     }
+    if "relation_before" in payload:
+        reviewed["relation_before"] = payload["relation_before"]
+        reviewed["changes"] = route_changes(
+            payload["relation_before"], payload["relation_tags"], payload["members"]
+        )
     reviewed["stops_in_travel_order"] = [
         feature["properties"]
         for feature in payload["_review"]["proposed_geojson"]["features"]
         if "stop_sequence" in feature["properties"]
     ]
     details = html.escape(json.dumps(reviewed, ensure_ascii=False, indent=2))
+    tags = payload["relation_tags"]
+    title = (
+        f"Update bus route relation/{payload['relation_before']['id']}"
+        if "relation_before" in payload
+        else f"Bus {tags['ref']} · {tags['from']} → {tags['to']}"
+    )
+    geojson = payload["_review"]["proposed_geojson"]
+    layers = {"proposed": geojson}
+    omitted = [
+        f
+        for f in geojson["features"]
+        if f["properties"].get("feature") == "omitted_stop"
+    ]
+    if omitted:
+        layers = {
+            "proposed": track_tools._feature_collection(
+                f
+                for f in geojson["features"]
+                if f["properties"].get("feature") != "omitted_stop"
+            ),
+            "omitted": track_tools._feature_collection(omitted),
+        }
     return track_tools._map_preview_html(
-        f"Bus {payload['relation_tags']['ref']} · {payload['relation_tags']['from']} → {payload['relation_tags']['to']}",
-        {"proposed": payload["_review"]["proposed_geojson"]},
+        title,
+        layers,
         "<section><p>Review the stops in travel order, the roads and the stated survey source.</p>"
         f"<p>SHA-256 {html.escape(proposal.digest)}</p><pre>{details}</pre></section>",
     )

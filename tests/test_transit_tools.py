@@ -4,6 +4,7 @@ import xml.etree.ElementTree as ET
 
 import httpx
 import pytest
+from pydantic import ValidationError
 
 from src.osm_edit_mcp import edit_tools, track_tools, transit_apply, transit_tools
 from src.osm_edit_mcp.proposal_store import ProposalStore
@@ -93,7 +94,20 @@ async def test_candidate_to_preview_to_confirmation_to_readback(monkeypatch, tmp
         stop_ids=stop_ids,
         source="test survey",
         omitted_stops=[
-            transit_tools.OmittedStop(label="Old stop", reason="no longer served")
+            transit_tools.OmittedStop(
+                label="Old stop",
+                reason="no longer served",
+                location={"lat": 38.001, "lon": 68.003},
+            ),
+            transit_tools.OmittedStop(
+                label="Former platform",
+                reason="relocated",
+                node_id=818,
+                location={"lat": 38.0011, "lon": 68.0031},
+            ),
+            transit_tools.OmittedStop(
+                label="Unlocated stop", reason="location unclear"
+            ),
         ],
     )
     wrong_direction = await transit_tools.preview_bus_route(
@@ -101,7 +115,26 @@ async def test_candidate_to_preview_to_confirmation_to_readback(monkeypatch, tmp
     )
     assert not wrong_direction["success"]
     assert wrong_direction["data"]["blocking_issues"]
-    assert len(wrong_direction["data"]["candidate_geojson"]["features"]) == 3
+    blocked_features = wrong_direction["data"]["candidate_geojson"]["features"]
+    assert len(blocked_features) == 5
+    omitted_markers = [
+        f for f in blocked_features if f["properties"].get("feature") == "omitted_stop"
+    ]
+    assert [f["geometry"]["coordinates"] for f in omitted_markers] == [
+        [68.003, 38.001],
+        [68.0031, 38.0011],
+    ]
+    assert [f["properties"]["label"] for f in omitted_markers] == [
+        "Old stop",
+        "Former platform",
+    ]
+    assert [f["properties"]["reason"] for f in omitted_markers] == [
+        "no longer served",
+        "relocated",
+    ]
+    assert "node_id" not in omitted_markers[0]["properties"]
+    assert omitted_markers[1]["properties"]["node_id"] == 818
+    assert all("stop_sequence" not in f["properties"] for f in omitted_markers)
     assert not store.list()
     inspect = await transit_tools.preview_bus_route(**args, prepare_upload=True)
     assert not inspect["success"] and "proposal_id" not in inspect["data"]
@@ -118,7 +151,13 @@ async def test_candidate_to_preview_to_confirmation_to_readback(monkeypatch, tmp
         [68.001, 38],
         [68.002, 38],
     ]
-    assert "Old stop" in track_tools.proposal_preview_resource(proposal_id)
+    assert [
+        f
+        for f in data["proposed_geojson"]["features"]
+        if f["properties"].get("feature") == "omitted_stop"
+    ] == omitted_markers
+    page = track_tools.proposal_preview_resource(proposal_id)
+    assert "Old stop" in page and "Omitted stop locations</span>" in page
     assert not api.only_writes()
     digest = data["proposal_digest"]
     applied = await track_tools.apply_osm_edit(
@@ -131,6 +170,24 @@ async def test_candidate_to_preview_to_confirmation_to_readback(monkeypatch, tmp
         for m in api.created.findall("member")
     ] == [("node", 201, "platform"), ("node", 202, "platform"), ("way", 7, "")]
     assert "Old stop" not in ET.tostring(api.created, encoding="unicode")
+
+
+@pytest.mark.parametrize(
+    "location",
+    [
+        {"lat": True, "lon": 0},
+        {"lat": "38", "lon": 68},
+        {"lat": 91, "lon": 68},
+        {"lat": 38, "lon": 181},
+        {"lat": 38, "lon": float("nan")},
+        {"lat": 38},
+    ],
+)
+def test_omission_locations_require_a_pair_of_numeric_geographic_coordinates(location):
+    with pytest.raises(ValidationError):
+        transit_tools.OmittedStop(
+            label="Old stop", reason="relocated", location=location
+        )
 
 
 @pytest.mark.asyncio

@@ -39,6 +39,7 @@ from .http_client import (
 from .overpass import overpass
 from .place_features import ATTRIBUTION
 from .proposal_store import (
+    TRANSIT_ACTIONS,
     ProposalStore,
     ProposalStoreError,
     StoredProposal,
@@ -1255,6 +1256,7 @@ def _map_preview_html(
         "suspected": "#ef8c00",
         "dismissed": "#238636",
         "replaced": "#8957e5",
+        "omitted": "#b45309",
     }
     labels = {
         "current": "Current / nearby context",
@@ -1263,6 +1265,7 @@ def _map_preview_html(
         "suspected": "Suspected duplicates",
         "dismissed": "Reviewed as distinct",
         "replaced": "Source point replaced by polygon",
+        "omitted": "Omitted stop locations",
     }
     for index, name in enumerate(layers):
         if name not in colors:
@@ -1311,7 +1314,7 @@ function geometry(name,g,label) {{
 for (const [name,fc] of Object.entries(layers)) for (const f of (fc.features||[])) {{
  const p=f.properties||{{}};
  const label=p.stop_sequence?String(p.stop_sequence):p.review_state==='proposed'?'New POI':p.type&&p.id?`${{p.type}}/${{p.id}}`:'';
- geometry(name,f.geometry||{{}},label);
+ geometry(name,f.geometry||{{}},name==='omitted'?p.label:label);
 }}
 const pts=[...lines.flatMap(x=>x[1]),...dots.map(x=>x[1])];
 if(pts.length) {{
@@ -1484,7 +1487,11 @@ def proposal_preview_resource(proposal_id: str) -> str:
     if proposal is None:
         raise ValueError("Unknown or expired proposal")
     review = proposal.payload.get("_review", {})
-    if proposal.payload.get("action") == "bus_route_create":
+    if proposal.payload.get("action") == "bus_route_master_create":
+        from .transit_master import master_review_html
+
+        return master_review_html(proposal)
+    if proposal.payload.get("action") in {"bus_route_create", "bus_route_update"}:
         from .transit_tools import route_review_html
 
         return route_review_html(proposal)
@@ -3106,7 +3113,7 @@ async def _apply_osm_edit_internal(
             "The reviewed proposal changed; review a fresh preview",
         )
     payload = proposal.payload
-    if payload.get("action") in {"bus_route_create", "bus_way_split"}:
+    if payload.get("action") in TRANSIT_ACTIONS:
         return _failure(
             "Transit proposal", "Use apply_osm_edit for a reviewed transit edit"
         )
@@ -3541,7 +3548,7 @@ async def apply_osm_edit(
             "Unknown or expired proposal",
             "Create and review a fresh proposal",
         )
-    if proposal.payload.get("action") in {"bus_route_create", "bus_way_split"}:
+    if proposal.payload.get("action") in TRANSIT_ACTIONS:
         from .transit_apply import apply_transit_edit
 
         return await apply_transit_edit(
