@@ -264,6 +264,7 @@ async def get_server_info() -> Dict[str, Any]:
                     "inspect_map_context",
                     "analyze_gpx_track",
                     "create_track_selection",
+                    "compare_track_selections",
                     "match_track_selection",
                     "suggest_track_road_candidates",
                     "suggest_bus_route_ways",

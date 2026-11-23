@@ -112,7 +112,8 @@ acceptance first, and an MCP host that supports confirmation (elicitation).
 | What you want to do | What to configure, and why |
 | --- | --- |
 | Inspect a GPX and preview a selected section | No OAuth. Set `OSM_TRACK_IMPORT_DIR` to your private GPX folder, or supply inline GPX XML. |
-| Find candidate roads | Uses the selected editing API. The dev sandbox is **not a copy of the real map**. |
+| Compare a GPX with roads on the real map | The source checkout offers a read-only `road-inspection` profile. It returns candidate geometry from production without OAuth. See [road inspection setup](docs/README.md#read-only-road-inspection). |
+| Find candidate roads while editing | The `full` profile uses the configured editing API. The development sandbox has its own map and object IDs. |
 | Preview a road-edit diff | Set up OSM OAuth: the proposal is bound to your account and API target even before any write. |
 | Apply an edit | After an explicit publish request, call `apply_osm_edit` immediately. Its MCP elicitation is the single final digest confirmation; do not add another chat question. |
 | Optionally match a track to a routing graph | Run local Valhalla with regional routing tiles. Skip this if you do not need matching; nothing installs it automatically. |

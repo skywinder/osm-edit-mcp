@@ -36,6 +36,7 @@ EXPECTED_TOOLS = {
     "smart_geocode",
     "analyze_gpx_track",
     "create_track_selection",
+    "compare_track_selections",
     "match_track_selection",
     "suggest_track_road_candidates",
     "find_bus_route_stops",
@@ -59,6 +60,18 @@ EXPECTED_TOOLS = {
 EXPECTED_RESOURCE_TEMPLATES = {
     "ui://osm-edit/proposal/{proposal_id}",
     "ui://osm-edit/track-selection/{selection_id}",
+    "ui://osm-edit/track-comparison/{comparison_id}",
+}
+ROAD_INSPECTION_TOOLS = {
+    "analyze_gpx_track",
+    "create_track_selection",
+    "compare_track_selections",
+    "match_track_selection",
+    "suggest_track_road_candidates",
+}
+ROAD_INSPECTION_TEMPLATES = {
+    "ui://osm-edit/track-selection/{selection_id}",
+    "ui://osm-edit/track-comparison/{comparison_id}",
 }
 EXPECTED_PROMPTS = {"review_gpx_road_edit"}
 SYNTHETIC_GPX = """<?xml version="1.0"?>
@@ -209,11 +222,38 @@ async def smoke_test(command: str, *, live_osm_read: bool = False) -> None:
                 f"{initialized.serverInfo.version!r} != {package_version!r}"
             )
 
+        inspection_params = StdioServerParameters(
+            command=command,
+            args=[],
+            env={
+                **child_env,
+                "OSM_TOOL_PROFILE": "road-inspection",
+                "OSM_WRITE_PROFILE": "expert",
+            },
+        )
+        async with stdio_client(inspection_params) as (read_stream, write_stream):
+            async with ClientSession(read_stream, write_stream) as session:
+                await session.initialize()
+                inspection_tools = (await session.list_tools()).tools
+                inspection_templates = (
+                    await session.list_resource_templates()
+                ).resourceTemplates
+                if {item.name for item in inspection_tools} != ROAD_INSPECTION_TOOLS:
+                    raise SystemExit("unexpected road-inspection tools")
+                if {
+                    item.uriTemplate for item in inspection_templates
+                } != ROAD_INSPECTION_TEMPLATES:
+                    raise SystemExit("unexpected road-inspection resource templates")
+                if (await session.list_prompts()).prompts or (
+                    await session.list_resources()
+                ).resources:
+                    raise SystemExit("unexpected road-inspection prompts or resources")
+
         print(
             "installed MCP package verified: "
             f"version={package_version}, protocol={initialized.protocolVersion}, "
             f"tools={len(tool_names)}, templates={len(template_uris)}, "
-            f"prompts={len(prompt_names)}, synthetic_gpx_preview=ok"
+            f"prompts={len(prompt_names)}, synthetic_gpx_preview=ok, road_inspection=ok"
             + (", live_osm_read=ok" if live_osm_read else "")
         )
 

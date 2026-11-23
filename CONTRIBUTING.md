@@ -183,22 +183,25 @@ Brief description of changes
 
 ### Adding New Tools
 
-1. Define read-only and validation tools in `read_tools.py`, or mutation
-   workflows in `write_tools.py`, using the shared `@mcp.tool()` decorator
-   from `app.py`
-2. Include comprehensive docstrings
-3. Validate all inputs
-4. Return consistent response format:
-   ```python
-   {
-       "success": bool,
-       "data": dict,  # On success
-       "error": str,  # On failure
-       "message": str
-   }
-   ```
-5. Add corresponding tests
-6. Update documentation
+1. Register a tool in its domain module through `profile_tool` or the
+   existing discovery or raw-write decorator. Keep the read-only profiles'
+   allowlists explicit. Use `profile_resource` and `profile_prompt` for
+   resources and prompts.
+2. Describe the inputs, return value and side effects. Set tool annotations
+   to match the implementation. Enforce write permissions and human approval
+   in code. Clients treat annotations as hints.
+3. Validate inputs before contacting an external service. Return actionable
+   errors. Exercise both success and failure through an MCP client and check
+   `isError`, the text content and the declared structured output schema.
+   See the [tools specification for the supported protocol](https://modelcontextprotocol.io/specification/2025-11-25/server/tools).
+4. When a public capability changes, update the corresponding entry in
+   `lhm.plugin.json` and the affected profile checks. CI compares the
+   manifest with the running server and exercises installed packages over
+   stdio in `scripts/smoke_test_mcp_package.py`.
+
+For tools that suggest OSM changes, show the mapper the source and the
+specific objects or geometry under review. When planning systematic edits,
+consult the community's [Automated Edits code of conduct](https://wiki.openstreetmap.org/wiki/Automated_Edits_code_of_conduct).
 
 `server.py` is a compatibility facade and entry point. Keep implementation
 logic in the focused modules:

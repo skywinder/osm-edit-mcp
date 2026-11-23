@@ -230,6 +230,106 @@ async def test_track_selection_crops_by_indexes_and_preserves_requested_directio
 
 
 @pytest.mark.asyncio
+async def test_compare_selections_shows_disagreement_and_manual_exclusion(monkeypatch):
+    monkeypatch.setattr(track_tools, "MAX_COMPARISON_PREVIEWS", 2)
+    ids = []
+    for offset in (0, 0.00003, 0.0005):
+        gpx = f'<gpx><trk><trkseg><trkpt lat="{offset}" lon="0"/><trkpt lat="{offset}" lon="0.001"/></trkseg></trk></gpx>'
+        analysis = await track_tools.analyze_gpx_track(gpx_xml=gpx)
+        selection = await track_tools.create_track_selection(
+            analysis["data"]["track_id"], "trk-0-seg-0", 1, 0
+        )
+        ids.append(selection["data"]["selection_id"])
+    result = await track_tools.compare_track_selections(ids, [ids[2]])
+    assert result["success"]
+    data = result["data"]
+    assert [trace["included"] for trace in data["traces"]] == [True, True, False]
+    assert data["traces"][0]["start_point_index"] == 1
+    assert (
+        data["pairwise_disagreement"][1]["mean_distance_m"]
+        > data["pairwise_disagreement"][0]["mean_distance_m"]
+    )
+    assert len(data["geojson"]["features"]) == 3
+    assert data["pairwise_disagreement"][0]["mean_distance_m"] == pytest.approx(
+        3.34, abs=0.02
+    )
+    (resource,) = await track_tools.mcp.read_resource(data["preview_uri"])
+    assert resource.mime_type == "text/html"
+    page = resource.content
+    assert page.startswith("<!doctype html>") and page.endswith("</html>")
+    assert "excluded" in page and ids[2] in page and "pairwise_disagreement" in page
+    assert not (await track_tools.compare_track_selections([ids[0], ids[0]]))["success"]
+    assert not (await track_tools.compare_track_selections(ids, ["unknown"]))["success"]
+    assert not (await track_tools.compare_track_selections(ids, [ids[0], ids[0]]))[
+        "success"
+    ]
+    assert not (await track_tools.compare_track_selections([ids[0], "unknown"]))[
+        "success"
+    ]
+    revised = (await track_tools.compare_track_selections(ids, []))["data"]
+    assert all(trace["included"] for trace in revised["traces"])
+    assert revised["pairwise_disagreement"] == data["pairwise_disagreement"]
+    assert revised["preview_uri"] != data["preview_uri"]
+    assert "Trace 3 (excluded)" in track_tools.track_comparison_preview_resource(
+        data["preview_uri"].rsplit("/", 1)[-1]
+    )
+    await track_tools.compare_track_selections(ids, [ids[1]])
+    with pytest.raises(ValueError, match="compare the selections again"):
+        track_tools.track_comparison_preview_resource(
+            data["preview_uri"].rsplit("/", 1)[-1]
+        )
+
+
+def test_compare_measures_a_short_detour_on_the_full_target_line():
+    from src.osm_edit_mcp.track_comparison import pairwise_distances
+
+    # A 12 km survey has one 20 m side excursion between the coarse samples
+    # a fixed 51-point resampling would take. The original vertices contain it.
+    baseline = [(0.0, i * 0.001) for i in range(110)]
+    detour = baseline[:2] + [(0.00018, 0.0011)] + baseline[2:]
+    (pair,) = pairwise_distances([baseline, detour], ["original", "detour"])
+    assert pair["max_distance_m"] == pytest.approx(20.02, abs=0.03)
+    assert 0 < pair["mean_distance_m"] < 1
+
+
+def test_compare_same_dateline_trace_in_reverse_with_different_point_density():
+    from src.osm_edit_mcp.track_comparison import pairwise_distances
+
+    sparse = [(0.0, 179.999), (0.0, -179.999)]
+    dense = [(0.0, -179.999), (0.0, 180.0), (0.0, 179.999)]
+    (pair,) = pairwise_distances([sparse, dense], ["sparse", "dense"])
+    assert pair["max_distance_m"] == pytest.approx(0, abs=0.01)
+
+
+@pytest.mark.asyncio
+async def test_large_comparison_requests_smaller_ranges_before_computing(monkeypatch):
+    from src.osm_edit_mcp import track_comparison
+
+    def no_computation(*args):
+        pytest.fail(
+            "Excess comparison work must be rejected before measuring distances"
+        )
+
+    monkeypatch.setattr(track_comparison, "_directed_distances", no_computation)
+    ids = ["range-1", "range-2"]
+    with pytest.raises(ValueError, match="total points"):
+        track_comparison.pairwise_distances([[(0, 0)] * 751] * 2, ids)
+    # Under the point limit, but long enough to exceed the CPU budget.
+    line = [(0.0, i * 0.004) for i in range(400)]
+    for selection_id in ids:
+        monkeypatch.setitem(
+            track_tools._TRACK_SELECTIONS,
+            selection_id,
+            track_tools.TrackSelection(
+                selection_id, "track", "segment", 0, 399, tuple(line), ()
+            ),
+        )
+    result = await track_tools.compare_track_selections(ids)
+    assert not result["success"]
+    assert "shorter ranges" in result["detail"]
+
+
+@pytest.mark.asyncio
 async def test_track_selection_rejects_discontinuous_subsection():
     gpx = """<gpx><trk><trkseg>
       <trkpt lat="0" lon="0"/><trkpt lat="0" lon="0.001"/>

@@ -104,7 +104,7 @@ class OSMConfig(BaseSettings):
     # MCP Server Configuration
     mcp_server_name: str = Field(default="osm-edit-mcp")
     mcp_server_version: str = Field(default=__version__)
-    osm_tool_profile: Literal["full", "discovery"] = "full"
+    osm_tool_profile: Literal["full", "discovery", "road-inspection"] = "full"
     osm_overpass_url: str = DEFAULT_OVERPASS_URL
     osm_nominatim_url: str = "https://nominatim.openstreetmap.org"
 
@@ -220,7 +220,11 @@ class OSMConfig(BaseSettings):
     @property
     def direct_write_tools_enabled(self) -> bool:
         """Raw writes require expert mode and the actual official dev endpoint."""
-        return self.osm_write_profile == "expert" and self.is_development_api
+        return (
+            self.osm_tool_profile == "full"
+            and self.osm_write_profile == "expert"
+            and self.is_development_api
+        )
 
     @property
     def permitted_imagery_sources(self) -> set[str]:
@@ -321,11 +325,14 @@ def setup_logging() -> logging.Logger:
 
     # Log configuration info
     logger.info(f"OSM Edit MCP Server v{config.mcp_server_version}")
-    logger.info("API environment: %s", config.api_environment)
-    logger.info(f"API Base URL: {config.current_api_base_url}")
+    if config.osm_tool_profile == "road-inspection":
+        logger.info("Road inspection reads road geometry via Overpass")
+    else:
+        logger.info("API environment: %s", config.api_environment)
+        logger.info(f"API Base URL: {config.current_api_base_url}")
     logger.info(f"Log Level: {config.log_level}")
 
-    if not config.is_development_api:
+    if config.osm_tool_profile == "full" and not config.is_development_api:
         logger.warning(
             "NON-DEVELOPMENT API TARGET: %s. Production OSM edits are public "
             "and permanent; custom targets receive the same fail-closed write "

@@ -66,6 +66,6 @@ async def test_prompts_get_returns_ordered_workflow_and_exact_confirmation_gate(
 
 @pytest.mark.asyncio
 async def test_prompt_registration_does_not_change_tool_or_resource_counts():
-    assert len(await mcp.list_tools()) == 41
+    assert len(await mcp.list_tools()) == 42
     assert len(await mcp.list_resources()) == 0
-    assert len(await mcp.list_resource_templates()) == 2
+    assert len(await mcp.list_resource_templates()) == 3

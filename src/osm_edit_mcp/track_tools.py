@@ -14,10 +14,12 @@ import os
 import time
 import uuid
 import xml.etree.ElementTree as ET
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Annotated, Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from urllib.parse import urlsplit
 
 import httpx
 from defusedxml.ElementTree import fromstring as parse_xml
@@ -27,12 +29,15 @@ from pydantic import BaseModel, Field, StrictInt
 
 from .app import mcp, profile_resource, profile_tool
 from .auth import verify_write_identity
-from .config import config
+from .config import DEFAULT_OVERPASS_URL, config
+from .discovery_errors import failure as discovery_failure
 from .http_client import (
     describe_exception,
     get_authenticated_client,
     get_public_client,
 )
+from .overpass import overpass
+from .place_features import ATTRIBUTION
 from .proposal_store import (
     ProposalStore,
     ProposalStoreError,
@@ -40,6 +45,7 @@ from .proposal_store import (
     canonical_digest,
 )
 from .token_store import get_current_user_info, load_oauth_token
+from .track_comparison import SAMPLE_SPACING_M, pairwise_distances
 from .valhalla import match_track as valhalla_match_track
 from .write_tools import close_changeset
 
@@ -52,6 +58,9 @@ DEFAULT_ENDPOINT_SNAP_M = 10.0
 ENDPOINT_WAY_AMBIGUITY_M = 2.0
 DEFAULT_MAX_ALIGNMENT_M = 20.0
 MAX_SURVEY_POINT_GAP_M = 500.0
+MAX_INSPECTION_WAYS = 1000
+MAX_INSPECTION_RESULT_POINTS = 4000
+MAX_INSPECTION_RESULT_BYTES = 128 * 1024
 
 
 @dataclass(frozen=True)
@@ -98,6 +107,8 @@ class TrackSelection:
 
 _TRACKS: Dict[str, TrackRecord] = {}
 _TRACK_SELECTIONS: Dict[str, TrackSelection] = {}
+MAX_COMPARISON_PREVIEWS = 32
+_TRACK_COMPARISONS: OrderedDict[str, Dict[str, Any]] = OrderedDict()
 
 
 class ApplyConfirmation(BaseModel):
@@ -516,9 +527,9 @@ async def _nearby_highways(
     points: Sequence[Point], radius_m: float
 ) -> Tuple[List[Dict[str, Any]], Dict[int, Dict[str, Any]]]:
     south, west, north, east = _expanded_bbox(points, radius_m)
-    # /map is part of the configured Editing API, so development previews do
-    # not accidentally suggest production Overpass IDs. Keep each tile well
-    # below the API's usual 0.25 square-degree area limit.
+    # Preview and apply always use their own editing API for object IDs.
+    map_url = f"{config.current_api_base_url}/map"
+    # Keep each tile below the API's usual 0.25 square-degree area limit.
     max_span = 0.2
     lat_steps = max(1, math.ceil((north - south) / max_span))
     lon_steps = max(1, math.ceil((east - west) / max_span))
@@ -538,7 +549,7 @@ async def _nearby_highways(
         responses = await asyncio.gather(
             *(
                 client.get(
-                    f"{config.current_api_base_url}/map",
+                    map_url,
                     params={"bbox": ",".join(str(value) for value in box)},
                 )
                 for box in boxes
@@ -596,6 +607,41 @@ async def _nearby_highways(
         )
     return ways, {
         node_id: nodes[node_id] for node_id in highway_node_ids if node_id in nodes
+    }
+
+
+async def _inspect_overpass_highways(
+    track: Sequence[Point], radius_m: float
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    south, west, north, east = _expanded_bbox(track, radius_m)
+    if north - south > 0.25 or east - west > 0.25:
+        raise ValueError(
+            "Select a shorter GPX range. Overpass bounds may span at most "
+            "0.25 degrees per side."
+        )
+    bbox = f"{max(-90, south)},{max(-180, west)},{min(90, north)},{min(180, east)}"
+    # Fetch one extra way so a truncated set cannot be ranked as complete.
+    query = (
+        f'[out:json][timeout:25];way["highway"]({bbox});'
+        f"out meta geom {MAX_INSPECTION_WAYS + 1};"
+    )
+    response = await overpass.execute(query)
+    ways = response["elements"]
+    geometry_points = sum(len(way.get("geometry", ())) for way in ways)
+    if len(ways) > MAX_INSPECTION_WAYS or geometry_points * len(track) > 1_000_000:
+        raise ValueError(
+            "Too much road geometry to rank in this area. Select a shorter "
+            "GPX range or reduce search_radius_m."
+        )
+    endpoint = urlsplit(overpass.endpoint)
+    return ways, {
+        "provider": "Overpass",
+        "api_target": endpoint._replace(query="", fragment="").geturl(),
+        "environment": (
+            "production" if overpass.endpoint == DEFAULT_OVERPASS_URL else "custom"
+        ),
+        "data_timestamp": response.get("osm3s", {}).get("timestamp_osm_base"),
+        "attribution": ATTRIBUTION,
     }
 
 
@@ -1194,7 +1240,10 @@ async def match_track_selection(
 
 
 def _map_preview_html(
-    title: str, layers: Dict[str, Dict[str, Any]], details: str = ""
+    title: str,
+    layers: Dict[str, Dict[str, Any]],
+    details: str = "",
+    guidance: str = "Review the exact geometry and warnings in the tool result before approval.",
 ) -> str:
     """Render a dependency-free review map for MCP resource-capable hosts."""
     serialized = json.dumps(layers, ensure_ascii=False).replace("</", "<\\/")
@@ -1214,8 +1263,23 @@ def _map_preview_html(
         "dismissed": "Reviewed as distinct",
         "replaced": "Source point replaced by polygon",
     }
+    for index, name in enumerate(layers):
+        if name not in colors:
+            colors[name] = [
+                "#d32f2f",
+                "#1565c0",
+                "#008577",
+                "#8e24aa",
+                "#ef6c00",
+                "#3949ab",
+                "#6d4c41",
+                "#558b2f",
+                "#c2185b",
+                "#00838f",
+            ][index % 10]
+            labels[name] = name
     legend = "".join(
-        f'<span><i class="swatch" style="background:{colors[name]}"></i>{labels[name]}</span>'
+        f'<span><i class="swatch" style="background:{colors[name]}"></i>{html.escape(labels[name])}</span>'
         for name in layers
     )
     return f"""<!doctype html>
@@ -1230,7 +1294,7 @@ a {{ color:#80c7ff; }}
 section {{ padding:12px 16px; overflow-wrap:anywhere; }}
 pre {{ white-space:pre-wrap; }}
 </style></head><body><header><strong>{html.escape(title)}</strong><br>
-Review the exact geometry and warnings in the tool result before approval.</header>
+{html.escape(guidance)}</header>
 <canvas id="map" width="1200" height="760"></canvas>
 <div class="legend">{legend}</div>{details}
 <script>
@@ -1250,17 +1314,22 @@ for (const [name,fc] of Object.entries(layers)) for (const f of (fc.features||[]
 }}
 const pts=[...lines.flatMap(x=>x[1]),...dots.map(x=>x[1])];
 if(pts.length) {{
- const xs=pts.map(p=>p[0]), ys=pts.map(p=>p[1]);
- let minX=Math.min(...xs), maxX=Math.max(...xs), minY=Math.min(...ys), maxY=Math.max(...ys);
+ const origin=pts[0], latitudeScale=Math.cos(origin[1]*Math.PI/180);
+ const xOf=p=>(((p[0]-origin[0]+540)%360)-180)*latitudeScale;
+ let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity;
+ for(const p of pts) {{const x=xOf(p); minX=Math.min(minX,x); maxX=Math.max(maxX,x);
+ minY=Math.min(minY,p[1]); maxY=Math.max(maxY,p[1]);}}
  if(maxX===minX) {{ minX-=0.0005; maxX+=0.0005; }}
  if(maxY===minY) {{ minY-=0.0005; maxY+=0.0005; }}
  const sx=(canvas.width-80)/Math.max(maxX-minX,1e-9), sy=(canvas.height-80)/Math.max(maxY-minY,1e-9);
- const scale=Math.min(sx,sy); const project=p=>[40+(p[0]-minX)*scale,canvas.height-40-(p[1]-minY)*scale];
+ const scale=Math.min(sx,sy); const project=p=>[40+(xOf(p)-minX)*scale,canvas.height-40-(p[1]-minY)*scale];
  function labelAt(label,p) {{ if(!label) return; const q=project(p); ctx.font='16px system-ui';
  ctx.lineWidth=3; ctx.strokeStyle='#fff'; ctx.strokeText(label,q[0]+10,q[1]-10);
  ctx.fillStyle='#182028'; ctx.fillText(label,q[0]+10,q[1]-10); }}
  for(const [name,line,label] of lines) {{ ctx.beginPath(); ctx.strokeStyle=colors[name];
+ ctx.setLineDash(name.endsWith('(excluded)')?[8,6]:[]);
  ctx.lineWidth=name==='current'?7:4; line.forEach((p,i)=>{{const q=project(p); i?ctx.lineTo(...q):ctx.moveTo(...q)}}); ctx.stroke(); }}
+ ctx.setLineDash([]);
  for(const [name,line,label] of lines) labelAt(label,line[0]);
  for(const [name,point,label] of dots) {{ const q=project(point); ctx.beginPath();
  ctx.fillStyle=colors[name]; ctx.arc(...q,8,0,2*Math.PI); ctx.fill(); }}
@@ -1284,6 +1353,122 @@ def track_selection_preview_resource(selection_id: str) -> str:
                 [_line_feature(selection.points, {"state": "selected_gpx"})]
             )
         },
+    )
+
+
+@profile_tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=False,
+    )
+)
+async def compare_track_selections(
+    selection_ids: Annotated[List[str], Field(min_length=2, max_length=10)],
+    excluded_selection_ids: Optional[Annotated[List[str], Field(max_length=10)]] = None,
+) -> Dict[str, Any]:
+    """Overlay independently selected GPX ranges and review their disagreement.
+
+    Exclusion is a manual review decision; excluded traces remain visible. This
+    diagnostic does not generate consensus geometry or change a road proposal.
+    """
+    try:
+        if not 2 <= len(selection_ids) <= 10 or len(set(selection_ids)) != len(
+            selection_ids
+        ):
+            raise ValueError("Provide 2 to 10 distinct selection IDs")
+        excluded = excluded_selection_ids or []
+        if len(set(excluded)) != len(excluded) or not set(excluded) <= set(
+            selection_ids
+        ):
+            raise ValueError(
+                "Excluded selection IDs must be distinct members of selection_ids"
+            )
+        selections = [_resolve_track_selection(item) for item in selection_ids]
+        pairs = pairwise_distances([s.points for s in selections], selection_ids)
+        traces = []
+        layers = {}
+        for index, selection in enumerate(selections, 1):
+            included = selection.selection_id not in excluded
+            record = _TRACKS.get(selection.track_id)
+            trace = {
+                "selection_id": selection.selection_id,
+                "track_id": selection.track_id,
+                "segment_id": selection.segment_id,
+                "start_point_index": selection.start_point_index,
+                "end_point_index": selection.end_point_index,
+                "source": record.source if record else None,
+                "point_count": len(selection.points),
+                "included": included,
+            }
+            traces.append(trace)
+            label = f"Trace {index} ({'included' if included else 'excluded'})"
+            layers[label] = _feature_collection(
+                [_line_feature(selection.points, trace)]
+            )
+        material = json.dumps([selection_ids, sorted(excluded)], separators=(",", ":"))
+        comparison_id = hashlib.sha256(material.encode()).hexdigest()[:32]
+        method = (
+            "Distances use both directions and the full selected lines. Samples include "
+            f"every original vertex with at most {SAMPLE_SPACING_M} m between samples. "
+            "The mean weights each direction equally and each leg by length. "
+            "Different coverage or a detour can also increase disagreement."
+        )
+        details = (
+            "<section><h2>Trace provenance and pairwise disagreement</h2><pre>"
+            + html.escape(
+                json.dumps({"traces": traces, "pairwise_disagreement": pairs}, indent=2)
+            )
+            + f"</pre><p>{method}</p></section>"
+        )
+        _TRACK_COMPARISONS[comparison_id] = {"layers": layers, "details": details}
+        _TRACK_COMPARISONS.move_to_end(comparison_id)
+        if len(_TRACK_COMPARISONS) > MAX_COMPARISON_PREVIEWS:
+            _TRACK_COMPARISONS.popitem(last=False)
+        return {
+            "success": True,
+            "data": {
+                "traces": traces,
+                "pairwise_disagreement": pairs,
+                "distance_method": method,
+                "geojson": _feature_collection(
+                    feature
+                    for layer in layers.values()
+                    for feature in layer["features"]
+                ),
+                "preview_uri": f"ui://osm-edit/track-comparison/{comparison_id}",
+                "warnings": [
+                    "Approximate sampled nearest-line distances do not establish common coverage or identify outliers. No consensus geometry is generated; road previews still use one explicitly selected trace."
+                ],
+            },
+            "message": "Compared GPX selections for manual review",
+        }
+    except Exception as exc:
+        return _failure(
+            type(exc).__name__,
+            "Failed to compare GPX selections",
+            detail=describe_exception(exc),
+        )
+
+
+@profile_resource(
+    "ui://osm-edit/track-comparison/{comparison_id}",
+    name="OSM GPX trace comparison",
+    description="Overlay and disagreement for independently selected GPX ranges",
+    mime_type="text/html",
+)
+def track_comparison_preview_resource(comparison_id: str) -> str:
+    comparison = _TRACK_COMPARISONS.get(comparison_id)
+    if comparison is None:
+        raise ValueError(
+            "Comparison preview is unavailable; compare the selections again"
+        )
+    return _map_preview_html(
+        "GPX trace comparison",
+        comparison["layers"],
+        comparison["details"],
+        "Solid lines show included ranges. Dashed lines show manually excluded ranges.",
     )
 
 
@@ -1388,7 +1573,10 @@ async def suggest_track_road_candidates(
     search_radius_m: float = 30.0,
     selection_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Suggest nearby OSM highway ways without selecting or modifying any way."""
+    """Rank nearby OSM highways for the selected GPX range. Road inspection
+    queries Overpass with the bounding box and returns candidate geometry
+    and attribution. The full profile uses its editing API.
+    """
     try:
         if not 1 <= limit <= 50:
             raise ValueError("limit must be between 1 and 50")
@@ -1399,7 +1587,16 @@ async def suggest_track_road_candidates(
         )
         _require_continuous_segment(segment)
         track = _simplify(segment.points, DEFAULT_SIMPLIFY_TOLERANCE_M)
-        ways, _ = await _nearby_highways(track, search_radius_m)
+        inspection = config.osm_tool_profile == "road-inspection"
+        if inspection:
+            ways, source = await _inspect_overpass_highways(track, search_radius_m)
+        else:
+            ways, _ = await _nearby_highways(track, search_radius_m)
+            source = {
+                "provider": "OSM editing API",
+                "api_target": config.current_api_base_url,
+                "environment": config.api_environment,
+            }
         candidates: List[Dict[str, Any]] = []
         for way in ways:
             geometry = [
@@ -1409,17 +1606,27 @@ async def suggest_track_road_candidates(
             if len(geometry) < 2:
                 continue
             metrics = _candidate_metrics(track, geometry, search_radius_m)
-            candidates.append(
-                {
-                    "way_id": int(way["id"]),
-                    "version": int(way.get("version", 0)),
-                    "tags": way.get("tags", {}),
-                    "node_ids": [int(item) for item in way.get("nodes", [])],
-                    **metrics,
-                }
-            )
+            candidate = {
+                "way_id": int(way["id"]),
+                "version": int(way.get("version", 0)),
+                "tags": way.get("tags", {}),
+                "node_ids": [int(item) for item in way.get("nodes", [])],
+                **metrics,
+            }
+            if inspection:
+                candidate["geometry"] = _line_feature(geometry)["geometry"]
+            candidates.append(candidate)
         candidates.sort(key=lambda item: item["match_score"], reverse=True)
         candidates = candidates[:limit]
+        if inspection:
+            points_returned = sum(len(c["geometry"]["coordinates"]) for c in candidates)
+            if points_returned > MAX_INSPECTION_RESULT_POINTS or len(
+                json.dumps(candidates, separators=(",", ":"), ensure_ascii=False).encode()
+            ) > MAX_INSPECTION_RESULT_BYTES:
+                raise ValueError(
+                    "Candidate geometry exceeds the response limit. Reduce limit "
+                    "or select a smaller GPX range and search_radius_m."
+                )
         return {
             "success": True,
             "data": {
@@ -1427,6 +1634,7 @@ async def suggest_track_road_candidates(
                 "segment_id": segment.segment_id,
                 "selection_id": selection_id,
                 "candidates": candidates,
+                **source,
                 "suggested_order": [
                     item["way_id"]
                     for item in sorted(
@@ -1439,6 +1647,8 @@ async def suggest_track_road_candidates(
             "message": f"Found {len(candidates)} candidate road ways",
         }
     except Exception as exc:
+        if config.osm_tool_profile == "road-inspection":
+            return discovery_failure(exc, "Failed to suggest road candidates")
         return _failure(
             type(exc).__name__,
             "Failed to suggest road candidates",
@@ -3360,6 +3570,7 @@ __all__ = [
     "analyze_gpx_track",
     "apply_osm_edit",
     "apply_track_road_edit",
+    "compare_track_selections",
     "create_track_selection",
     "match_track_selection",
     "preview_node_tag_edit",

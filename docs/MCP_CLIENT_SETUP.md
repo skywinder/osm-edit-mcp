@@ -11,6 +11,9 @@ before applying production edits.
   `resolve_location`, `search_nearby_places`, and `get_place_details`. No OAuth
   setup or development edit is required. These tools are included in released
   packages from version 0.2.2; use `uvx --from osm-edit-mcp==0.2.2 osm-edit-mcp`.
+- **Read-only GPX inspection** is available from this source checkout. Choose
+  `OSM_TOOL_PROFILE=road-inspection` in the source record below to compare GPX
+  surveys with production road geometry without OAuth. See [road inspection](README.md#read-only-road-inspection).
 - **Editing and GPX:** the default `full` tool profile uses the `safe` write
   profile. The released package is launched with `uvx osm-edit-mcp`. OAuth is
   needed for authenticated operations, not public place discovery.
