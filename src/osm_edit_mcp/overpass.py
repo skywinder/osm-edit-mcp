@@ -131,3 +131,7 @@ class OverpassExecutor:
                         self.cache.popitem(last=False)
                     return data
         raise RuntimeError("Overpass retry budget exhausted")
+
+
+# Share one cache, concurrency gate and Retry-After cooldown per server.
+overpass = OverpassExecutor()

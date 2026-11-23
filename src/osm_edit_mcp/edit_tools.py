@@ -89,6 +89,7 @@ async def get_edit_capabilities() -> Dict[str, Any]:
             "track_tools": [
                 "analyze_gpx_track",
                 "create_track_selection",
+                "compare_track_selections",
                 "match_track_selection",
                 "suggest_track_road_candidates",
             ],

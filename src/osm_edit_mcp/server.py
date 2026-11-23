@@ -64,6 +64,7 @@ from .track_tools import (
     analyze_gpx_track,
     apply_osm_edit,
     apply_track_road_edit,
+    compare_track_selections,
     create_track_selection,
     match_track_selection,
     preview_node_tag_edit,
@@ -99,10 +100,7 @@ def main() -> None:
     logger.info("Starting OSM Edit MCP Server...")
     logger.info("Python version: %s", sys.version)
     logger.info("Server version: %s", config.mcp_server_version)
-    logger.info(
-        "API mode: %s",
-        config.api_environment.title(),
-    )
+    logger.info("Tool profile: %s", config.osm_tool_profile)
 
     try:
         mcp.run()
@@ -123,6 +121,7 @@ __all__ = [
     "USER_AGENT",
     "app",
     "analyze_gpx_track",
+    "compare_track_selections",
     "apply_osm_edit",
     "apply_track_road_edit",
     "build_tags_xml",

@@ -58,6 +58,41 @@ for categories, exact filters, distance caveats, migration examples and transpor
 
 ## Quick start
 
+### Read-only road inspection
+
+This source checkout supports `OSM_TOOL_PROFILE=road-inspection`. Configure a
+separate stdio server entry and reconnect your MCP host. Replace the path with
+the absolute path to this checkout.
+
+```json
+{
+  "command": "uv",
+  "args": ["run", "--locked", "--project", "/absolute/path/to/checkout", "osm-edit-mcp"],
+  "env": {"OSM_TOOL_PROFILE": "road-inspection"}
+}
+```
+
+Call `analyze_gpx_track`, then `create_track_selection`. Use
+`suggest_track_road_candidates` with the selection ID to see each matching
+way's ID, version, tags, distance metrics and GeoJSON LineString. The result
+includes the provider endpoint, environment, available data timestamp and
+attribution. Display that attribution beside the candidate geometry. The server
+sends the search bounding box to Overpass, which serves a periodically updated
+copy of the production map. Set `OSM_OVERPASS_URL` to use another instance.
+Custom instances are identified in the result. Keep each range within 0.25
+degrees of latitude and longitude and narrow it if more than 1,000 ways match.
+Each ranked list is limited to 4,000 road coordinates and 128 KiB of candidate
+data. Lower `limit` to review fewer ways if the result exceeds either bound.
+OAuth is unnecessary.
+
+Two additional tools are available. Use `compare_track_selections` for a local
+overlay of GPX ranges and `match_track_selection` for optional loopback
+Valhalla matching. The selection and comparison preview resources are local.
+Editing tools, proposals and the edit prompt are unavailable in this profile,
+including when the host sets `OSM_WRITE_PROFILE=expert`.
+
+### Install the released package
+
 Requirements:
 
 - Python 3.10 or newer;
@@ -166,6 +201,31 @@ create_track_selection(
 Timestamp and endpoint-coordinate selection are also supported. Review the
 returned `preview_uri` or its GeoJSON fallback.
 
+For several surveys of the same road, analyze each GPX and select each range
+independently, then compare them:
+
+```text
+compare_track_selections(
+  selection_ids=["<selection_1>", "<selection_2>", "<selection_3>"],
+  excluded_selection_ids=["<selection_3>"]
+)
+```
+
+The overlay shows every selected point. Excluded ranges stay visible as dashed
+lines. Each range retains its track ID, source, segment and original point indexes.
+For each pair, the tool measures distances to the other full line in both
+directions. It samples the original vertices and fills gaps at intervals of at
+most 20 metres. The reported mean weights legs by length and each direction
+equally. The maximum is the largest sampled distance. A shorter survey or a
+detour can both increase disagreement. Review the overlay before excluding a
+range. Exclusions are manual and keep the pairwise measurements visible.
+
+Compare 2–10 ranges with up to 1,500 total points. If the tool asks for a
+smaller comparison, crop the selections to the same stretch or compare fewer
+traces. The server keeps the most recent 32 comparison previews in memory.
+After eviction, compare the selections again. After a restart, analyze and
+select them again. Road previews still take one explicitly chosen selection.
+
 ### 3. Compare with current OSM
 
 Find candidates directly, including when Valhalla is not installed:
@@ -188,18 +248,14 @@ service with routing tiles**. `uvx osm-edit-mcp` does not install it. If it is
 unavailable, skip matching and continue with candidate discovery. See
 [local Valhalla setup and diagnostics](VALHALLA.md).
 
-Candidate discovery reads from the configured editing API. The development
-sandbox is not a copy of the production map, so an empty result there does not
-mean the real road is absent. Production object IDs/versions cannot be reused
-as sandbox edit targets. Public place lookup can use the separate `discovery`
-profile, which has no write tools; a mixed production-read/sandbox-write road
-workflow is not supported.
+Use [road inspection](#read-only-road-inspection) to compare a GPX selection
+with production road geometry. In the `full` profile, candidate searches,
+previews and edits all use the configured editing API. Development and
+production have independent roads, object IDs and versions. Repeat candidate
+selection on the intended editing server before creating a proposal.
 
-Multiple traces can be inspected separately, but automatic multi-trace alignment,
-consensus geometry, and cross-trace outlier rejection are not implemented.
-Discontinuous-jump warnings on one trace are not a substitute for comparing
-independent surveys. These limitations are tracked in [#7](https://github.com/skywinder/osm-edit-mcp/issues/7)
-and [#10](https://github.com/skywinder/osm-edit-mcp/issues/10).
+The multi-trace comparison above supports manual exclusions. Generated consensus
+geometry and automated outlier classification remain open in [#10](https://github.com/skywinder/osm-edit-mcp/issues/10).
 
 ### 4. Build a non-writing preview
 
@@ -304,6 +360,7 @@ Review and editing:
 
 - `analyze_gpx_track`
 - `create_track_selection`
+- `compare_track_selections`
 - `match_track_selection`
 - `suggest_track_road_candidates`
 - `preview_track_road_edit`

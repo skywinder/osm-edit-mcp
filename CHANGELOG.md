@@ -7,6 +7,22 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Inspect Overpass road candidates alongside a GPX survey with the
+  read-only `road-inspection` tool profile. Results identify the data
+  source and include candidate geometry for review.
+- Compare independently selected GPX ranges with `compare_track_selections`.
+  The overlay retains each range's source and manual inclusion decision
+  alongside pairwise distance estimates.
+
+### Fixed
+
+- Report failed tool operations with MCP's `isError` flag so clients can
+  distinguish a failed request from a successful result.
+- Limit concurrent downloads from the OSM editing API to two per server
+  process, including calls made by different tools.
+
 ## [0.4.2] - 2026-11-23
 
 ### Changed
