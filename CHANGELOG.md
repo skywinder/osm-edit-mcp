@@ -7,6 +7,13 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-11-23
+
+### Changed
+
+- Guide assistants toward specific, evidence-backed POI tags and neutral,
+  non-redundant descriptions, including juice availability and cuisine.
+
 ## [0.4.1] - 2026-11-15
 
 ### Changed
@@ -182,7 +189,8 @@ release does not implement them or weaken account/API-bound edit safeguards.
 - Production writes fail closed when the host cannot provide digest-bound
   elicitation.
 
-[Unreleased]: https://github.com/skywinder/osm-edit-mcp/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/skywinder/osm-edit-mcp/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/skywinder/osm-edit-mcp/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/skywinder/osm-edit-mcp/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/skywinder/osm-edit-mcp/releases/tag/v0.4.0
 [0.3.0]: https://github.com/skywinder/osm-edit-mcp/releases/tag/v0.3.0

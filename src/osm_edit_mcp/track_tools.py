@@ -2331,6 +2331,13 @@ async def preview_node_tag_edit(
 ) -> Dict[str, Any]:
     """Preview a bounded tag-only patch to one existing OSM node, without upload.
 
+    Prefer established, specific tags for verified facts over prose. For known
+    juice availability use drink:juice=yes, which does not specify freshness or
+    fruit. Only add cuisine=juice when the cuisine warrants it, not merely for
+    availability; preserve existing semicolon-separated cuisine values. Keep
+    description neutral and non-redundant, never promotional. Inspect current
+    tags and consult OSM guidance or ask when the evidence is unclear.
+
     Supply the version inspected by the reviewer. Each tag_changes value replaces
     that tag; null explicitly removes it. At most 20 tag keys per proposal;
     keys, non-null values and changeset metadata must be nonempty, at most 255
