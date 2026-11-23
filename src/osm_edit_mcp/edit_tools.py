@@ -78,6 +78,8 @@ async def get_edit_capabilities() -> Dict[str, Any]:
                 "mechanism": "MCP elicitation bound to proposal SHA-256",
             },
             "safe_write_tools": [
+                "preview_bus_route",
+                "preview_bus_way_split",
                 "preview_node_create",
                 "preview_poi_polygon_create",
                 "review_poi_polygon_duplicates",
@@ -85,6 +87,15 @@ async def get_edit_capabilities() -> Dict[str, Any]:
                 "preview_node_tag_edit",
                 "preview_track_road_edit",
                 "apply_osm_edit",
+            ],
+            "bus_route_tools": [
+                "find_bus_route_stops",
+                "suggest_bus_route_ways",
+                "suggest_bus_route_stops",
+                "preview_bus_route",
+                "preview_bus_way_split",
+                "apply_osm_edit",
+                "verify_osm_edit",
             ],
             "track_tools": [
                 "analyze_gpx_track",
@@ -238,6 +249,10 @@ async def verify_osm_edit(proposal_id: str) -> Dict[str, Any]:
         return {"success": False, "error": "Unknown proposal"}
     if proposal.api_target != config.current_api_base_url:
         return {"success": False, "error": "Proposal belongs to a different API target"}
+    if proposal.payload.get("action") in {"bus_route_create", "bus_way_split"}:
+        from .transit_apply import verify_transit_edit
+
+        return await verify_transit_edit(proposal_id)
     if proposal.payload.get("action") in POI_CREATE_ACTIONS:
         from . import track_tools
         from .proposal_store import canonical_digest

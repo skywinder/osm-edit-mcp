@@ -406,6 +406,8 @@ class ProposalStore:
                 )
                 connection.execute("COMMIT")
                 raise ProposalStoreError("Proposal expired")
+            if proposal.payload.get("action") in {"bus_route_create", "bus_way_split"}:
+                self._guard_overlapping_transit(connection, proposal)
             connection.execute(
                 """
                 UPDATE proposals
@@ -424,6 +426,83 @@ class ProposalStore:
         claimed = self.get(proposal_id, include_expired=True)
         assert claimed is not None
         return claimed
+
+    @staticmethod
+    def _guard_overlapping_transit(
+        connection: sqlite3.Connection, proposal: StoredProposal
+    ) -> None:
+        """Reserve overlapping operations under the same transaction as claim."""
+
+        def scope(payload: Dict[str, Any]) -> tuple[str, set[tuple[str, int]]]:
+            if payload["action"] == "bus_way_split":
+                return "", {("way", payload["split_way_id"])}
+            ref = " ".join(payload["relation_tags"]["ref"].casefold().split())
+            return ref, {(m["type"], m["ref"]) for m in payload["members"]}
+
+        ref, members = scope(proposal.payload)
+        rows = connection.execute(
+            "SELECT proposal_id, payload_json, expires_at, changeset_id FROM proposals "
+            "WHERE api_target=? AND status IN ('APPLYING','RECONCILE_REQUIRED')",
+            (proposal.api_target,),
+        )
+        for row in rows:
+            pending = json.loads(row["payload_json"])
+            if pending.get("action") not in {"bus_route_create", "bus_way_split"}:
+                continue
+            if row["changeset_id"] is None and row["expires_at"] <= time.time():
+                # Before a changeset ID is bound, no upload can have started.
+                # bind_transit_changeset prevents a stalled owner from resuming.
+                connection.execute(
+                    "UPDATE proposals SET status='FAILED', error=?, updated_at=? WHERE proposal_id=?",
+                    (
+                        "Transit claim expired before upload",
+                        time.time(),
+                        row["proposal_id"],
+                    ),
+                )
+                continue
+            other_ref, other_members = scope(pending)
+            same_operation = not ref or not other_ref or ref == other_ref
+            if same_operation and not members.isdisjoint(other_members):
+                raise ProposalStoreError(
+                    f"Overlapping transit proposal {row['proposal_id']} has a pending upload"
+                )
+
+    def bind_transit_changeset(self, proposal_id: str, changeset_id: int) -> None:
+        """Bind exactly one changeset before handing an unexpired claim to OSM."""
+        now = time.time()
+        with self._connection() as connection:
+            cursor = connection.execute(
+                "UPDATE proposals SET changeset_id=?, updated_at=? WHERE proposal_id=? "
+                "AND status='APPLYING' AND changeset_id IS NULL AND expires_at>?",
+                (changeset_id, now, proposal_id, now),
+            )
+            if cursor.rowcount != 1:
+                raise ProposalStoreError(
+                    "Transit proposal expired or its upload reservation changed"
+                )
+
+    def release_empty_transit_changeset(self, p: StoredProposal) -> None:
+        """Retire a pending transit claim once its closed, empty changeset is verified."""
+        with self._connection() as connection:
+            cursor = connection.execute(
+                "UPDATE proposals SET status='FAILED', error=?, updated_at=? WHERE proposal_id=? "
+                "AND digest=? AND api_target=? AND osm_uid=? AND changeset_id=? "
+                "AND status IN ('APPLYING','RECONCILE_REQUIRED')",
+                (
+                    "Dedicated changeset closed without an upload",
+                    time.time(),
+                    p.proposal_id,
+                    p.digest,
+                    p.api_target,
+                    p.osm_uid,
+                    p.changeset_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise ProposalStoreError(
+                    "Transit proposal reconciliation state changed"
+                )
 
     def set_changeset_id(self, proposal_id: str, changeset_id: int) -> None:
         with self._connection() as connection:
@@ -465,6 +544,8 @@ class ProposalStore:
         api_target: str,
         osm_uid: int,
         receipt: Dict[str, Any],
+        *,
+        allow_applying: bool = False,
     ) -> StoredProposal:
         """Resolve an uncertain upload without claiming or repeating its write."""
         with self._connection() as connection:
@@ -504,7 +585,9 @@ class ProposalStore:
                 if proposal.status == "APPLIED":
                     connection.execute("COMMIT")
                     return proposal
-                if proposal.status != "RECONCILE_REQUIRED":
+                if proposal.status != "RECONCILE_REQUIRED" and not (
+                    allow_applying and proposal.status == "APPLYING"
+                ):
                     raise ProposalStoreError(
                         "Only a proposal requiring reconciliation can be resolved"
                     )
@@ -512,9 +595,14 @@ class ProposalStore:
                     """
                     UPDATE proposals
                     SET status='APPLIED', receipt_json=?, error=NULL, updated_at=?
-                    WHERE proposal_id=? AND status='RECONCILE_REQUIRED'
+                    WHERE proposal_id=? AND status=?
                     """,
-                    (json.dumps(receipt, ensure_ascii=False), time.time(), proposal_id),
+                    (
+                        json.dumps(receipt, ensure_ascii=False),
+                        time.time(),
+                        proposal_id,
+                        proposal.status,
+                    ),
                 )
                 if cursor.rowcount != 1:
                     raise ProposalStoreError("Proposal reconciliation state changed")
