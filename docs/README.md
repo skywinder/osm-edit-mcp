@@ -301,8 +301,12 @@ question. In production, the tool displays the single final MCP-host elicitation
 for that digest. Apply then checks the live OSM account, `write_api` permission,
 referenced versions, and affected highways before one transactional upload.
 
-A network failure after an upload starts becomes `RECONCILE_REQUIRED`; the
-server does not blindly retry an ambiguous write.
+The server records `APPLIED` after it matches every approved operation to its
+entry in OSM's upload response and reads back that exact element version.
+The receipt distinguishes deleted nodes from nodes OSM kept under `if-unused`.
+An empty or incomplete response, a failed readback or an uncertain upload
+leaves the proposal in `RECONCILE_REQUIRED`. Inspect the linked changeset
+before taking further action. Repeating the apply call cannot send it again.
 
 ### 6. Verify
 

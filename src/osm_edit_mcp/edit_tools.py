@@ -13,6 +13,7 @@ from .http_client import (
     get_authenticated_client,
     get_public_client,
 )
+from .road_verification import verify_stored_road_upload
 from .track_tools import _PROPOSAL_STORE, POI_CREATE_ACTIONS, _verify_diff_results
 from .valhalla import status as valhalla_status
 
@@ -329,11 +330,14 @@ async def verify_osm_edit(proposal_id: str) -> Dict[str, Any]:
             "status": proposal.status,
         }
     async with get_public_client() as client:
-        verification = await _verify_diff_results(
-            client,
-            proposal.receipt.get("diff_results", []),
-            expected_nodes=proposal.payload.get("modify_nodes"),
-        )
+        if proposal.payload.get("action") == "node_tag_update":
+            verification = await _verify_diff_results(
+                client,
+                proposal.receipt.get("diff_results", []),
+                expected_nodes=proposal.payload.get("modify_nodes", []),
+            )
+        else:
+            verification = await verify_stored_road_upload(client, proposal)
     return {
         "success": verification["status"] == "verified",
         "data": {
