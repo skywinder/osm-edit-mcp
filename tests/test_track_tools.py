@@ -1015,6 +1015,26 @@ ROAD_NODE_ROW_2 = '<node old_id="-2" new_id="102" new_version="1"/>'
 ROAD_WAY_ROW = '<way old_id="-100" new_id="201" new_version="1"/>'
 
 
+@pytest.mark.parametrize(
+    "row",
+    [
+        '<way old_id="201" new_version="4"/>',
+        '<node old_id="101" new_id="101"/>',
+        '<node old_id="101" new_id="101" new_version="0"/>',
+    ],
+)
+def test_diff_parser_rejects_partial_rows_instead_of_inferring_ids_or_deletions(row):
+    with pytest.raises(ValueError):
+        track_tools._parse_diff_result(f"<diffResult>{row}</diffResult>")
+
+
+def test_diff_parser_accepts_osm_old_id_only_deletion():
+    rows = track_tools._parse_diff_result(
+        '<diffResult><node old_id="101"/></diffResult>'
+    )
+    assert rows == [{"type": "node", "old_id": 101, "new_id": 101, "new_version": 0}]
+
+
 def diff_xml(*rows):
     return (
         '<diffResult generator="test" version="0.6">' + "".join(rows) + "</diffResult>"
