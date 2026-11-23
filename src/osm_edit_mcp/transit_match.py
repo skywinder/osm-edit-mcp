@@ -5,11 +5,11 @@ import json
 import math
 from collections import defaultdict
 from dataclasses import dataclass
-from itertools import accumulate
+from itertools import accumulate, chain
 from typing import Annotated, Any, Literal, Optional, Sequence
 
 from mcp.types import ToolAnnotations
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from .app import profile_tool
 from .config import DEFAULT_OVERPASS_URL, config
@@ -25,6 +25,7 @@ from .track_tools import (
     _xy_m,
 )
 from .transit_geometry import _directions
+from .transit_review import snap_review_geojson
 
 SNAP_RADIUS_M = 35.0
 GRID_M = 50.0
@@ -32,6 +33,8 @@ MAX_WAYS = 6500
 MAX_GEOMETRY_POINTS = 150000
 MAX_PREVIEW_POINTS = 4000
 MAX_PREVIEW_BYTES = 128 * 1024
+MAX_SNAP_REVIEWS = 20
+MAX_SNAP_CANDIDATES = 6
 InputKind = Literal["trace", "waypoints"]
 Provider = Literal["auto", "overpass", "editing_api"]
 MAX_GAP_M: dict[InputKind, float] = {"trace": 500.0, "waypoints": 2000.0}
@@ -42,9 +45,23 @@ class SurveyPoint(BaseModel):
     lon: float = Field(ge=-180, le=180)
 
 
+class SnapChoice(BaseModel):
+    """An observation and an exact segment in a version of an OSM way."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    point_index: StrictInt = Field(ge=0)
+    way_id: StrictInt = Field(gt=0)
+    version: StrictInt = Field(gt=0)
+    segment_index: StrictInt = Field(ge=0)
+    start_node_id: StrictInt = Field(gt=0)
+    end_node_id: StrictInt = Field(gt=0)
+
+
 @dataclass(frozen=True)
 class Segment:
     way_id: int
+    index: int
     a: int
     b: int
     xy_a: Point
@@ -77,6 +94,7 @@ class Snap:
     segment: Segment
     t: float
     distance: float
+    score: float
 
 
 Step = tuple[Segment, float, float]
@@ -98,6 +116,7 @@ class RoadGraph:
         self.grid: dict[tuple[int, int], list[Segment]] = defaultdict(list)
         self.outgoing: dict[int, list[Step]] = defaultdict(list)
         self.versions: dict[int, int] = {}
+        self.names: dict[int, Optional[str]] = {}
         self.locations: dict[int, Point] = {}
         self.roundabouts: set[int] = set()
         for way in ways:
@@ -119,6 +138,7 @@ class RoadGraph:
             }:
                 self.roundabouts.add(way["id"])
             self.versions[way["id"]] = way.get("version", 0)
+            self.names[way["id"]] = way.get("tags", {}).get("name")
             self.locations.update(
                 (node, (pos["lat"], pos["lon"])) for node, pos in zip(nodes, geometry)
             )
@@ -132,6 +152,7 @@ class RoadGraph:
                     continue
                 edge = Segment(
                     way["id"],
+                    i,
                     a,
                     b,
                     xy[i],
@@ -165,7 +186,7 @@ class RoadGraph:
     def cell(point: Point) -> tuple[int, int]:
         return math.floor(point[0] / GRID_M), math.floor(point[1] / GRID_M)
 
-    def snap(self, xy: Point, heading: Point) -> tuple[Optional[Snap], bool]:
+    def nearby_snaps(self, xy: Point, heading: Point) -> list[Snap]:
         cx, cy = self.cell(xy)
         nearby = {
             s
@@ -173,7 +194,7 @@ class RoadGraph:
             for j in range(cy - 2, cy + 3)
             for s in self.grid.get((i, j), ())
         }
-        scores: list[tuple[float, Snap]] = []
+        snaps = []
         for edge in nearby:
             distance, t = _projection(xy, edge.xy_a, edge.xy_b)
             if distance > SNAP_RADIUS_M:
@@ -183,20 +204,100 @@ class RoadGraph:
             agreement = max(
                 cosine if edge.forward else -1, -cosine if edge.backward else -1
             )
-            scores.append((distance + 12 * (1 - agreement), Snap(edge, t, distance)))
-        if not scores:
-            return None, False
-        scores.sort(
-            key=lambda pair: (pair[0], pair[1].segment.way_id, pair[1].segment.start)
+            snaps.append(Snap(edge, t, distance, distance + 12 * (1 - agreement)))
+        return sorted(snaps, key=lambda s: (s.score, s.segment.way_id, s.segment.index))
+
+    def chosen_snap(self, choice: SnapChoice, candidates: list[Snap]) -> Snap:
+        if self.versions.get(choice.way_id) != choice.version:
+            raise ValueError(
+                f"Point {choice.point_index}: way {choice.way_id} is unavailable or "
+                f"no longer at version {choice.version}. Review fresh candidates."
+            )
+        for snap in candidates:
+            edge = snap.segment
+            if (edge.way_id, edge.index, edge.a, edge.b) == (
+                choice.way_id,
+                choice.segment_index,
+                choice.start_node_id,
+                choice.end_node_id,
+            ):
+                return snap
+        raise ValueError(
+            f"Point {choice.point_index}: the reviewed segment of way {choice.way_id} "
+            f"does not match an accessible segment within {SNAP_RADIUS_M:g} m. Review fresh candidates."
         )
-        score, best = scores[0]
-        ends = {best.segment.a, best.segment.b}
-        ambiguous = any(
-            other_score - score < 3
-            and not ends.intersection((s.segment.a, s.segment.b))
-            for other_score, s in scores[1:]
-        )
-        return best, ambiguous
+
+    def snap_review(
+        self,
+        index: int,
+        point: Point,
+        candidates: list[Snap],
+        selected: Optional[Snap],
+        competing: Optional[Snap],
+    ) -> dict[str, Any]:
+        # Reserve space for the default, the reviewer's choice and the segment
+        # that triggered ambiguity, even at intersections with many edges.
+        displayed = {s for s in (selected, competing) if s is not None}
+        displayed.update(candidates[:1])
+        # Many nearby segments can belong to one curving road. Let other ways
+        # appear in the bounded review before filling the remaining slots.
+        by_way = {s.segment.way_id: s for s in displayed}
+        for candidate in candidates:
+            by_way.setdefault(candidate.segment.way_id, candidate)
+        for candidate in chain(by_way.values(), candidates):
+            if len(displayed) >= MAX_SNAP_CANDIDATES:
+                break
+            displayed.add(candidate)
+        details = []
+        for snap in candidates:
+            if snap not in displayed:
+                continue
+            edge = snap.segment
+            lon, lat = self.coordinates(edge, snap.t)
+            version = self.versions[edge.way_id]
+            details.append(
+                {
+                    "way_id": edge.way_id,
+                    "segment_index": edge.index,
+                    "choice": (
+                        {
+                            "point_index": index,
+                            "way_id": edge.way_id,
+                            "version": version,
+                            "segment_index": edge.index,
+                            "start_node_id": edge.a,
+                            "end_node_id": edge.b,
+                        }
+                        if version > 0
+                        else None
+                    ),
+                    "name": self.names[edge.way_id],
+                    "distance_m": round(snap.distance, 2),
+                    "allowed_directions": [
+                        d
+                        for d, allowed in (
+                            ("forward", edge.forward),
+                            ("backward", edge.backward),
+                        )
+                        if allowed
+                    ],
+                    "snapped_point": {"lat": lat, "lon": lon},
+                    "segment_geometry": {
+                        "type": "LineString",
+                        "coordinates": [
+                            self.coordinates(edge, 0),
+                            self.coordinates(edge, 1),
+                        ],
+                    },
+                    "selected": snap == selected,
+                }
+            )
+        return {
+            "point_index": index,
+            "input_point": {"lat": point[0], "lon": point[1]},
+            "candidate_count": len(candidates),
+            "candidates": details,
+        }
 
     def connect(
         self, start: Snap, end: Snap, observed_length: float
@@ -263,11 +364,17 @@ def _match_ways(
     points: Sequence[Point],
     ways: Sequence[dict[str, Any]],
     input_kind: InputKind = "trace",
+    choices: Optional[dict[int, SnapChoice]] = None,
+    review_point_indices: Optional[Sequence[int]] = None,
 ) -> dict[str, Any]:
     graph = RoadGraph(ways, points[0])
     xy = [_xy_m(point, points[0]) for point in points]
     snaps = []
     ambiguous = []
+    choices = choices or {}
+    requested = set(review_point_indices) if review_point_indices is not None else None
+    reviews: list[dict[str, Any]] = []
+    omitted_reviews = 0
     # Stationary samples retain their original indices and use the next
     # nonzero heading (or the last direction of travel at the terminus).
     headings = [(b[0] - a[0], b[1] - a[1]) for a, b in zip(xy, xy[1:])]
@@ -280,10 +387,37 @@ def _match_ways(
     for i, (point, heading) in enumerate(zip(xy, headings)):
         dx, dy = heading
         length = math.hypot(dx, dy)
-        snap, multiple = graph.snap(point, (dx / length, dy / length))
-        snaps.append(snap)
-        if multiple:
+        candidates = graph.nearby_snaps(point, (dx / length, dy / length))
+        snap = candidates[0] if candidates else None
+        competing = None
+        if snap is not None:
+            ends = {snap.segment.a, snap.segment.b}
+            competing = next(
+                (
+                    other
+                    for other in candidates[1:]
+                    if other.score - snap.score < 3
+                    and ends.isdisjoint((other.segment.a, other.segment.b))
+                ),
+                None,
+            )
+        if i in choices:
+            snap = graph.chosen_snap(choices[i], candidates)
+        elif competing is not None:
             ambiguous.append(i)
+        snaps.append(snap)
+        needs_review = (
+            i in requested
+            if requested is not None
+            else competing is not None or i in choices
+        )
+        if needs_review:
+            if len(reviews) < MAX_SNAP_REVIEWS:
+                reviews.append(
+                    graph.snap_review(i, points[i], candidates, snap, competing)
+                )
+            else:
+                omitted_reviews += 1
     traversals: list[dict[str, Any]] = []
     gaps: list[dict[str, Any]] = []
     inferred_legs: list[dict[str, int]] = []
@@ -427,6 +561,9 @@ def _match_ways(
         "traversals": traversals,
         "gaps": gaps,
         "ambiguous_point_indices": ambiguous,
+        "snap_reviews": reviews,
+        "snap_reviews_omitted": omitted_reviews,
+        "applied_snap_choices": [choices[i].model_dump() for i in sorted(choices)],
         "continuous": bool(traversals) and not gaps,
         "requires_review": True,
         "diagnostics": {
@@ -539,6 +676,13 @@ async def suggest_bus_route_ways(
     selection_id: Optional[str] = None,
     input_kind: InputKind = "trace",
     provider: Provider = "auto",
+    snap_choices: Optional[Annotated[list[SnapChoice], Field(max_length=5000)]] = None,
+    review_point_indices: Optional[
+        Annotated[
+            list[Annotated[StrictInt, Field(ge=0)]], Field(max_length=MAX_SNAP_REVIEWS)
+        ]
+    ] = None,
+    include_snap_geojson: bool = False,
 ) -> dict[str, Any]:
     """Match ordered survey coordinates or one GPX selection to existing, directional OSM ways.
     Use input_kind=waypoints for ordered field-observed stops or street turn coordinates.
@@ -547,9 +691,13 @@ async def suggest_bus_route_ways(
     configured map API directly when public Overpass is unavailable. Only bounding boxes
     leave the server. matched_geojson contains one clipped road line per connected part.
     geometry_omitted_reason explains when the preview exceeds the output limit.
-    Fractions use the OSM way's node
-    order (0 to 1). Inspect gaps, ambiguity, split candidates and turn restrictions before
-    using the ordered way IDs in a route preview. This tool performs no OSM edits.
+    snap_reviews shows nearby OSM segments for ambiguous or explicitly chosen points.
+    Use review_point_indices to inspect up to 20 specific zero-based observation indices,
+    and include_snap_geojson for a map layer. Reuse a reviewed candidate's choice in
+    snap_choices with the same ordered observations to select its versioned road segment.
+    Direction and connectivity are rechecked. Fractions use OSM node order (0 to 1).
+    Inspect gaps, ambiguity, split candidates and turn restrictions before using the
+    ordered way IDs in a route preview. This tool performs no OSM edits.
     """
     try:
         if (points is None) == (selection_id is None):
@@ -573,10 +721,31 @@ async def suggest_bus_route_ways(
             "editing_api",
         }:
             raise ValueError("Unsupported input_kind or provider")
+        choices = {choice.point_index: choice for choice in (snap_choices or [])}
+        if len(choices) != len(snap_choices or []):
+            raise ValueError("Provide only one snap choice per observation")
+        if review_point_indices is not None:
+            if len(review_point_indices) > MAX_SNAP_REVIEWS or len(
+                set(review_point_indices)
+            ) != len(review_point_indices):
+                raise ValueError(
+                    f"Provide at most {MAX_SNAP_REVIEWS} unique review point indices"
+                )
+        if any(
+            not 0 <= i < len(survey) for i in (*choices, *(review_point_indices or []))
+        ):
+            raise ValueError(
+                "Snap choice and review indices must identify a point in this survey"
+            )
         ways, source = await _load_highways(survey, input_kind, provider)
-        match = _match_ways(survey, ways, input_kind)
+        match = _match_ways(survey, ways, input_kind, choices, review_point_indices)
         if match["matched_geojson"] is not None:
             match["matched_geojson"]["source"] = source
+        if include_snap_geojson:
+            match["snap_review_geojson"] = {
+                **snap_review_geojson(match["snap_reviews"]),
+                "source": source,
+            }
         return {
             "success": True,
             "data": {**match, "source": source, "selection_id": selection_id},

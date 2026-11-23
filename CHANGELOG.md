@@ -7,6 +7,13 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Inspect nearby road segments for an ambiguous bus survey point in iD,
+  select the observed segment and recalculate the path using its OSM version.
+- Pass matched road GeoJSON directly to the bus stop search. Stops retain
+  their travel order and part number across disconnected sections.
+
 ## [0.5.0] - 2026-11-23
 
 ### Added
