@@ -3,9 +3,37 @@
 from typing import Any
 
 import httpx
+from anyio import CapacityLimiter
+from anyio.lowlevel import RunVar
 
-from .config import USER_AGENT, config, logger
+from .config import (
+    DEVELOPMENT_API_BASE_URL,
+    PRODUCTION_API_BASE_URL,
+    USER_AGENT,
+    config,
+    logger,
+)
 from .token_store import load_oauth_token
+
+_EDIT_API_HOSTS = {
+    httpx.URL(base).host for base in (DEVELOPMENT_API_BASE_URL, PRODUCTION_API_BASE_URL)
+}
+_download_limiter: RunVar[CapacityLimiter] = RunVar("osm_edit_api_download_limiter")
+
+
+class OSMHttpClient(httpx.AsyncClient):
+    async def request(
+        self, method: str, url: httpx.URL | str, **kwargs: Any
+    ) -> httpx.Response:
+        """Share the OSM editing API's two download slots across tool calls."""
+        if method.upper() == "GET" and httpx.URL(url).host in _EDIT_API_HOSTS:
+            limiter = _download_limiter.get(None)
+            if limiter is None:
+                limiter = CapacityLimiter(2)
+                _download_limiter.set(limiter)
+            async with limiter:
+                return await super().request(method, url, **kwargs)
+        return await super().request(method, url, **kwargs)
 
 
 def get_authenticated_client() -> httpx.AsyncClient:
@@ -18,14 +46,14 @@ def get_authenticated_client() -> httpx.AsyncClient:
             "User-Agent": USER_AGENT,
         }
         logger.debug("Using authenticated HTTP client")
-        return httpx.AsyncClient(
+        return OSMHttpClient(
             headers=headers,
             timeout=httpx.Timeout(30.0, connect=10.0),
             limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
         )
     else:
         logger.debug("Using unauthenticated HTTP client")
-        return httpx.AsyncClient(
+        return OSMHttpClient(
             headers={"User-Agent": USER_AGENT},
             timeout=httpx.Timeout(30.0, connect=10.0),
             limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
@@ -42,7 +70,7 @@ def get_public_client() -> httpx.AsyncClient:
 
     Always sets a User-Agent: Overpass returns 406 without one.
     """
-    return httpx.AsyncClient(
+    return OSMHttpClient(
         headers={"User-Agent": USER_AGENT},
         timeout=PUBLIC_API_TIMEOUT,
     )

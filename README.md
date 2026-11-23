@@ -19,6 +19,10 @@ For a POI with known boundaries, [reviewed four-sided polygons](docs/reviewed-po
 create a closed OSM way with tags on the area and can explicitly replace an
 isolated POI node in the same upload.
 
+Version 0.5.0 adds [bus route mapping](https://github.com/skywinder/osm-edit-mcp/blob/v0.5.0/docs/bus-routes.md). Match a trip to
+existing roads, review stops in travel order, and publish one direction as a
+route relation. Try the [Dushanbe example in iD](https://github.com/skywinder/osm-edit-mcp/tree/v0.5.0/examples/dushanbe-bus-1).
+
 For POI edits, the server guides assistants to use specific, verifiable OSM tags
 instead of promotional or redundant descriptions. For example, juice
 availability can be recorded as `drink:juice=yes`; this does not encode fresh

@@ -1,7 +1,7 @@
 {
   "author": "skywinder",
   "authorUrl": "https://github.com/skywinder",
-  "description": "Review-first MCP server for safe OpenStreetMap POI nodes and four-sided polygons, duplicate review, and road edits from local GPX surveys.",
+  "description": "Review and publish OpenStreetMap POIs, roads and directional bus route relations through MCP.",
   "homepage": "https://github.com/skywinder/osm-edit-mcp",
   "identifier": "pk-osm-edit-mcp",
   "name": "OSM Edit MCP Server",
@@ -3090,9 +3090,543 @@
         "idempotentHint": false,
         "openWorldHint": true
       }
+    },
+    {
+      "name": "suggest_bus_route_ways",
+      "description": "Match ordered survey coordinates or one GPX selection to existing, directional OSM ways.\nUse input_kind=waypoints for ordered field-observed stops or street turn coordinates.\nConnected legs up to 2 km are inferred road paths requiring independent confirmation.\nDense trace legs accept sampling gaps up to 500 m. provider=editing_api uses the\nconfigured map API directly when public Overpass is unavailable. Only bounding boxes\nleave the server. matched_geojson contains one clipped road line per connected part.\ngeometry_omitted_reason explains when the preview exceeds the output limit.\nFractions use the OSM way's node\norder (0 to 1). Inspect gaps, ambiguity, split candidates and turn restrictions before\nusing the ordered way IDs in a route preview. This tool performs no OSM edits.\n",
+      "inputSchema": {
+        "$defs": {
+          "SurveyPoint": {
+            "properties": {
+              "lat": {
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Lat",
+                "type": "number"
+              },
+              "lon": {
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Lon",
+                "type": "number"
+              }
+            },
+            "required": [
+              "lat",
+              "lon"
+            ],
+            "title": "SurveyPoint",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "points": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/SurveyPoint"
+                },
+                "maxItems": 5000,
+                "minItems": 2,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Points"
+          },
+          "selection_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Selection Id"
+          },
+          "input_kind": {
+            "default": "trace",
+            "enum": [
+              "trace",
+              "waypoints"
+            ],
+            "title": "Input Kind",
+            "type": "string"
+          },
+          "provider": {
+            "default": "auto",
+            "enum": [
+              "auto",
+              "overpass",
+              "editing_api"
+            ],
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "title": "suggest_bus_route_waysArguments",
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "title": "suggest_bus_route_waysDictOutput",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "preview_bus_way_split",
+      "description": "Review splitting a parentless road at mapped interior nodes of a surveyed bus route.\n\nUses the existing points, orientation and road tags. The first piece retains\nthe way ID. Review the pieces and apply the independent proposal with\napply_osm_edit, then use the returned positive way IDs to preview the route.\n",
+      "inputSchema": {
+        "properties": {
+          "way_id": {
+            "exclusiveMinimum": 0,
+            "maximum": 9223372036854775807,
+            "title": "Way Id",
+            "type": "integer"
+          },
+          "split_node_ids": {
+            "items": {
+              "exclusiveMinimum": 0,
+              "maximum": 9223372036854775807,
+              "type": "integer"
+            },
+            "maxItems": 40,
+            "minItems": 1,
+            "title": "Split Node Ids",
+            "type": "array"
+          },
+          "source": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "way_id",
+          "split_node_ids",
+          "source"
+        ],
+        "title": "preview_bus_way_splitArguments",
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "title": "preview_bus_way_splitDictOutput",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "find_bus_route_stops",
+      "description": "Find mapped bus platforms and stop positions near ordered survey locations.\nLocal names are returned as mapped. Both sides of the street can appear.\nSelect IDs after checking the direction; an empty result is a survey gap.\nOnly search bounding boxes are sent to the configured editing API.\n",
+      "inputSchema": {
+        "$defs": {
+          "SurveyStop": {
+            "additionalProperties": false,
+            "properties": {
+              "lat": {
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Lat",
+                "type": "number"
+              },
+              "lon": {
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Lon",
+                "type": "number"
+              },
+              "label": {
+                "anyOf": [
+                  {
+                    "maxLength": 255,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Label"
+              }
+            },
+            "required": [
+              "lat",
+              "lon"
+            ],
+            "title": "SurveyStop",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "locations": {
+            "items": {
+              "$ref": "#/$defs/SurveyStop"
+            },
+            "maxItems": 150,
+            "minItems": 1,
+            "title": "Locations",
+            "type": "array"
+          },
+          "radius_m": {
+            "default": 50,
+            "maximum": 200,
+            "minimum": 5,
+            "title": "Radius M",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "locations"
+        ],
+        "title": "find_bus_route_stopsArguments",
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "title": "find_bus_route_stopsDictOutput",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "preview_bus_route",
+      "description": "Review one PTv2 bus direction using existing way and stop node IDs in travel order.\nSupply surveyed or otherwise OSM-compatible evidence covering the path, direction\nand stops. Record deliberately omitted stops with reasons. Preserve local names.\nA public-data inspection needs no login. Set prepare_upload=true to bind an exact\neligible proposal to the verified OSM account for apply_osm_edit. The returned\nGeoJSON can also be opened as a custom map data layer in iD.\n",
+      "inputSchema": {
+        "$defs": {
+          "OmittedStop": {
+            "additionalProperties": false,
+            "properties": {
+              "label": {
+                "maxLength": 255,
+                "minLength": 1,
+                "title": "Label",
+                "type": "string"
+              },
+              "reason": {
+                "maxLength": 255,
+                "minLength": 1,
+                "title": "Reason",
+                "type": "string"
+              },
+              "node_id": {
+                "anyOf": [
+                  {
+                    "exclusiveMinimum": 0,
+                    "maximum": 9223372036854775807,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Node Id"
+              }
+            },
+            "required": [
+              "label",
+              "reason"
+            ],
+            "title": "OmittedStop",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "ref": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Ref",
+            "type": "string"
+          },
+          "from_name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "From Name",
+            "type": "string"
+          },
+          "to_name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "To Name",
+            "type": "string"
+          },
+          "way_ids": {
+            "items": {
+              "exclusiveMinimum": 0,
+              "maximum": 9223372036854775807,
+              "type": "integer"
+            },
+            "maxItems": 600,
+            "minItems": 1,
+            "title": "Way Ids",
+            "type": "array"
+          },
+          "stop_ids": {
+            "items": {
+              "exclusiveMinimum": 0,
+              "maximum": 9223372036854775807,
+              "type": "integer"
+            },
+            "maxItems": 250,
+            "minItems": 2,
+            "title": "Stop Ids",
+            "type": "array"
+          },
+          "source": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Source",
+            "type": "string"
+          },
+          "source_basis": {
+            "default": "unconfirmed",
+            "enum": [
+              "survey",
+              "local_knowledge",
+              "compatible_license",
+              "permission",
+              "unconfirmed"
+            ],
+            "title": "Source Basis",
+            "type": "string"
+          },
+          "omitted_stops": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/OmittedStop"
+                },
+                "maxItems": 150,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Omitted Stops"
+          },
+          "driving_side": {
+            "default": "right",
+            "enum": [
+              "right",
+              "left"
+            ],
+            "title": "Driving Side",
+            "type": "string"
+          },
+          "prepare_upload": {
+            "default": false,
+            "title": "Prepare Upload",
+            "type": "boolean"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Name"
+          },
+          "operator": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Operator"
+          },
+          "network": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Network"
+          }
+        },
+        "required": [
+          "ref",
+          "from_name",
+          "to_name",
+          "way_ids",
+          "stop_ids",
+          "source"
+        ],
+        "title": "preview_bus_routeArguments",
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "title": "preview_bus_routeDictOutput",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "suggest_bus_route_stops",
+      "description": "Find existing stop nodes along one directed trace, with local names and OSM IDs.\nSupply ordered lat/lon points or one GPX selection. For map-matched GeoJSON, pass\none connected line at a time, converting [lon, lat] to {lat, lon}. Every occurrence\nis a candidate for field review. Opposite-side platforms, ambiguous positions\nand explicitly excluded nodes have separate lists. along_m counts covered travel\ndistance in input order, excluding survey gaps over 500 m. Only bounding boxes\nare sent to the configured map provider; no OSM objects are modified.\n",
+      "inputSchema": {
+        "$defs": {
+          "SurveyPoint": {
+            "properties": {
+              "lat": {
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Lat",
+                "type": "number"
+              },
+              "lon": {
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Lon",
+                "type": "number"
+              }
+            },
+            "required": [
+              "lat",
+              "lon"
+            ],
+            "title": "SurveyPoint",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "points": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/SurveyPoint"
+                },
+                "maxItems": 5000,
+                "minItems": 2,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Points"
+          },
+          "selection_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Selection Id"
+          },
+          "driving_side": {
+            "default": "right",
+            "enum": [
+              "right",
+              "left"
+            ],
+            "title": "Driving Side",
+            "type": "string"
+          },
+          "radius_m": {
+            "default": 35.0,
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Radius M",
+            "type": "number"
+          },
+          "excluded_node_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "exclusiveMinimum": 0,
+                  "type": "integer"
+                },
+                "maxItems": 250,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Excluded Node Ids"
+          },
+          "provider": {
+            "default": "auto",
+            "enum": [
+              "auto",
+              "overpass",
+              "editing_api"
+            ],
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "title": "suggest_bus_route_stopsArguments",
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "title": "suggest_bus_route_stopsDictOutput",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
     }
   ],
-  "version": "0.4.2",
+  "version": "0.5.0",
   "category": "tools",
   "tags": [
     "mcp",
