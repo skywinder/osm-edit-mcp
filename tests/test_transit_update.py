@@ -118,7 +118,15 @@ async def test_update_preserves_identity_tags_roles_and_reports_exact_diff(updat
     api.sibling = deepcopy(api.live)
     api.sibling.set("id", "44")
     result = await preview(
-        stop_ids=[201, 203, 202], tag_changes={"operator": None, "name": "A – B"}
+        omitted_stops=[
+            transit_tools.OmittedStop(
+                label="Old platform",
+                reason="removed",
+                location={"lat": 38.001, "lon": 68.003},
+            )
+        ],
+        stop_ids=[201, 203, 202],
+        tag_changes={"operator": None, "name": "A – B"},
     )
     assert result["success"], result
     data = result["data"]
@@ -140,6 +148,13 @@ async def test_update_preserves_identity_tags_roles_and_reports_exact_diff(updat
             }
         ],
     }
+    omitted = [
+        f
+        for f in data["proposed_geojson"]["features"]
+        if f["properties"].get("feature") == "omitted_stop"
+    ]
+    assert [f["geometry"]["coordinates"] for f in omitted] == [[68.003, 38.001]]
+    assert "node_id" not in omitted[0]["properties"]
     assert data["stops"][0]["role"] == "platform_entry_only"
     assert "before_range" in track_tools.proposal_preview_resource(data["proposal_id"])
     assert api.only_writes() == []

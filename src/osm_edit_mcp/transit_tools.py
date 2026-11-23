@@ -43,10 +43,13 @@ READ = ToolAnnotations(
 )
 
 
-class SurveyStop(BaseModel):
+class SurveyLocation(BaseModel):
     model_config = ConfigDict(extra="forbid")
     lat: Latitude
     lon: Longitude
+
+
+class SurveyStop(SurveyLocation):
     label: Label | None = None
 
 
@@ -55,6 +58,7 @@ class OmittedStop(BaseModel):
     label: Label
     reason: Label
     node_id: ObjectId | None = None
+    location: SurveyLocation | None = None
 
 
 @profile_tool(annotations=READ)
@@ -138,7 +142,10 @@ def _text(value: str) -> str:
 
 
 def _geojson(
-    path: list[int], stop_ids: list[int], nodes: dict[int, dict[str, Any]]
+    path: list[int],
+    stop_ids: list[int],
+    nodes: dict[int, dict[str, Any]],
+    omitted_stops: list[OmittedStop] | None,
 ) -> dict[str, Any]:
     def xy(ref: int) -> list[float]:
         return [nodes[ref]["lon"], nodes[ref]["lat"]]
@@ -165,6 +172,28 @@ def _geojson(
                     "node_id": ref,
                 },
                 "geometry": {"type": "Point", "coordinates": xy(ref)},
+            }
+        )
+    for stop in omitted_stops or []:
+        if stop.location is None:
+            continue
+        properties: dict[str, Any] = {
+            "feature": "omitted_stop",
+            "label": stop.label,
+            "reason": stop.reason,
+            "marker-color": "#b45309",
+            "marker-symbol": "cross",
+        }
+        if stop.node_id is not None:
+            properties["node_id"] = stop.node_id
+        features.append(
+            {
+                "type": "Feature",
+                "properties": properties,
+                "geometry": {
+                    "type": "Point",
+                    "coordinates": [stop.location.lon, stop.location.lat],
+                },
             }
         )
     return {**track_tools._feature_collection(features), "attribution": ATTRIBUTION}
@@ -332,7 +361,7 @@ async def _review_direction(
                 way_ids, stop_ids, ways, nodes, driving_side=driving_side
             )
         except ValueError as exc:
-            context = _geojson([], stop_ids, nodes)
+            context = _geojson([], stop_ids, nodes, omitted_stops)
             for way_id in dict.fromkeys(way_ids):
                 way = ways[way_id]
                 if len(way["nodes"]) >= 2:
@@ -381,7 +410,7 @@ async def _review_direction(
         issues.append(
             "Confirm the surveyed itinerary or document permission or a compatible license before uploading"
         )
-    geojson = _geojson(geometry["node_ids"], stop_ids, nodes)
+    geojson = _geojson(geometry["node_ids"], stop_ids, nodes, omitted_stops)
     summary = {
         "route": f"Bus {tags.get('ref','')}".strip(),
         "from": tags.get("from"),
