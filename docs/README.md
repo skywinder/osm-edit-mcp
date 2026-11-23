@@ -61,12 +61,12 @@ for categories, exact filters, distance caveats, migration examples and transpor
 ### Read-only road inspection
 
 To compare GPX tracks and inspect mapped roads, add this stdio server entry
-and reconnect your MCP host. The first launch installs version 0.6.0 from PyPI.
+and reconnect your MCP host. The first launch installs version 0.7.0 from PyPI.
 
 ```json
 {
   "command": "uvx",
-  "args": ["--from", "osm-edit-mcp==0.6.0", "osm-edit-mcp"],
+  "args": ["--from", "osm-edit-mcp==0.7.0", "osm-edit-mcp"],
   "env": {"OSM_TOOL_PROFILE": "road-inspection"}
 }
 ```

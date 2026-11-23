@@ -1,7 +1,7 @@
 {
   "type": "FeatureCollection",
   "name": "Душанбе · подъезд автобуса № 1 к рынку Саховат",
-  "description": "Два ближайших варианта привязки нанесённой платформы и расчёт манёвра для боковой дороги. Требуется проверка фактического пути по поездке.",
+  "description": "Сравнение двух привязок платформы OSM к дорогам. По сообщению картографа iuvi от 23 ноября 2026 года автобус едет прямо к рынку.",
   "date": "2026-11-23",
   "attribution": "© OpenStreetMap contributors",
   "copyright": "https://www.openstreetmap.org/copyright",
@@ -11,7 +11,7 @@
       "type": "Feature",
       "properties": {
         "name": "Расчётный подъезд через проезд южнее остановки",
-        "description": "При выборе боковой дороги MCP ведёт автобус на юг мимо платформы, затем возвращает на север к рынку. Фактический манёвр нужно проверить.",
+        "description": "При выборе боковой дороги расчёт дал объезд мимо платформы с возвращением к ней с юга. В пробный маршрут вошёл прямой проезд по проспекту.",
         "service_verified": false,
         "way_ids": [
           744633335,
@@ -20,7 +20,8 @@
         ],
         "stroke": "#b06516",
         "stroke-width": 3,
-        "stroke-opacity": 0.7
+        "stroke-opacity": 0.7,
+        "in_reviewed_path": false
       },
       "geometry": {
         "type": "LineString",
@@ -81,7 +82,7 @@
         "allowed_directions": "forward",
         "stroke": "#2563eb",
         "osm_url": "https://www.openstreetmap.org/way/744633335",
-        "service_verified": false
+        "in_reviewed_path": true
       },
       "geometry": {
         "type": "LineString",
@@ -113,7 +114,7 @@
         "allowed_directions": "forward, backward",
         "stroke": "#d97706",
         "osm_url": "https://www.openstreetmap.org/way/1343399990",
-        "service_verified": false
+        "in_reviewed_path": false
       },
       "geometry": {
         "type": "LineString",
