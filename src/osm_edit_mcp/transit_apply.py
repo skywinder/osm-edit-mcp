@@ -173,6 +173,11 @@ def _transit_proposal(proposal_id: str) -> StoredProposal:
 
 
 async def _check_live_route(client: Any, payload: dict[str, Any]) -> None:
+    if payload["action"] == "bus_route_master_create":
+        from .transit_master import validate_master_context
+
+        await validate_master_context(client, payload)
+        return
     before = payload.get("relation_before")
     if before is not None and await read_bus_direction(client, before["id"]) != before:
         raise ValueError("The existing route changed since preview")

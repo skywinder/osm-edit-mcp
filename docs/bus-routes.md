@@ -67,7 +67,7 @@ One illustrative preview with placeholder OSM IDs is shown below. Each actual ID
 
 A route relation can include a whole existing OSM way. If a surveyed turn requires part of an open way, inspect the existing interior node at the junction. Use `preview_bus_way_split` on a simple road with no parent relations. Review the split as a separate edit, apply it and pass the verified positive way IDs into a new route preview. A way with parent relations or segment-specific tags needs a relation-aware editor. A split point between nodes needs manual topology editing. The route preview supports intermediate roundabouts with distinct entry and exit nodes.
 
-The route tool creates one PTv2 `type=route`, `route=bus` relation. The selected node platforms and stop positions come first, followed by road ways with empty roles. Each stop object keeps its tags. The current workflow handles node stops and whole road ways. Area platforms and grouping variants into a `route_master` require a separate edit. For the return trip supply its own evidence and select its boarding platforms and turns. [OSM bus mapping conventions](https://wiki.openstreetmap.org/wiki/Buses)
+The route tool creates one PTv2 `type=route`, `route=bus` relation. The selected node platforms and stop positions come first, followed by road ways with empty roles. Each stop object keeps its tags. The current workflow handles node stops and whole road ways. Area platforms require a separate edit. For the return trip supply its own evidence and select its boarding platforms and turns. [OSM bus mapping conventions](https://wiki.openstreetmap.org/wiki/Buses)
 
 ### Update a mapped direction
 
@@ -76,3 +76,16 @@ Call `preview_bus_route_update` with the existing `relation_id`, an itinerary so
 Review `relation_before` for the complete original tags and ordered members. Each entry in `changes.members` shows the removed and inserted members and their zero-based, end-exclusive ranges. Supported entry-only and exit-only boarding roles stay with retained stops. When replacing a restricted stop, pass a `boarding_roles` array in proposed stop order. Give the new platform its observed role (such as `platform_entry_only`) and use null to keep the roles of other visits. Relations using area platforms or other unsupported member roles need review in a relation-aware editor.
 
 Set `prepare_upload=true` after checking the result. The approved upload modifies the same relation ID at the reviewed OSM version, preserving its history and parent memberships. If another mapper changes that version, prepare a fresh preview. Verification checks the exact uploaded version, including every tag and ordered member.
+
+### Group the reviewed directions
+
+After confirming which variants belong to the same line, pass their existing
+PTv2 bus relation IDs to `preview_bus_route_master` in the desired member order.
+The preview lists the direction names, terminals, versions and any route
+masters they already belong to. An existing master is linked for inspection.
+When all selected directions are ungrouped and share the same ref, review the
+new master and its empty-role relation members. Shared network and operator
+tags are carried over when all selected directions agree. The directions keep
+their individual tags, stops and roads. Use `prepare_upload=true`, then
+`apply_osm_edit` and `verify_osm_edit` for a reviewed creation.
+[OSM route master conventions](https://wiki.openstreetmap.org/wiki/Relation:route_master)

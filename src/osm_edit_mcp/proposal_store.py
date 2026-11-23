@@ -16,7 +16,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
 
-TRANSIT_ACTIONS = frozenset({"bus_route_create", "bus_way_split", "bus_route_update"})
+TRANSIT_ACTIONS = frozenset(
+    {"bus_route_create", "bus_way_split", "bus_route_update", "bus_route_master_create"}
+)
 
 TERMINAL_STATUSES = {
     "APPLIED",

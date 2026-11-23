@@ -79,6 +79,7 @@ async def get_edit_capabilities() -> Dict[str, Any]:
                 "mechanism": "MCP elicitation bound to proposal SHA-256",
             },
             "safe_write_tools": [
+                "preview_bus_route_master",
                 "preview_bus_route",
                 "preview_bus_route_update",
                 "preview_bus_way_split",
@@ -95,6 +96,7 @@ async def get_edit_capabilities() -> Dict[str, Any]:
                 "suggest_bus_route_ways",
                 "suggest_bus_route_stops",
                 "review_bus_return_trip",
+                "preview_bus_route_master",
                 "preview_bus_route",
                 "preview_bus_route_update",
                 "preview_bus_way_split",

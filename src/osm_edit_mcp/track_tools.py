@@ -1484,6 +1484,10 @@ def proposal_preview_resource(proposal_id: str) -> str:
     if proposal is None:
         raise ValueError("Unknown or expired proposal")
     review = proposal.payload.get("_review", {})
+    if proposal.payload.get("action") == "bus_route_master_create":
+        from .transit_master import master_review_html
+
+        return master_review_html(proposal)
     if proposal.payload.get("action") in {"bus_route_create", "bus_route_update"}:
         from .transit_tools import route_review_html
 

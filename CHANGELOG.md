@@ -7,6 +7,16 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Compare a separately observed return trip with outward stops, including
+  different local names, boarding sides, streets, junctions and terminals.
+- Review exact tag and ordered member changes to an existing bus direction.
+  Keep its relation ID and history, and review boarding restrictions when
+  replacing platforms. Record a skipped location even when its OSM ID is unknown.
+- Group reviewed directions in a new bus route master. Check for existing
+  masters and recheck member versions before upload.
+
 ## [0.6.0] - 2026-11-23
 
 ### Added

@@ -19,14 +19,15 @@ For a POI with known boundaries, [reviewed four-sided polygons](docs/reviewed-po
 create a closed OSM way with tags on the area and can explicitly replace an
 isolated POI node in the same upload.
 
-Version 0.6.0 lets you compare up to ten GPX selections in the read-only
+Compare up to ten GPX selections in the read-only
 road inspection profile. Inspect distances between traces and keep track of
-the ones you exclude. [GPX comparison guide](https://github.com/skywinder/osm-edit-mcp/blob/v0.6.0/docs/README.md#read-only-road-inspection)
+the ones you exclude. [GPX comparison guide](https://github.com/skywinder/osm-edit-mcp/blob/v0.7.0/docs/README.md#read-only-road-inspection)
 
 To map a bus route, compare nearby road segments in iD, replay the mapper's
-choice and find existing stops in travel order. The full profile can then
-preview and publish the direction as a route relation.
-[Bus mapping guide](https://github.com/skywinder/osm-edit-mcp/blob/v0.6.0/docs/bus-routes.md) · [Dushanbe example](https://github.com/skywinder/osm-edit-mcp/tree/v0.6.0/examples/dushanbe-bus-1)
+choice and find existing stops in travel order. Compare the independently
+observed return journey, update an existing direction in place, or group
+reviewed directions into a bus route master.
+[Bus mapping guide](https://github.com/skywinder/osm-edit-mcp/blob/v0.7.0/docs/bus-routes.md) · [Dushanbe example](https://github.com/skywinder/osm-edit-mcp/tree/v0.7.0/examples/dushanbe-bus-1)
 
 For POI edits, the server guides assistants to use specific, verifiable OSM tags
 instead of promotional or redundant descriptions. For example, juice

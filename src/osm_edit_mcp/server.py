@@ -72,6 +72,7 @@ from .track_tools import (
     suggest_track_road_candidates,
 )
 from .transit_corridor import suggest_bus_route_stops
+from .transit_master import preview_bus_route_master
 from .transit_match import suggest_bus_route_ways
 from .transit_return import review_bus_return_trip
 from .transit_split import preview_bus_way_split
@@ -135,6 +136,7 @@ __all__ = [
     "find_bus_route_stops",
     "preview_bus_route",
     "preview_bus_route_update",
+    "preview_bus_route_master",
     "preview_bus_way_split",
     "suggest_bus_route_ways",
     "suggest_bus_route_stops",
