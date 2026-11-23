@@ -15,6 +15,7 @@ from ._version import __version__
 
 PRODUCTION_API_BASE_URL = "https://api.openstreetmap.org/api/0.6"
 DEVELOPMENT_API_BASE_URL = "https://api06.dev.openstreetmap.org/api/0.6"
+DEFAULT_OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 
 
 def validated_env_file(value: str | None) -> Path | None:
@@ -104,7 +105,7 @@ class OSMConfig(BaseSettings):
     mcp_server_name: str = Field(default="osm-edit-mcp")
     mcp_server_version: str = Field(default=__version__)
     osm_tool_profile: Literal["full", "discovery"] = "full"
-    osm_overpass_url: str = "https://overpass-api.de/api/interpreter"
+    osm_overpass_url: str = DEFAULT_OVERPASS_URL
     osm_nominatim_url: str = "https://nominatim.openstreetmap.org"
 
     # Logging Configuration

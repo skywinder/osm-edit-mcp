@@ -70,6 +70,10 @@ from .track_tools import (
     preview_track_road_edit,
     suggest_track_road_candidates,
 )
+from .transit_corridor import suggest_bus_route_stops
+from .transit_match import suggest_bus_route_ways
+from .transit_split import preview_bus_way_split
+from .transit_tools import find_bus_route_stops, preview_bus_route
 from .write_tools import (
     bulk_create_places,
     close_changeset,
@@ -124,6 +128,11 @@ __all__ = [
     "app",
     "analyze_gpx_track",
     "apply_osm_edit",
+    "find_bus_route_stops",
+    "preview_bus_route",
+    "preview_bus_way_split",
+    "suggest_bus_route_ways",
+    "suggest_bus_route_stops",
     "apply_track_road_edit",
     "build_tags_xml",
     "bulk_create_places",

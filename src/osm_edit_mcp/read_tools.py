@@ -45,13 +45,12 @@ from .natural_language import (
     parse_natural_language_request,
 )
 from .nearby import bounded_integer, results, safe_text, selectors, validate_point
-from .overpass import OverpassExecutor
+from .overpass import overpass
 from .place_features import ATTRIBUTION, evaluation_time, language_code
 from .token_store import get_current_user_info, load_oauth_token
 from .xml_models import build_tags_xml, parse_osm_xml
 
-_overpass = OverpassExecutor()
-execute_overpass = _overpass.execute
+execute_overpass = overpass.execute
 _nominatim = NominatimExecutor()
 
 ReadFunction = TypeVar("ReadFunction", bound=Callable[..., Any])
@@ -267,6 +266,11 @@ async def get_server_info() -> Dict[str, Any]:
                     "create_track_selection",
                     "match_track_selection",
                     "suggest_track_road_candidates",
+                    "suggest_bus_route_ways",
+                    "suggest_bus_route_stops",
+                    "find_bus_route_stops",
+                    "preview_bus_route",
+                    "preview_bus_way_split",
                     "preview_node_tag_edit",
                     "preview_node_create",
                     "preview_poi_polygon_create",

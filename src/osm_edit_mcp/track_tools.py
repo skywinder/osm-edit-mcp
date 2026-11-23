@@ -33,7 +33,12 @@ from .http_client import (
     get_authenticated_client,
     get_public_client,
 )
-from .proposal_store import ProposalStore, ProposalStoreError, canonical_digest
+from .proposal_store import (
+    ProposalStore,
+    ProposalStoreError,
+    StoredProposal,
+    canonical_digest,
+)
 from .token_store import get_current_user_info, load_oauth_token
 from .valhalla import match_track as valhalla_match_track
 from .write_tools import close_changeset
@@ -1240,7 +1245,7 @@ function geometry(name,g,label) {{
 }}
 for (const [name,fc] of Object.entries(layers)) for (const f of (fc.features||[])) {{
  const p=f.properties||{{}};
- const label=p.review_state==='proposed'?'New POI':p.type&&p.id?`${{p.type}}/${{p.id}}`:'';
+ const label=p.stop_sequence?String(p.stop_sequence):p.review_state==='proposed'?'New POI':p.type&&p.id?`${{p.type}}/${{p.id}}`:'';
  geometry(name,f.geometry||{{}},label);
 }}
 const pts=[...lines.flatMap(x=>x[1]),...dots.map(x=>x[1])];
@@ -1293,6 +1298,10 @@ def proposal_preview_resource(proposal_id: str) -> str:
     if proposal is None:
         raise ValueError("Unknown or expired proposal")
     review = proposal.payload.get("_review", {})
+    if proposal.payload.get("action") == "bus_route_create":
+        from .transit_tools import route_review_html
+
+        return route_review_html(proposal)
     if proposal.payload.get("action") in POI_CREATE_ACTIONS:
         stored = _PROPOSAL_STORE.get(proposal_id)
         if stored is None:
@@ -2866,6 +2875,10 @@ async def _apply_osm_edit_internal(
             "The reviewed proposal changed; review a fresh preview",
         )
     payload = proposal.payload
+    if payload.get("action") in {"bus_route_create", "bus_way_split"}:
+        return _failure(
+            "Transit proposal", "Use apply_osm_edit for a reviewed transit edit"
+        )
     if payload.get("action") in POI_CREATE_ACTIONS and changeset_id is not None:
         return _failure(
             "Dedicated changeset required",
@@ -3169,7 +3182,7 @@ def _node_create_receipt(
 
 
 async def _request_host_confirmation(
-    proposal: Proposal, context: Context
+    proposal: Proposal | StoredProposal, context: Context
 ) -> Optional[Dict[str, Any]]:
     """Request the single final host confirmation bound to one exact proposal."""
     try:
@@ -3239,6 +3252,12 @@ async def apply_osm_edit(
         return _failure(
             "Unknown or expired proposal",
             "Create and review a fresh proposal",
+        )
+    if proposal.payload.get("action") in {"bus_route_create", "bus_way_split"}:
+        from .transit_apply import apply_transit_edit
+
+        return await apply_transit_edit(
+            proposal_id, proposal_digest, context, changeset_id
         )
     if proposal.digest != proposal_digest:
         return _failure(

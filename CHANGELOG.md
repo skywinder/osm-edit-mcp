@@ -7,6 +7,19 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-23
+
+### Added
+
+- Match a bus survey or ordered waypoints to OSM roads and discover mapped
+  boarding platforms along one direction of travel. View the proposed geometry
+  in iD and inspect gaps, opposite-side stops and ambiguous matches.
+- Preview and publish a PTv2 bus route relation with ordered stop and road
+  members. Reviewed splits of eligible roads use existing OSM nodes. Uploads
+  require digest-bound confirmation, check current objects and return verified
+  changeset receipts.
+- Provide a Dushanbe field-review example with two downloadable GeoJSON layers.
+
 ## [0.4.2] - 2026-11-23
 
 ### Changed
@@ -189,7 +202,8 @@ release does not implement them or weaken account/API-bound edit safeguards.
 - Production writes fail closed when the host cannot provide digest-bound
   elicitation.
 
-[Unreleased]: https://github.com/skywinder/osm-edit-mcp/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/skywinder/osm-edit-mcp/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/skywinder/osm-edit-mcp/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/skywinder/osm-edit-mcp/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/skywinder/osm-edit-mcp/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/skywinder/osm-edit-mcp/releases/tag/v0.4.0

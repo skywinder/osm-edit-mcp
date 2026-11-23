@@ -1,0 +1,181 @@
+{
+  "type": "FeatureCollection",
+  "date": "2026-11-23",
+  "attribution": "© OpenStreetMap contributors",
+  "copyright": "https://www.openstreetmap.org/copyright",
+  "license": "https://opendatacommons.org/licenses/odbl/1-0/",
+  "name": "Душанбе · кандидаты для проверки конечных и остановки «Ресторан Океан»",
+  "description": "Отдельные объекты OpenStreetMap в трёх местах. Укажите платформу отправления на улице Гагарина и платформу прибытия у Южного терминала для рейса № 1 на юг. У «Ресторана Океан» отмечены место ожидания и точка остановки на дороге.",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "улица Гагарина",
+        "osm_url": "https://www.openstreetmap.org/node/14370403241",
+        "public_transport": "platform",
+        "service_verified": false,
+        "marker-color": "#237d57"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          68.7770492,
+          38.6202605
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "улица Гагарина",
+        "osm_url": "https://www.openstreetmap.org/node/14370403251",
+        "public_transport": "platform",
+        "service_verified": false,
+        "marker-color": "#237d57"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          68.7774388,
+          38.6198125
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Южный Терминал",
+        "osm_url": "https://www.openstreetmap.org/node/14403934035",
+        "public_transport": "platform",
+        "service_verified": false,
+        "marker-color": "#237d57"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          68.7396252,
+          38.4685771
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Южный Терминал",
+        "osm_url": "https://www.openstreetmap.org/node/14403934043",
+        "public_transport": "stop_position",
+        "service_verified": false,
+        "marker-color": "#924894"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          68.7399865,
+          38.4685489
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Южный Терминал",
+        "osm_url": "https://www.openstreetmap.org/node/14403934050",
+        "public_transport": "stop_position",
+        "service_verified": false,
+        "marker-color": "#924894"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          68.7400214,
+          38.4674034
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Южный Терминал",
+        "osm_url": "https://www.openstreetmap.org/node/14403934048",
+        "public_transport": "platform",
+        "service_verified": false,
+        "marker-color": "#237d57"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          68.7398853,
+          38.4674285
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Южный Терминал",
+        "osm_url": "https://www.openstreetmap.org/node/14403934051",
+        "public_transport": "stop_position",
+        "service_verified": false,
+        "marker-color": "#924894"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          68.740416,
+          38.467809
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Южный Терминал",
+        "osm_url": "https://www.openstreetmap.org/node/14403934049",
+        "public_transport": "platform",
+        "service_verified": false,
+        "marker-color": "#237d57"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          68.7405082,
+          38.467765
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Ресторан Океан",
+        "osm_url": "https://www.openstreetmap.org/node/14403932393",
+        "public_transport": "platform",
+        "service_verified": false,
+        "marker-color": "#237d57"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          68.7515064,
+          38.5460155
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Ресторан Океан",
+        "osm_url": "https://www.openstreetmap.org/node/14403932394",
+        "public_transport": "stop_position",
+        "service_verified": false,
+        "marker-color": "#924894"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          68.7515056,
+          38.5460983
+        ]
+      }
+    }
+  ]
+}
