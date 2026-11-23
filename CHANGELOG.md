@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-23
+
 ### Added
 
 - Inspect nearby road segments for an ambiguous bus survey point in iD,
@@ -222,7 +224,8 @@ release does not implement them or weaken account/API-bound edit safeguards.
 - Production writes fail closed when the host cannot provide digest-bound
   elicitation.
 
-[Unreleased]: https://github.com/skywinder/osm-edit-mcp/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/skywinder/osm-edit-mcp/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/skywinder/osm-edit-mcp/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/skywinder/osm-edit-mcp/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/skywinder/osm-edit-mcp/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/skywinder/osm-edit-mcp/compare/v0.4.0...v0.4.1

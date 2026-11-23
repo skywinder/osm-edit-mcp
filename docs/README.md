@@ -60,14 +60,13 @@ for categories, exact filters, distance caveats, migration examples and transpor
 
 ### Read-only road inspection
 
-This source checkout supports `OSM_TOOL_PROFILE=road-inspection`. Configure a
-separate stdio server entry and reconnect your MCP host. Replace the path with
-the absolute path to this checkout.
+To compare GPX tracks and inspect mapped roads, add this stdio server entry
+and reconnect your MCP host. The first launch installs version 0.6.0 from PyPI.
 
 ```json
 {
-  "command": "uv",
-  "args": ["run", "--locked", "--project", "/absolute/path/to/checkout", "osm-edit-mcp"],
+  "command": "uvx",
+  "args": ["--from", "osm-edit-mcp==0.6.0", "osm-edit-mcp"],
   "env": {"OSM_TOOL_PROFILE": "road-inspection"}
 }
 ```

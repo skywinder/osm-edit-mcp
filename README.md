@@ -19,13 +19,14 @@ For a POI with known boundaries, [reviewed four-sided polygons](docs/reviewed-po
 create a closed OSM way with tags on the area and can explicitly replace an
 isolated POI node in the same upload.
 
-Version 0.5.0 adds [bus route mapping](https://github.com/skywinder/osm-edit-mcp/blob/v0.5.0/docs/bus-routes.md). Match a trip to
-existing roads, review stops in travel order, and publish one direction as a
-route relation. Try the [Dushanbe example in iD](https://github.com/skywinder/osm-edit-mcp/tree/v0.5.0/examples/dushanbe-bus-1).
+Version 0.6.0 lets you compare up to ten GPX selections in the read-only
+road inspection profile. Inspect distances between traces and keep track of
+the ones you exclude. [GPX comparison guide](https://github.com/skywinder/osm-edit-mcp/blob/v0.6.0/docs/README.md#read-only-road-inspection)
 
-The [bus mapping guide for this checkout](docs/bus-routes.md#choose-a-road-at-an-ambiguous-point)
-shows how to compare nearby roads in iD, replay a mapper's choice and search
-for stops on the resulting path.
+To map a bus route, compare nearby road segments in iD, replay the mapper's
+choice and find existing stops in travel order. The full profile can then
+preview and publish the direction as a route relation.
+[Bus mapping guide](https://github.com/skywinder/osm-edit-mcp/blob/v0.6.0/docs/bus-routes.md) · [Dushanbe example](https://github.com/skywinder/osm-edit-mcp/tree/v0.6.0/examples/dushanbe-bus-1)
 
 For POI edits, the server guides assistants to use specific, verifiable OSM tags
 instead of promotional or redundant descriptions. For example, juice
@@ -112,7 +113,7 @@ acceptance first, and an MCP host that supports confirmation (elicitation).
 | What you want to do | What to configure, and why |
 | --- | --- |
 | Inspect a GPX and preview a selected section | No OAuth. Set `OSM_TRACK_IMPORT_DIR` to your private GPX folder, or supply inline GPX XML. |
-| Compare a GPX with roads on the real map | The source checkout offers a read-only `road-inspection` profile. It returns candidate geometry from production without OAuth. See [road inspection setup](docs/README.md#read-only-road-inspection). |
+| Compare GPX surveys with roads on the real map | Choose the read-only `road-inspection` profile. It returns candidate geometry from production without OAuth. [Road inspection setup](docs/README.md#read-only-road-inspection) |
 | Find candidate roads while editing | The `full` profile uses the configured editing API. The development sandbox has its own map and object IDs. |
 | Preview a road-edit diff | Set up OSM OAuth: the proposal is bound to your account and API target even before any write. |
 | Apply an edit | After an explicit publish request, call `apply_osm_edit` immediately. Its MCP elicitation is the single final digest confirmation; do not add another chat question. |
