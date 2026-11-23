@@ -1,6 +1,7 @@
 """Find mapped stops along a directed survey trace without assuming service."""
 
 import asyncio
+import math
 from collections import defaultdict
 from typing import Annotated, Any, Literal, Optional, Sequence
 
@@ -17,35 +18,43 @@ from .place_features import ATTRIBUTION
 from .track_tools import Point, _expanded_bbox, _haversine_m, _resolve_track_selection
 from .transit_data import element_tags
 from .transit_geometry import Edge, _edges, _role
-from .transit_match import MAX_GAP_M, Provider, SurveyPoint, _query_chunks
+from .transit_match import MAX_GAP_M, MAX_PREVIEW_POINTS, Provider, SurveyPoint
 
 MAX_NODES = 3000
 MAX_VISITS = 3000
 MAX_PROJECTIONS = 3_000_000
 MAX_WINDOWS = 80
+WINDOW_LENGTH_M = 1300.0
 Side = Literal["right", "left"]
 
 
-def _path_parts(
-    points: Sequence[Point],
-) -> tuple[list[list[Edge]], list[dict[str, Any]]]:
+# Keep the matcher’s part numbers even when an intervening survey leg had no match.
+Parts = dict[int, Sequence[Point]]
+
+
+def _validate_line(points: Sequence[Point]) -> None:
+    if len(points) < 2 or all(p == points[0] for p in points):
+        raise ValueError("Provide at least two distinct coordinates per line")
+    if any(not (-90 < lat < 90 and -180 <= lon <= 180) for lat, lon in points):
+        raise ValueError("Trace points must be finite and inside map bounds")
+    if any(abs(a[1] - b[1]) > 180 for a, b in zip(points, points[1:])):
+        raise ValueError("Split the trace at the antimeridian")
+
+
+def _path_parts(points: Sequence[Point]) -> tuple[Parts, list[dict[str, Any]]]:
     """Break at survey gaps. Zero-length samples retain their original indices."""
     index = 0
-    parts: list[list[Edge]] = []
+    parts: Parts = {}
     gaps: list[dict[str, Any]] = []
-    nodes = {i: {"lat": p[0], "lon": p[1]} for i, p in enumerate(points)}
 
-    def append_part(start: int, end: int) -> None:
-        if any(points[i] != points[i + 1] for i in range(start, end)):
-            edges, _, _ = _edges(
-                list(range(start, end + 1)), nodes, ["forward"] * (end - start)
-            )
-            parts.append(edges)
+    def append_part(line: Sequence[Point]) -> None:
+        if any(p != line[0] for p in line[1:]):
+            parts[len(parts)] = line
 
     for i, (a, b) in enumerate(zip(points, points[1:])):
         distance = _haversine_m(a, b)
         if distance > MAX_GAP_M["trace"]:
-            append_part(index, i)
+            append_part(points[index : i + 1])
             gaps.append(
                 {
                     "start_point_index": i,
@@ -55,16 +64,111 @@ def _path_parts(
                 }
             )
             index = i + 1
-    append_part(index, len(points) - 1)
+    append_part(points[index:])
     return parts, gaps
 
 
+def _matched_parts(collection: dict[str, Any]) -> tuple[Parts, list[dict[str, Any]]]:
+    features = collection.get("features")
+    if collection.get("type") != "FeatureCollection" or not isinstance(features, list):
+        raise ValueError(
+            "Provide matched_geojson as a FeatureCollection of LineStrings"
+        )
+    source = collection.get("source", {})
+    if not isinstance(source, dict) or any(
+        key in source and source[key] != expected
+        for key, expected in (
+            ("environment", config.api_environment),
+            ("api_target", config.current_api_base_url),
+        )
+    ):
+        raise ValueError(
+            "Matched GeoJSON source differs from the configured OSM API target"
+        )
+
+    parts: Parts = {}
+    gaps: list[dict[str, Any]] = []
+    size = 0
+    previous = -1
+    for index, feature in enumerate(features):
+        if not isinstance(feature, dict) or feature.get("type") != "Feature":
+            raise ValueError("Expected a GeoJSON Feature for each connected part")
+        geometry = feature.get("geometry")
+        if not isinstance(geometry, dict) or geometry.get("type") != "LineString":
+            raise ValueError("Matched features must have LineString geometry")
+        properties = feature.get("properties")
+        if properties is not None and not isinstance(properties, dict):
+            raise ValueError("Expected an object for matched feature properties")
+        part = properties.get("part", index) if properties is not None else index
+        if type(part) is not int or part <= previous:
+            raise ValueError(
+                "Matched part numbers must be nonnegative and strictly increasing"
+            )
+        coordinates = geometry.get("coordinates")
+        if not isinstance(coordinates, list):
+            raise ValueError("Expected an array of [longitude, latitude] coordinates")
+        size += len(coordinates)
+        if size > MAX_PREVIEW_POINTS:
+            raise ValueError(
+                f"Matched GeoJSON exceeds {MAX_PREVIEW_POINTS} coordinates"
+            )
+        line: list[Point] = []
+        for position in coordinates:
+            if (
+                not isinstance(position, (list, tuple))
+                or len(position) != 2
+                or any(type(value) not in (int, float) for value in position)
+            ):
+                raise ValueError("Expected numeric [longitude, latitude] pairs")
+            line.append((position[1], position[0]))
+        _validate_line(line)
+        if previous >= 0:
+            gaps.append(
+                {
+                    "after_part": previous,
+                    "before_part": part,
+                    "distance_m": round(_haversine_m(parts[previous][-1], line[0]), 1),
+                    "reason": "separate_matched_parts",
+                }
+            )
+        parts[part] = line
+        previous = part
+    return parts, gaps
+
+
+def _corridor_windows(parts: Parts) -> list[list[Point]]:
+    """Cover each line separately, including long connected OSM edges."""
+    windows: list[list[Point]] = []
+    for points in parts.values():
+        window = [points[0]]
+        for start, end in zip(points, points[1:]):
+            # Split long edges for the bbox query only. Projection uses the OSM geometry.
+            divisions = max(1, math.ceil(_haversine_m(start, end) / WINDOW_LENGTH_M))
+            for step in range(1, divisions + 1):
+                point = (
+                    end
+                    if step == divisions
+                    else (
+                        start[0] + (end[0] - start[0]) * step / divisions,
+                        start[1] + (end[1] - start[1]) * step / divisions,
+                    )
+                )
+                if len(window) > 1 and _haversine_m(window[0], point) > WINDOW_LENGTH_M:
+                    windows.append(window)
+                    window = [window[-1]]
+                if len(windows) >= MAX_WINDOWS:
+                    raise ValueError(
+                        f"Select a shorter trace (at most {MAX_WINDOWS} map windows)"
+                    )
+                window.append(point)
+        windows.append(window)
+    return windows
+
+
 async def _stop_nodes(
-    points: Sequence[Point], radius: float, provider: Provider
+    parts: Parts, radius: float, provider: Provider
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    windows = _query_chunks(points, "trace")
-    if len(windows) > MAX_WINDOWS:
-        raise ValueError("Select a shorter trace (at most 80 map windows)")
+    windows = _corridor_windows(parts)
     public_map = (
         config.api_environment == "production"
         and overpass.endpoint == DEFAULT_OVERPASS_URL
@@ -219,14 +323,15 @@ def _visits(
 
 
 def _analyze_stops(
-    points: Sequence[Point],
+    parts: Parts,
+    gaps: list[dict[str, Any]],
     nodes: Sequence[dict[str, Any]],
     side: Side,
     radius: float,
     excluded: set[int],
 ) -> dict[str, Any]:
-    parts, gaps = _path_parts(points)
-    if sum(map(len, parts)) * len(nodes) > MAX_PROJECTIONS:
+    edge_count = sum(a != b for line in parts.values() for a, b in zip(line, line[1:]))
+    if edge_count * len(nodes) > MAX_PROJECTIONS:
         raise ValueError(
             "Too many stop/segment projections; select a shorter trace or smaller radius"
         )
@@ -239,7 +344,9 @@ def _analyze_stops(
     same_names: dict[tuple[int, str], list[dict[str, Any]]] = defaultdict(list)
     distance_before = 0.0
     visits_count = 0
-    for part, edges in enumerate(parts):
+    for part, line in parts.items():
+        positions = {i: {"lat": p[0], "lon": p[1]} for i, p in enumerate(line)}
+        edges, _, _ = _edges(list(positions), positions, ["forward"] * (len(line) - 1))
         for node in nodes:
             role = _role(node)
             if role is None:
@@ -321,29 +428,33 @@ async def suggest_bus_route_stops(
         Annotated[list[Annotated[StrictInt, Field(gt=0)]], Field(max_length=250)]
     ] = None,
     provider: Provider = "auto",
+    matched_geojson: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Find existing stop nodes along one directed trace, with local names and OSM IDs.
-    Supply ordered lat/lon points or one GPX selection. For map-matched GeoJSON, pass
-    one connected line at a time, converting [lon, lat] to {lat, lon}. Every occurrence
-    is a candidate for field review. Opposite-side platforms, ambiguous positions
-    and explicitly excluded nodes have separate lists. along_m counts covered travel
-    distance in input order, excluding survey gaps over 500 m. Only bounding boxes
-    are sent to the configured map provider; no OSM objects are modified.
+    Supply exactly one of ordered lat/lon points, a GPX selection_id, or the full
+    matched_geojson FeatureCollection from suggest_bus_route_ways. Each matched
+    LineString is searched in travel order and retains its part number. along_m
+    sums covered distance, omitting breaks between parts and raw survey gaps over
+    500 m. Review service, opposite-side platforms, ambiguous positions and explicit
+    exclusions. Only bounding boxes are sent to the map provider. Read-only.
     """
     try:
-        if (points is None) == (selection_id is None):
-            raise ValueError("Provide exactly one of points or selection_id")
-        trace = (
-            _resolve_track_selection(selection_id).points
-            if selection_id is not None
-            else tuple((p.lat, p.lon) for p in points or [])
-        )
-        if not 2 <= len(trace) <= 5000 or all(p == trace[0] for p in trace):
-            raise ValueError("Provide 2–5000 survey points describing movement")
-        if any(not (-90 < lat < 90 and -180 <= lon <= 180) for lat, lon in trace):
-            raise ValueError("Trace points must be finite and inside map bounds")
-        if any(abs(a[1] - b[1]) > 180 for a, b in zip(trace, trace[1:])):
-            raise ValueError("Split the trace at the antimeridian")
+        if sum(x is not None for x in (points, selection_id, matched_geojson)) != 1:
+            raise ValueError(
+                "Provide exactly one of points, selection_id or matched_geojson"
+            )
+        if matched_geojson is not None:
+            parts, gaps = _matched_parts(matched_geojson)
+        else:
+            trace = (
+                _resolve_track_selection(selection_id).points
+                if selection_id is not None
+                else tuple((p.lat, p.lon) for p in points or [])
+            )
+            if not 2 <= len(trace) <= 5000:
+                raise ValueError("Provide 2–5000 survey points describing movement")
+            _validate_line(trace)
+            parts, gaps = _path_parts(trace)
         if (
             not 1 <= radius_m <= 100
             or driving_side not in {"right", "left"}
@@ -357,8 +468,10 @@ async def suggest_bus_route_stops(
             type(i) is not int or i <= 0 for i in exclusions
         ):
             raise ValueError("Provide at most 250 positive OSM node IDs for exclusion")
-        nodes, source = await _stop_nodes(trace, radius_m, provider)
-        data = _analyze_stops(trace, nodes, driving_side, radius_m, set(exclusions))
+        nodes, source = await _stop_nodes(parts, radius_m, provider)
+        data = _analyze_stops(
+            parts, gaps, nodes, driving_side, radius_m, set(exclusions)
+        )
         return {
             "success": True,
             "data": {**data, "selection_id": selection_id, "source": source},

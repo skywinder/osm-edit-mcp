@@ -3093,9 +3093,55 @@
     },
     {
       "name": "suggest_bus_route_ways",
-      "description": "Match ordered survey coordinates or one GPX selection to existing, directional OSM ways.\nUse input_kind=waypoints for ordered field-observed stops or street turn coordinates.\nConnected legs up to 2 km are inferred road paths requiring independent confirmation.\nDense trace legs accept sampling gaps up to 500 m. provider=editing_api uses the\nconfigured map API directly when public Overpass is unavailable. Only bounding boxes\nleave the server. matched_geojson contains one clipped road line per connected part.\ngeometry_omitted_reason explains when the preview exceeds the output limit.\nFractions use the OSM way's node\norder (0 to 1). Inspect gaps, ambiguity, split candidates and turn restrictions before\nusing the ordered way IDs in a route preview. This tool performs no OSM edits.\n",
+      "description": "Match ordered survey coordinates or one GPX selection to existing, directional OSM ways.\nUse input_kind=waypoints for ordered field-observed stops or street turn coordinates.\nConnected legs up to 2 km are inferred road paths requiring independent confirmation.\nDense trace legs accept sampling gaps up to 500 m. provider=editing_api uses the\nconfigured map API directly when public Overpass is unavailable. Only bounding boxes\nleave the server. matched_geojson contains one clipped road line per connected part.\ngeometry_omitted_reason explains when the preview exceeds the output limit.\nsnap_reviews shows nearby OSM segments for ambiguous or explicitly chosen points.\nUse review_point_indices to inspect up to 20 specific zero-based observation indices,\nand include_snap_geojson for a map layer. Reuse a reviewed candidate's choice in\nsnap_choices with the same ordered observations to select its versioned road segment.\nDirection and connectivity are rechecked. Fractions use OSM node order (0 to 1).\nInspect gaps, ambiguity, split candidates and turn restrictions before using the\nordered way IDs in a route preview. This tool performs no OSM edits.\n",
       "inputSchema": {
         "$defs": {
+          "SnapChoice": {
+            "additionalProperties": false,
+            "description": "An observation and an exact segment in a version of an OSM way.",
+            "properties": {
+              "point_index": {
+                "minimum": 0,
+                "title": "Point Index",
+                "type": "integer"
+              },
+              "way_id": {
+                "exclusiveMinimum": 0,
+                "title": "Way Id",
+                "type": "integer"
+              },
+              "version": {
+                "exclusiveMinimum": 0,
+                "title": "Version",
+                "type": "integer"
+              },
+              "segment_index": {
+                "minimum": 0,
+                "title": "Segment Index",
+                "type": "integer"
+              },
+              "start_node_id": {
+                "exclusiveMinimum": 0,
+                "title": "Start Node Id",
+                "type": "integer"
+              },
+              "end_node_id": {
+                "exclusiveMinimum": 0,
+                "title": "End Node Id",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "point_index",
+              "way_id",
+              "version",
+              "segment_index",
+              "start_node_id",
+              "end_node_id"
+            ],
+            "title": "SnapChoice",
+            "type": "object"
+          },
           "SurveyPoint": {
             "properties": {
               "lat": {
@@ -3167,6 +3213,44 @@
             ],
             "title": "Provider",
             "type": "string"
+          },
+          "snap_choices": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/SnapChoice"
+                },
+                "maxItems": 5000,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Snap Choices"
+          },
+          "review_point_indices": {
+            "anyOf": [
+              {
+                "items": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "maxItems": 20,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Review Point Indices"
+          },
+          "include_snap_geojson": {
+            "default": false,
+            "title": "Include Snap Geojson",
+            "type": "boolean"
           }
         },
         "title": "suggest_bus_route_waysArguments",
@@ -3510,7 +3594,7 @@
     },
     {
       "name": "suggest_bus_route_stops",
-      "description": "Find existing stop nodes along one directed trace, with local names and OSM IDs.\nSupply ordered lat/lon points or one GPX selection. For map-matched GeoJSON, pass\none connected line at a time, converting [lon, lat] to {lat, lon}. Every occurrence\nis a candidate for field review. Opposite-side platforms, ambiguous positions\nand explicitly excluded nodes have separate lists. along_m counts covered travel\ndistance in input order, excluding survey gaps over 500 m. Only bounding boxes\nare sent to the configured map provider; no OSM objects are modified.\n",
+      "description": "Find existing stop nodes along one directed trace, with local names and OSM IDs.\nSupply exactly one of ordered lat/lon points, a GPX selection_id, or the full\nmatched_geojson FeatureCollection from suggest_bus_route_ways. Each matched\nLineString is searched in travel order and retains its part number. along_m\nsums covered distance, omitting breaks between parts and raw survey gaps over\n500 m. Review service, opposite-side platforms, ambiguous positions and explicit\nexclusions. Only bounding boxes are sent to the map provider. Read-only.\n",
       "inputSchema": {
         "$defs": {
           "SurveyPoint": {
@@ -3608,6 +3692,19 @@
             ],
             "title": "Provider",
             "type": "string"
+          },
+          "matched_geojson": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Matched Geojson"
           }
         },
         "title": "suggest_bus_route_stopsArguments",

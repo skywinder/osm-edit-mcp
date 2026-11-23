@@ -1,0 +1,133 @@
+{
+  "type": "FeatureCollection",
+  "name": "Душанбе · подъезд автобуса № 1 к рынку Саховат",
+  "description": "Два ближайших варианта привязки нанесённой платформы и расчёт манёвра для боковой дороги. Требуется проверка фактического пути по поездке.",
+  "date": "2026-11-23",
+  "attribution": "© OpenStreetMap contributors",
+  "copyright": "https://www.openstreetmap.org/copyright",
+  "license": "https://opendatacommons.org/licenses/odbl/1-0/",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Расчётный подъезд через проезд южнее остановки",
+        "description": "При выборе боковой дороги MCP ведёт автобус на юг мимо платформы, затем возвращает на север к рынку. Фактический манёвр нужно проверить.",
+        "service_verified": false,
+        "way_ids": [
+          744633335,
+          1343399989,
+          1343399990
+        ],
+        "stroke": "#b06516",
+        "stroke-width": 3,
+        "stroke-opacity": 0.7
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            68.7617702,
+            38.5174061
+          ],
+          [
+            68.761776,
+            38.5164683
+          ],
+          [
+            68.7615293,
+            38.5164724
+          ],
+          [
+            68.7615206,
+            38.5171882
+          ],
+          [
+            68.76151819,
+            38.51738933
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "feature": "survey_point",
+        "point_index": 4,
+        "name": "Нанесённая платформа «Рынок Саховат»",
+        "marker-color": "#111827",
+        "osm_url": "https://www.openstreetmap.org/node/14403934010"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          68.7616497,
+          38.5173903
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "feature": "road_candidate",
+        "point_index": 4,
+        "way_id": 744633335,
+        "segment_index": 1,
+        "version": 8,
+        "start_node_id": 14357297009,
+        "end_node_id": 12430066247,
+        "name": "А · проспект Негмата Карабаева",
+        "selected": true,
+        "distance_m": 10.49,
+        "allowed_directions": "forward",
+        "stroke": "#2563eb",
+        "osm_url": "https://www.openstreetmap.org/way/744633335",
+        "service_verified": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            68.7617702,
+            38.5174061
+          ],
+          [
+            68.761776,
+            38.5164683
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "feature": "road_candidate",
+        "point_index": 4,
+        "way_id": 1343399990,
+        "segment_index": 0,
+        "version": 2,
+        "start_node_id": 12430066251,
+        "end_node_id": 13526287952,
+        "name": "Б · боковая дорога у рынка",
+        "selected": false,
+        "distance_m": 11.44,
+        "allowed_directions": "forward, backward",
+        "stroke": "#d97706",
+        "osm_url": "https://www.openstreetmap.org/way/1343399990",
+        "service_verified": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            68.761514,
+            38.5177379
+          ],
+          [
+            68.7615206,
+            38.5171882
+          ]
+        ]
+      }
+    }
+  ]
+}

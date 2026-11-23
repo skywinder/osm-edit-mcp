@@ -102,6 +102,165 @@ def test_close_parallel_roads_flag_ambiguity_but_pick_matching_oneway():
 
 
 @pytest.mark.asyncio
+async def test_review_and_replay_parallel_roads_rechecks_connectivity(monkeypatch):
+    parallel = [(0.00001, lon) for _, lon in [A, B]]
+    roads = [
+        way(1, [1, 2], [A, B], oneway="yes"),
+        way(2, [3, 4], parallel, name="Service road", oneway="yes"),
+    ]
+    monkeypatch.setattr(tm, "_load_highways", AsyncMock(return_value=(roads, {})))
+    points = [tm.SurveyPoint(lat=lat, lon=lon) for lat, lon in [A, B]]
+    first = (await tm.suggest_bus_route_ways(points=points))["data"]
+    assert first["applied_snap_choices"] == [] and first["ordered_way_ids"] == [1]
+    reviews = first["snap_reviews"]
+    assert [r["point_index"] for r in reviews] == [0, 1]
+    choices = []
+    for index, r in enumerate(reviews):
+        assert r["input_point"] == points[index].model_dump()
+        assert r["candidate_count"] == 2
+        automatic, alternate = r["candidates"]
+        assert automatic["selected"] and not alternate["selected"]
+        assert alternate["name"] == "Service road"
+        assert alternate["allowed_directions"] == ["forward"]
+        assert 1.1 < alternate["distance_m"] < 1.2
+        assert alternate["snapped_point"] == {
+            "lat": parallel[index][0],
+            "lon": parallel[index][1],
+        }
+        assert alternate["segment_geometry"]["coordinates"] == [
+            [lon, lat] for lat, lon in parallel
+        ]
+        choices.append(tm.SnapChoice(**alternate["choice"]))
+
+    one = (await tm.suggest_bus_route_ways(points=points, snap_choices=choices[:1]))[
+        "data"
+    ]
+    assert one["ambiguous_point_indices"] == [1]
+    assert one["gaps"][0]["reason"] == "no_connected_bus_path_near_survey"
+    assert not one["continuous"]
+    both = (await tm.suggest_bus_route_ways(points=points, snap_choices=choices))[
+        "data"
+    ]
+    assert both["ordered_way_ids"] == [2] and both["continuous"]
+    assert both["ambiguous_point_indices"] == [] and both["requires_review"]
+    assert both["applied_snap_choices"] == [c.model_dump() for c in choices]
+    assert all(r["candidates"][1]["selected"] for r in both["snap_reviews"])
+
+
+@pytest.mark.asyncio
+async def test_reject_unusable_snap_choices_and_invalid_indices(monkeypatch):
+    road = way(1, [1, 2, 3], [A, B, C])
+    # A way can lose its bus access or a geometry node can move even when the
+    # supplied version and structural segment identity appear correct.
+    moved = way(2, [4, 5], [(0.001, 0), (0.001, 0.001)])
+    denied = way(3, [6, 7], [A, B], bus="no")
+    load = AsyncMock(return_value=([road, moved, denied], {}))
+    monkeypatch.setattr(tm, "_load_highways", load)
+    points = [tm.SurveyPoint(lat=lat, lon=lon) for lat, lon in [A, B]]
+    choice = tm.SnapChoice(
+        point_index=0,
+        way_id=1,
+        version=2,
+        segment_index=0,
+        start_node_id=1,
+        end_node_id=2,
+    )
+    for update in (
+        {"version": 1},
+        {"start_node_id": 2, "end_node_id": 1},
+        {"segment_index": 1},
+        {"way_id": 2, "start_node_id": 4, "end_node_id": 5},
+        {"way_id": 3, "start_node_id": 6, "end_node_id": 7},
+    ):
+        result = await tm.suggest_bus_route_ways(
+            points=points, snap_choices=[choice.model_copy(update=update)]
+        )
+        assert not result["success"] and "Review fresh candidates" in result["error"]
+    load.reset_mock()
+    for invalid in (
+        {"snap_choices": [choice, choice]},
+        {"snap_choices": [choice.model_copy(update={"point_index": 2})]},
+        {"review_point_indices": [0, 0]},
+        {"review_point_indices": [2]},
+    ):
+        result = await tm.suggest_bus_route_ways(points=points, **invalid)
+        assert (
+            not result["success"]
+            and result["error_details"]["code"] == "invalid_arguments"
+        )
+    load.assert_not_awaited()
+
+
+def test_review_limits_and_requesting_specific_observations():
+    # The close roads have distinct node IDs. Many repeated observations/ways
+    # do not expand the default result beyond the documented candidate caps.
+    roads = [
+        way(i, [2 * i, 2 * i + 1], [A, B]) for i in range(1, tm.MAX_SNAP_CANDIDATES + 3)
+    ]
+    points = [A] * (tm.MAX_SNAP_REVIEWS + 1) + [B]
+    first = tm._match_ways(points, roads)
+    assert first["ambiguous_point_indices"] == list(range(len(points)))
+    assert (
+        len(first["snap_reviews"]) == tm.MAX_SNAP_REVIEWS
+        and first["snap_reviews_omitted"] == 2
+    )
+    end = tm._match_ways(points, roads, review_point_indices=[len(points) - 1])
+    (review,) = end["snap_reviews"]
+    assert review["point_index"] == len(points) - 1 and end["snap_reviews_omitted"] == 0
+    assert review["candidate_count"] == len(roads)
+    assert len(review["candidates"]) == tm.MAX_SNAP_CANDIDATES
+    # An explicit pick remains visible even below the default ranking cutoff.
+    last = roads[-1]
+    index = len(points) - 1
+    pin = tm.SnapChoice(
+        point_index=index,
+        way_id=last["id"],
+        version=2,
+        segment_index=0,
+        start_node_id=last["nodes"][0],
+        end_node_id=last["nodes"][1],
+    )
+    pinned = tm._match_ways(
+        points, roads, choices={index: pin}, review_point_indices=[index]
+    )
+    (selected,) = (c for c in pinned["snap_reviews"][0]["candidates"] if c["selected"])
+    assert selected["choice"] == pin.model_dump()
+
+
+def test_repeated_segment_identity_and_missing_metadata():
+    repeated = way(10, [1, 2, 1, 2], [A, B, A, B])
+    missing_version = way(11, [3, 4], [A, B])
+    del missing_version["version"]
+    initial = tm._match_ways(
+        [A, B], [repeated, missing_version], review_point_indices=[0]
+    )
+    candidates = initial["snap_reviews"][0]["candidates"]
+    assert [c["segment_index"] for c in candidates if c["way_id"] == 10] == [0, 1, 2]
+    assert next(c for c in candidates if c["way_id"] == 11)["choice"] is None
+    last_visit = next(
+        c for c in candidates if c["way_id"] == 10 and c["segment_index"] == 2
+    )
+    choice = tm.SnapChoice(**last_visit["choice"])
+    assert (choice.segment_index, choice.start_node_id, choice.end_node_id) == (2, 1, 2)
+    pinned = tm._match_ways([A, B], [repeated, missing_version], choices={0: choice})
+    (selected,) = (c for c in pinned["snap_reviews"][0]["candidates"] if c["selected"])
+    assert selected["segment_index"] == 2
+
+
+def test_review_retains_distinct_ways_when_nearest_way_has_many_segments():
+    roads = [
+        way(1, [1, 2] * 6, [A, B] * 6),
+        way(2, [3, 4], [(0.00001, 0), (0.00001, 0.001)]),
+        way(3, [5, 6], [(0.00015, 0), (0.00015, 0.001)]),
+    ]
+    review = tm._match_ways([A, B], roads, review_point_indices=[0])["snap_reviews"][0]
+    assert (
+        review["candidate_count"] > len(review["candidates"]) == tm.MAX_SNAP_CANDIDATES
+    )
+    assert {candidate["way_id"] for candidate in review["candidates"]} == {1, 2, 3}
+
+
+@pytest.mark.asyncio
 async def test_tool_selection_and_points_validation(monkeypatch):
     roads = [way(1, [1, 2], [A, B])]
     load = AsyncMock(return_value=(roads, {"provider": "fixture"}))
