@@ -266,6 +266,8 @@ async def _readback(
     if before:
         # Later edits can advance this relation while an uncertain upload is reconciled.
         target += f"/{before['version'] + 1}"
+    elif p.payload["action"] == "bus_route_master_create":
+        target += "/1"
     response = await client.get(target)
     response.raise_for_status()
     root = parse_xml(response.content)

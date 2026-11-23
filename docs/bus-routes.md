@@ -11,7 +11,7 @@ For a read-only first look at the real map, add this entry to an MCP client that
   "mcpServers": {
     "osm-bus": {
       "command": "uvx",
-      "args": ["--from", "osm-edit-mcp==0.6.0", "osm-edit-mcp"],
+      "args": ["--from", "osm-edit-mcp==0.7.0", "osm-edit-mcp"],
       "env": {
         "OSM_TOOL_PROFILE": "full",
         "OSM_WRITE_PROFILE": "safe",

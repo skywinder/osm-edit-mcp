@@ -507,9 +507,25 @@ def route_review_html(proposal: track_tools.Proposal) -> str:
         if "relation_before" in payload
         else f"Bus {tags['ref']} · {tags['from']} → {tags['to']}"
     )
+    geojson = payload["_review"]["proposed_geojson"]
+    layers = {"proposed": geojson}
+    omitted = [
+        f
+        for f in geojson["features"]
+        if f["properties"].get("feature") == "omitted_stop"
+    ]
+    if omitted:
+        layers = {
+            "proposed": track_tools._feature_collection(
+                f
+                for f in geojson["features"]
+                if f["properties"].get("feature") != "omitted_stop"
+            ),
+            "omitted": track_tools._feature_collection(omitted),
+        }
     return track_tools._map_preview_html(
         title,
-        {"proposed": payload["_review"]["proposed_geojson"]},
+        layers,
         "<section><p>Review the stops in travel order, the roads and the stated survey source.</p>"
         f"<p>SHA-256 {html.escape(proposal.digest)}</p><pre>{details}</pre></section>",
     )

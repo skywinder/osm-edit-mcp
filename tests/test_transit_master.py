@@ -31,6 +31,13 @@ class MasterOSM(RouteOSM):
             root = ET.Element("osm")
             root.extend(self.directions.values())
             return httpx.Response(200, content=ET.tostring(root))
+        if req.url.path.endswith("/relation/33/1") and self.created is not None:
+            return self.xml("osm", self.created)
+        if self.created is not None and req.url.path.endswith("/relation/33"):
+            later = ET.fromstring(ET.tostring(self.created))
+            later.set("version", "2")
+            ET.SubElement(later, "tag", k="note", v="Subsequent mapper edit")
+            return self.xml("osm", later)
         return await super().respond(req)
 
 

@@ -3492,6 +3492,17 @@
                 ],
                 "default": null,
                 "title": "Node Id"
+              },
+              "location": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/SurveyLocation"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
               }
             },
             "required": [
@@ -3499,6 +3510,29 @@
               "reason"
             ],
             "title": "OmittedStop",
+            "type": "object"
+          },
+          "SurveyLocation": {
+            "additionalProperties": false,
+            "properties": {
+              "lat": {
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Lat",
+                "type": "number"
+              },
+              "lon": {
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Lon",
+                "type": "number"
+              }
+            },
+            "required": [
+              "lat",
+              "lon"
+            ],
+            "title": "SurveyLocation",
             "type": "object"
           }
         },
@@ -3785,9 +3819,549 @@
         "idempotentHint": true,
         "openWorldHint": true
       }
+    },
+    {
+      "name": "preview_bus_route_update",
+      "description": "Review updates to a mapped PTv2 bus direction, keeping its relation ID and parent memberships.\nSupply replacement stop or road IDs in travel order for the lists you want to change.\nOmitted lists and unrelated tags are preserved. tag_changes can set ref, from, to,\nname, operator or network. Use null to remove an optional tag. Review the before\nsnapshot and the exact tag and ordered member changes (zero-based half-open ranges).\nFor a relocated restricted stop, supply boarding_roles in stop order with null for\nretained roles and the observed role for the new stop. prepare_upload binds an\neligible edit to the current relation version and account.\n",
+      "inputSchema": {
+        "$defs": {
+          "OmittedStop": {
+            "additionalProperties": false,
+            "properties": {
+              "label": {
+                "maxLength": 255,
+                "minLength": 1,
+                "title": "Label",
+                "type": "string"
+              },
+              "reason": {
+                "maxLength": 255,
+                "minLength": 1,
+                "title": "Reason",
+                "type": "string"
+              },
+              "node_id": {
+                "anyOf": [
+                  {
+                    "exclusiveMinimum": 0,
+                    "maximum": 9223372036854775807,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Node Id"
+              },
+              "location": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/SurveyLocation"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              }
+            },
+            "required": [
+              "label",
+              "reason"
+            ],
+            "title": "OmittedStop",
+            "type": "object"
+          },
+          "SurveyLocation": {
+            "additionalProperties": false,
+            "properties": {
+              "lat": {
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Lat",
+                "type": "number"
+              },
+              "lon": {
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Lon",
+                "type": "number"
+              }
+            },
+            "required": [
+              "lat",
+              "lon"
+            ],
+            "title": "SurveyLocation",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "relation_id": {
+            "exclusiveMinimum": 0,
+            "maximum": 9223372036854775807,
+            "title": "Relation Id",
+            "type": "integer"
+          },
+          "source": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Source",
+            "type": "string"
+          },
+          "way_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "exclusiveMinimum": 0,
+                  "maximum": 9223372036854775807,
+                  "type": "integer"
+                },
+                "maxItems": 600,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Way Ids"
+          },
+          "stop_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "exclusiveMinimum": 0,
+                  "maximum": 9223372036854775807,
+                  "type": "integer"
+                },
+                "maxItems": 250,
+                "minItems": 2,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Stop Ids"
+          },
+          "boarding_roles": {
+            "anyOf": [
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "stop",
+                        "platform",
+                        "stop_entry_only",
+                        "stop_exit_only",
+                        "platform_entry_only",
+                        "platform_exit_only"
+                      ],
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "maxItems": 250,
+                "minItems": 2,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Boarding Roles"
+          },
+          "tag_changes": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "maxLength": 255,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "propertyNames": {
+                  "enum": [
+                    "ref",
+                    "from",
+                    "to",
+                    "name",
+                    "operator",
+                    "network"
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Tag Changes"
+          },
+          "source_basis": {
+            "default": "unconfirmed",
+            "enum": [
+              "survey",
+              "local_knowledge",
+              "compatible_license",
+              "permission",
+              "unconfirmed"
+            ],
+            "title": "Source Basis",
+            "type": "string"
+          },
+          "omitted_stops": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/OmittedStop"
+                },
+                "maxItems": 150,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Omitted Stops"
+          },
+          "driving_side": {
+            "default": "right",
+            "enum": [
+              "right",
+              "left"
+            ],
+            "title": "Driving Side",
+            "type": "string"
+          },
+          "prepare_upload": {
+            "default": false,
+            "title": "Prepare Upload",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "relation_id",
+          "source"
+        ],
+        "title": "preview_bus_route_updateArguments",
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "title": "preview_bus_route_updateDictOutput",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "preview_bus_route_master",
+      "description": "Review grouping independently checked PTv2 bus directions or variants of one line.\nSupply existing direction relation IDs in the desired member order and the source\nconfirming they belong together. Inspect terminals, tags and existing master IDs.\nAn eligible preview with prepare_upload=true can be applied using apply_osm_edit.\n",
+      "inputSchema": {
+        "properties": {
+          "route_relation_ids": {
+            "items": {
+              "exclusiveMinimum": 0,
+              "maximum": 9223372036854775807,
+              "type": "integer"
+            },
+            "maxItems": 50,
+            "minItems": 2,
+            "title": "Route Relation Ids",
+            "type": "array"
+          },
+          "source": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Source",
+            "type": "string"
+          },
+          "source_basis": {
+            "default": "unconfirmed",
+            "enum": [
+              "survey",
+              "local_knowledge",
+              "compatible_license",
+              "permission",
+              "unconfirmed"
+            ],
+            "title": "Source Basis",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Name"
+          },
+          "prepare_upload": {
+            "default": false,
+            "title": "Prepare Upload",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "route_relation_ids",
+          "source"
+        ],
+        "title": "preview_bus_route_masterArguments",
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "title": "preview_bus_route_masterDictOutput",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "review_bus_return_trip",
+      "description": "Compare confirmed outward stops with a separately observed return journey.\nSupply return_match as the data from suggest_bus_route_ways for an actual return\nGPX selection or surveyed waypoints in return travel order. Optional outward_match\nfrom the outward trip adds differences in OSM ways, junctions and matched endpoints.\nReturn visits follow the return trace, with boarding side, ambiguity and exclusions.\nPairs use geographic distance even when local names differ. Review every candidate.\nThe editing API receives the outward node IDs. Only return corridor bounding boxes\nare sent to the stop provider. This read-only comparison never establishes service.\n",
+      "inputSchema": {
+        "$defs": {
+          "BusTripMatch": {
+            "description": "Fields consumed from suggest_bus_route_ways data, in travel order.",
+            "properties": {
+              "input_kind": {
+                "enum": [
+                  "trace",
+                  "waypoints"
+                ],
+                "title": "Input Kind",
+                "type": "string"
+              },
+              "matched_geojson": {
+                "additionalProperties": true,
+                "title": "Matched Geojson",
+                "type": "object"
+              },
+              "traversals": {
+                "items": {
+                  "$ref": "#/$defs/MatchedPassage"
+                },
+                "maxItems": 8000,
+                "title": "Traversals",
+                "type": "array"
+              },
+              "gaps": {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "maxItems": 5000,
+                "title": "Gaps",
+                "type": "array"
+              },
+              "ambiguous_point_indices": {
+                "items": {
+                  "type": "integer"
+                },
+                "maxItems": 5000,
+                "title": "Ambiguous Point Indices",
+                "type": "array"
+              }
+            },
+            "required": [
+              "input_kind",
+              "matched_geojson",
+              "traversals",
+              "gaps",
+              "ambiguous_point_indices"
+            ],
+            "title": "BusTripMatch",
+            "type": "object"
+          },
+          "MatchedPassage": {
+            "properties": {
+              "way_id": {
+                "exclusiveMinimum": 0,
+                "maximum": 9223372036854775807,
+                "title": "Way Id",
+                "type": "integer"
+              },
+              "part": {
+                "minimum": 0,
+                "title": "Part",
+                "type": "integer"
+              },
+              "direction": {
+                "enum": [
+                  "forward",
+                  "backward"
+                ],
+                "title": "Direction",
+                "type": "string"
+              },
+              "start_node_id": {
+                "anyOf": [
+                  {
+                    "exclusiveMinimum": 0,
+                    "maximum": 9223372036854775807,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Start Node Id"
+              },
+              "end_node_id": {
+                "anyOf": [
+                  {
+                    "exclusiveMinimum": 0,
+                    "maximum": 9223372036854775807,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "End Node Id"
+              }
+            },
+            "required": [
+              "way_id",
+              "part",
+              "direction",
+              "start_node_id",
+              "end_node_id"
+            ],
+            "title": "MatchedPassage",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "outward_stop_ids": {
+            "items": {
+              "exclusiveMinimum": 0,
+              "maximum": 9223372036854775807,
+              "type": "integer"
+            },
+            "maxItems": 250,
+            "minItems": 1,
+            "title": "Outward Stop Ids",
+            "type": "array"
+          },
+          "return_match": {
+            "$ref": "#/$defs/BusTripMatch"
+          },
+          "outward_match": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/BusTripMatch"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "driving_side": {
+            "default": "right",
+            "enum": [
+              "right",
+              "left"
+            ],
+            "title": "Driving Side",
+            "type": "string"
+          },
+          "corridor_radius_m": {
+            "default": 35.0,
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Corridor Radius M",
+            "type": "number"
+          },
+          "pair_radius_m": {
+            "default": 120.0,
+            "maximum": 500,
+            "minimum": 1,
+            "title": "Pair Radius M",
+            "type": "number"
+          },
+          "excluded_return_node_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "exclusiveMinimum": 0,
+                  "maximum": 9223372036854775807,
+                  "type": "integer"
+                },
+                "maxItems": 250,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Excluded Return Node Ids"
+          },
+          "provider": {
+            "default": "auto",
+            "enum": [
+              "auto",
+              "overpass",
+              "editing_api"
+            ],
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "outward_stop_ids",
+          "return_match"
+        ],
+        "title": "review_bus_return_tripArguments",
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "title": "review_bus_return_tripDictOutput",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
     }
   ],
-  "version": "0.6.0",
+  "version": "0.7.0",
   "category": "tools",
   "tags": [
     "mcp",

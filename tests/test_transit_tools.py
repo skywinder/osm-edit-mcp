@@ -156,7 +156,8 @@ async def test_candidate_to_preview_to_confirmation_to_readback(monkeypatch, tmp
         for f in data["proposed_geojson"]["features"]
         if f["properties"].get("feature") == "omitted_stop"
     ] == omitted_markers
-    assert "Old stop" in track_tools.proposal_preview_resource(proposal_id)
+    page = track_tools.proposal_preview_resource(proposal_id)
+    assert "Old stop" in page and "Omitted stop locations</span>" in page
     assert not api.only_writes()
     digest = data["proposal_digest"]
     applied = await track_tools.apply_osm_edit(

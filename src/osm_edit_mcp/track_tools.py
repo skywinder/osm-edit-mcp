@@ -1255,6 +1255,7 @@ def _map_preview_html(
         "suspected": "#ef8c00",
         "dismissed": "#238636",
         "replaced": "#8957e5",
+        "omitted": "#b45309",
     }
     labels = {
         "current": "Current / nearby context",
@@ -1263,6 +1264,7 @@ def _map_preview_html(
         "suspected": "Suspected duplicates",
         "dismissed": "Reviewed as distinct",
         "replaced": "Source point replaced by polygon",
+        "omitted": "Omitted stop locations",
     }
     for index, name in enumerate(layers):
         if name not in colors:
@@ -1311,7 +1313,7 @@ function geometry(name,g,label) {{
 for (const [name,fc] of Object.entries(layers)) for (const f of (fc.features||[])) {{
  const p=f.properties||{{}};
  const label=p.stop_sequence?String(p.stop_sequence):p.review_state==='proposed'?'New POI':p.type&&p.id?`${{p.type}}/${{p.id}}`:'';
- geometry(name,f.geometry||{{}},label);
+ geometry(name,f.geometry||{{}},name==='omitted'?p.label:label);
 }}
 const pts=[...lines.flatMap(x=>x[1]),...dots.map(x=>x[1])];
 if(pts.length) {{
