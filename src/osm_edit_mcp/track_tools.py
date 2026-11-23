@@ -3135,6 +3135,28 @@ async def _apply_osm_edit_internal(
     upload_server_error = False
     diff_results: List[Dict[str, Any]] = []
     verification: Optional[Dict[str, Any]] = None
+
+    def record_interrupted_road_upload() -> None:
+        # Cancellation can interrupt either the upload or the subsequent
+        # diagnostic GET. Persist the evidence before propagating cancellation.
+        if (
+            owns_claim
+            and upload_started
+            and payload.get("action") in {"create", "update"}
+        ):
+            _PROPOSAL_STORE.finish(
+                proposal_id,
+                "RECONCILE_REQUIRED",
+                receipt={
+                    "changeset_id": active_changeset_id,
+                    "changeset_url": f"{config.current_web_base_url}/changeset/{active_changeset_id}",
+                    "diff_results": diff_results,
+                    "verification": verification,
+                },
+                error="Road upload confirmation interrupted",
+            )
+            proposal.status = "RECONCILE_REQUIRED"
+
     try:
         async with get_authenticated_client() as client:
             identity = await verify_write_identity(client)
@@ -3238,6 +3260,9 @@ async def _apply_osm_edit_internal(
             "data": receipt,
             "message": "OSM edit uploaded successfully",
         }
+    except asyncio.CancelledError:
+        record_interrupted_road_upload()
+        raise
     except ProposalStoreError as exc:
         return _failure(
             type(exc).__name__,
@@ -3256,7 +3281,7 @@ async def _apply_osm_edit_internal(
         is_ambiguous_upload = upload_confirmed or (
             upload_started
             and (
-                isinstance(exc, httpx.TransportError)
+                isinstance(exc, httpx.RequestError)
                 or upload_server_error
                 or payload.get("action") in POI_CREATE_ACTIONS
             )
@@ -3280,9 +3305,13 @@ async def _apply_osm_edit_internal(
                         "message": "Created node reconciled and verified; no upload was retried",
                     }
             else:
-                reconciliation = await _inspect_changeset_download(
-                    int(active_changeset_id)
-                )
+                try:
+                    reconciliation = await _inspect_changeset_download(
+                        int(active_changeset_id)
+                    )
+                except asyncio.CancelledError:
+                    record_interrupted_road_upload()
+                    raise
         pending_receipt: Dict[str, Any] = {
             "proposal_id": proposal_id,
             "proposal_digest": proposal_digest,

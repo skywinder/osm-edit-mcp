@@ -1346,7 +1346,10 @@ async def test_applied_road_without_a_receipt_never_reuploads_after_restart(
 
 
 @pytest.mark.asyncio
-async def test_transport_timeout_after_upload_requires_reconciliation(monkeypatch):
+@pytest.mark.parametrize("read_error", [httpx.ReadTimeout, httpx.DecodingError])
+async def test_interrupted_upload_response_requires_reconciliation(
+    monkeypatch, read_error
+):
     payload = {
         "action": "create",
         "track_hash": "abc",
@@ -1373,7 +1376,7 @@ async def test_transport_timeout_after_upload_requires_reconciliation(monkeypatc
     class TimeoutClient(FakeClient):
         async def post(self, url, **kwargs):
             self.posts.append((url, kwargs))
-            raise httpx.ReadTimeout("outcome unknown")
+            raise read_error("outcome unknown")
 
     client = TimeoutClient(
         get_responses={
@@ -1415,6 +1418,48 @@ async def test_transport_timeout_after_upload_requires_reconciliation(monkeypatc
     assert result["proposal_status"] == "RECONCILE_REQUIRED"
     assert result["reconciliation"]["status"] == "changeset_contains_elements"
     assert repeated["success"] is False
+    assert len(client.posts) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stage", ["upload", "diagnostic_read"])
+async def test_cancel_after_sending_road_upload_preserves_uncertain_status(
+    road_upload, monkeypatch, stage
+):
+    proposal, client = road_upload
+    reached = asyncio.Event()
+
+    async def pause(*args, **kwargs):
+        reached.set()
+        await asyncio.Future()
+
+    if stage == "upload":
+
+        async def post(url, **kwargs):
+            client.posts.append((url, kwargs))
+            await pause()
+
+        monkeypatch.setattr(client, "post", post)
+    else:
+        client.post_response = FakeResponse(text="<diffResult/>")
+        monkeypatch.setattr(track_tools, "_inspect_changeset_download", pause)
+
+    async def apply():
+        return await track_tools.apply_osm_edit(
+            proposal.proposal_id,
+            proposal.digest,
+            context=AcceptingContext(proposal.digest),
+        )
+
+    task = asyncio.create_task(apply())
+    await asyncio.wait_for(reached.wait(), timeout=5)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    stored = ProposalStore(track_tools._PROPOSAL_STORE.path).get(proposal.proposal_id)
+    assert stored.status == "RECONCILE_REQUIRED"
+    assert stored.changeset_id == 77
+    assert not (await apply())["success"]
     assert len(client.posts) == 1
 
 
