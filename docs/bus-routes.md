@@ -11,7 +11,7 @@ For a read-only first look at the real map, add this entry to an MCP client that
   "mcpServers": {
     "osm-bus": {
       "command": "uvx",
-      "args": ["--from", "osm-edit-mcp==0.5.0", "osm-edit-mcp"],
+      "args": ["--from", "osm-edit-mcp==0.6.0", "osm-edit-mcp"],
       "env": {
         "OSM_TOOL_PROFILE": "full",
         "OSM_WRITE_PROFILE": "safe",
@@ -23,9 +23,6 @@ For a read-only first look at the real map, add this entry to an MCP client that
 ```
 
 Call `get_edit_capabilities` to see the target API, the available bus route tools and the current authentication state. The [Dushanbe example](../examples/dushanbe-bus-1/README.md) also opens in iD without an MCP installation.
-
-To try the road-choice review and direct GeoJSON stop search from this checkout,
-use `uv` as the command and `["--directory", "/absolute/path/to/osm-edit-mcp", "run", "--locked", "osm-edit-mcp"]` as the arguments. Keep the environment shown above.
 
 ### From a trip to a review
 
