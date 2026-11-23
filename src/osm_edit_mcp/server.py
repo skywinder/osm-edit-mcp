@@ -73,6 +73,7 @@ from .track_tools import (
 )
 from .transit_corridor import suggest_bus_route_stops
 from .transit_match import suggest_bus_route_ways
+from .transit_return import review_bus_return_trip
 from .transit_split import preview_bus_way_split
 from .transit_tools import find_bus_route_stops, preview_bus_route
 from .write_tools import (
@@ -132,6 +133,7 @@ __all__ = [
     "preview_bus_way_split",
     "suggest_bus_route_ways",
     "suggest_bus_route_stops",
+    "review_bus_return_trip",
     "apply_track_road_edit",
     "build_tags_xml",
     "bulk_create_places",

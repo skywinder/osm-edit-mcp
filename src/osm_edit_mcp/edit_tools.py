@@ -92,6 +92,7 @@ async def get_edit_capabilities() -> Dict[str, Any]:
                 "find_bus_route_stops",
                 "suggest_bus_route_ways",
                 "suggest_bus_route_stops",
+                "review_bus_return_trip",
                 "preview_bus_route",
                 "preview_bus_way_split",
                 "apply_osm_edit",

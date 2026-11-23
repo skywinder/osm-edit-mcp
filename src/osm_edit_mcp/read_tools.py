@@ -269,6 +269,7 @@ async def get_server_info() -> Dict[str, Any]:
                     "suggest_track_road_candidates",
                     "suggest_bus_route_ways",
                     "suggest_bus_route_stops",
+                    "review_bus_return_trip",
                     "find_bus_route_stops",
                     "preview_bus_route",
                     "preview_bus_way_split",
