@@ -58,12 +58,15 @@ async def test_lobehub_capabilities_match_the_server() -> None:
         assert (
             declared_tool["description"].split() == runtime_tool["description"].split()
         )
-    assert {resource["uriTemplate"] for resource in manifest_resources} == {
+    assert {r["uri"] for r in manifest_resources if "uri" in r} == {
+        str(r.uri) for r in await mcp.list_resources()
+    }
+    assert {r["uriTemplate"] for r in manifest_resources if "uriTemplate" in r} == {
         str(template.uriTemplate) for template in templates
     }
     assert {prompt["name"] for prompt in manifest_prompts} == {
         prompt.name for prompt in prompts
     }
     assert len(manifest_tools) == 45
-    assert len(manifest_resources) == 3
+    assert len(manifest_resources) == 4
     assert len(manifest_prompts) == 1

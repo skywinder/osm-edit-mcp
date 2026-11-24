@@ -87,7 +87,11 @@ async def test_road_inspection_reads_production_geometry_without_write_tools(
                     "ui://osm-edit/track-comparison/{comparison_id}",
                 }
                 assert not (await session.list_prompts()).prompts
-                assert not (await session.list_resources()).resources
+                (viewer,) = (await session.list_resources()).resources
+                tool = next(t for t in tools if t.name == "compare_track_selections")
+                assert tool.meta["ui"]["resourceUri"] == str(viewer.uri)
+                app = await session.read_resource(viewer.uri)
+                assert app.contents[0].mimeType == "text/html;profile=mcp-app"
 
                 async def data(name, args):
                     result = await session.call_tool(name, args)
@@ -131,7 +135,7 @@ async def test_road_inspection_reads_production_geometry_without_write_tools(
                 )
                 overlay = await session.read_resource(comparison["preview_uri"])
                 assert overlay.contents[0].mimeType == "text/html"
-                assert "Trace 1" in overlay.contents[0].text
+                assert selection["selection_id"] in overlay.contents[0].text
                 result = await data(
                     "suggest_track_road_candidates",
                     {"selection_id": selection["selection_id"]},

@@ -192,10 +192,10 @@ async def smoke_test(command: str, *, live_osm_read: bool = False) -> None:
                 "installed MCP package has unexpected tools: "
                 f"missing={sorted(expected - tool_names)}, extra={sorted(tool_names - expected)}"
             )
-        if resources.resources:
-            raise SystemExit(
-                "installed MCP package unexpectedly exposes concrete resources"
-            )
+        if {str(r.uri) for r in resources.resources} != {
+            "ui://osm-edit/trace-view.html"
+        }:
+            raise SystemExit("installed MCP package has unexpected concrete resources")
         template_uris = {
             template.uriTemplate for template in templates.resourceTemplates
         }
@@ -247,9 +247,9 @@ async def smoke_test(command: str, *, live_osm_read: bool = False) -> None:
                     item.uriTemplate for item in inspection_templates
                 } != ROAD_INSPECTION_TEMPLATES:
                     raise SystemExit("unexpected road-inspection resource templates")
-                if (await session.list_prompts()).prompts or (
-                    await session.list_resources()
-                ).resources:
+                if (await session.list_prompts()).prompts or {
+                    str(r.uri) for r in (await session.list_resources()).resources
+                } != {"ui://osm-edit/trace-view.html"}:
                     raise SystemExit("unexpected road-inspection prompts or resources")
 
         print(

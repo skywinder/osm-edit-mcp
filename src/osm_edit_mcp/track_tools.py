@@ -1359,7 +1359,21 @@ def track_selection_preview_resource(selection_id: str) -> str:
     )
 
 
+TRACE_VIEW_URI = "ui://osm-edit/trace-view.html"
+
+
+@profile_resource(
+    TRACE_VIEW_URI,
+    name="Interactive GPX trace viewer",
+    description="Interactive display for GPX comparison results",
+    mime_type="text/html;profile=mcp-app",
+)
+def trace_view_resource() -> str:
+    return Path(__file__).with_name("trace_view.html").read_text(encoding="utf-8")
+
+
 @profile_tool(
+    meta={"ui": {"resourceUri": TRACE_VIEW_URI}},
     annotations=ToolAnnotations(
         readOnlyHint=True,
         destructiveHint=False,
@@ -1391,8 +1405,8 @@ async def compare_track_selections(
         selections = [_resolve_track_selection(item) for item in selection_ids]
         pairs = pairwise_distances([s.points for s in selections], selection_ids)
         traces = []
-        layers = {}
-        for index, selection in enumerate(selections, 1):
+        features = []
+        for selection in selections:
             included = selection.selection_id not in excluded
             record = _TRACKS.get(selection.track_id)
             trace = {
@@ -1406,10 +1420,7 @@ async def compare_track_selections(
                 "included": included,
             }
             traces.append(trace)
-            label = f"Trace {index} ({'included' if included else 'excluded'})"
-            layers[label] = _feature_collection(
-                [_line_feature(selection.points, trace)]
-            )
+            features.append(_line_feature(selection.points, trace))
         material = json.dumps([selection_ids, sorted(excluded)], separators=(",", ":"))
         comparison_id = hashlib.sha256(material.encode()).hexdigest()[:32]
         method = (
@@ -1418,28 +1429,13 @@ async def compare_track_selections(
             "The mean weights each direction equally and each leg by length. "
             "Different coverage or a detour can also increase disagreement."
         )
-        details = (
-            "<section><h2>Trace provenance and pairwise disagreement</h2><pre>"
-            + html.escape(
-                json.dumps({"traces": traces, "pairwise_disagreement": pairs}, indent=2)
-            )
-            + f"</pre><p>{method}</p></section>"
-        )
-        _TRACK_COMPARISONS[comparison_id] = {"layers": layers, "details": details}
-        _TRACK_COMPARISONS.move_to_end(comparison_id)
-        if len(_TRACK_COMPARISONS) > MAX_COMPARISON_PREVIEWS:
-            _TRACK_COMPARISONS.popitem(last=False)
-        return {
+        result = {
             "success": True,
             "data": {
                 "traces": traces,
                 "pairwise_disagreement": pairs,
                 "distance_method": method,
-                "geojson": _feature_collection(
-                    feature
-                    for layer in layers.values()
-                    for feature in layer["features"]
-                ),
+                "geojson": _feature_collection(features),
                 "preview_uri": f"ui://osm-edit/track-comparison/{comparison_id}",
                 "warnings": [
                     "Approximate sampled nearest-line distances do not establish common coverage or identify outliers. No consensus geometry is generated; road previews still use one explicitly selected trace."
@@ -1447,6 +1443,11 @@ async def compare_track_selections(
             },
             "message": "Compared GPX selections for manual review",
         }
+        _TRACK_COMPARISONS[comparison_id] = result
+        _TRACK_COMPARISONS.move_to_end(comparison_id)
+        if len(_TRACK_COMPARISONS) > MAX_COMPARISON_PREVIEWS:
+            _TRACK_COMPARISONS.popitem(last=False)
+        return result
     except Exception as exc:
         return _failure(
             type(exc).__name__,
@@ -1467,11 +1468,10 @@ def track_comparison_preview_resource(comparison_id: str) -> str:
         raise ValueError(
             "Comparison preview is unavailable; compare the selections again"
         )
-    return _map_preview_html(
-        "GPX trace comparison",
-        comparison["layers"],
-        comparison["details"],
-        "Solid lines show included ranges. Dashed lines show manually excluded ranges.",
+    snapshot = json.dumps(comparison).replace("<", "\\u003c")
+    return trace_view_resource().replace(
+        'type="application/json">null</script>',
+        f'type="application/json">{snapshot}</script>',
     )
 
 

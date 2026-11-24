@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GPX trace comparison</title>
+<style>
+*{box-sizing:border-box}body{margin:0;padding:16px;background:#f3f6f5;color:#18302d;font:15px system-ui,sans-serif}main{max-width:940px;margin:auto;background:white;padding:22px;border:1px solid #cbd8d4;border-radius:12px}h1{font-size:23px;margin:0 0 5px}h2{font-size:16px;margin:18px 0 6px}p{margin:4px 0 12px;color:#49605b}svg{width:100%;height:auto;display:block;background:#f0f5f3;border:1px solid #cbd8d4;border-radius:8px}label{display:flex;align-items:center;gap:10px;padding:6px 0;cursor:pointer}input{accent-color:#206959}.swatch{width:30px;border-top:4px solid;flex:none}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:6px;border-bottom:1px solid #e2e9e6}td:nth-child(n+2),th:nth-child(n+2){text-align:right}small{color:#536962}details{margin-top:14px}pre{white-space:pre-wrap;overflow-wrap:anywhere}
+</style>
+<main><h1>GPX trace comparison</h1><p id="status" role="status">Waiting for comparison data…</p>
+<div id="review" hidden><svg viewBox="0 0 800 270" role="img" aria-label="Survey trace overlay"></svg>
+<h2>Visible traces</h2><p>Toggle a line to inspect overlaps. Included and excluded labels show the saved review decisions.</p><div id="controls"></div>
+<h2>Separation by pair</h2><table><thead><tr><th>Traces</th><th>Mean (m)</th><th>Maximum (m)</th></tr></thead><tbody></tbody></table>
+<details><summary>Survey sources and measurement details</summary><pre id="sources"></pre></details></div></main>
+<script id="snapshot" type="application/json">null</script>
+<script>
+const $ = selector => document.querySelector(selector);
+const colors = ['#006db3','#a93b07','#7754aa','#13846a','#b12263','#555c24','#38449a','#823724','#275768','#605175'];
+function show(result) {
+  $('#review').hidden = true;
+  if (!result?.success) {
+    $('#status').textContent = result?.detail || result?.message || 'Comparison unavailable.';
+    return;
+  }
+  const d = result.data, lines = d.geojson.features, ids = d.traces.map(t => t.selection_id);
+  const labels = ids.map((_, i) => 'Trace ' + (i + 1));
+  const [lon,lat] = lines[0].geometry.coordinates[0];
+  const xScale = Math.cos(lat * Math.PI / 180);
+  let xmin=Infinity, xmax=-Infinity, ymin=Infinity, ymax=-Infinity;
+  const points = lines.map(f => f.geometry.coordinates.map(([x,y]) => {
+    x = (((x-lon+540)%360)-180)*xScale;
+    y -= lat;
+    xmin=Math.min(xmin,x); xmax=Math.max(xmax,x); ymin=Math.min(ymin,y); ymax=Math.max(ymax,y);
+    return [x,y];
+  }));
+  const scale = Math.min(744/Math.max(xmax-xmin,1e-10),214/Math.max(ymax-ymin,1e-10));
+  const svg=$('svg'), controls=$('#controls'), tbody=$('tbody');
+  svg.replaceChildren(); controls.replaceChildren(); tbody.replaceChildren();
+  d.traces.forEach((trace,i) => {
+    const line=document.createElementNS('http://www.w3.org/2000/svg','polyline');
+    line.setAttribute('points',points[i].map(([x,y])=>[400+(x-(xmin+xmax)/2)*scale,135-(y-(ymin+ymax)/2)*scale].join(',')).join(' '));
+    line.setAttribute('fill','none'); line.setAttribute('stroke',colors[i]); line.setAttribute('stroke-width','3.5');
+    line.setAttribute('stroke-linejoin','round');
+    if(!trace.included) line.setAttribute('stroke-dasharray','8 5');
+    svg.append(line);
+    const label=document.createElement('label'), input=document.createElement('input'), swatch=document.createElement('span');
+    input.type='checkbox'; input.checked=true;
+    input.addEventListener('change',()=>{line.style.display=input.checked?'':'none';});
+    swatch.className='swatch'; swatch.style.borderColor=colors[i]; swatch.style.borderTopStyle=trace.included?'solid':'dashed';
+    const filename=trace.source.split(/[\\/]/).pop();
+    label.append(input,swatch,document.createTextNode(labels[i]+' · '+filename+' · '+(trace.included?'Included':'Excluded')));
+    controls.append(label);
+  });
+  for(const p of d.pairwise_disagreement) {
+    const row=tbody.insertRow();
+    for(const value of [p.selection_ids.map(id=>labels[ids.indexOf(id)]).join(' / '),p.mean_distance_m.toFixed(2),p.max_distance_m.toFixed(2)]) row.insertCell().textContent=value;
+  }
+  const n=d.traces.filter(t=>t.included).length;
+  $('#status').textContent=n+' included · '+(ids.length-n)+' excluded';
+  $('#sources').textContent=d.distance_method+'\n\n'+JSON.stringify(d.traces,null,2);
+  $('#review').hidden=false;
+}
+const snapshot=JSON.parse($('#snapshot').textContent);
+if(snapshot) show(snapshot);
+else if(parent!==window) {
+  const post=msg=>parent.postMessage({jsonrpc:'2.0',...msg},'*');
+  window.addEventListener('message',e=>{
+    if(e.source!==parent || e.data?.jsonrpc!=='2.0') return;
+    const msg=e.data;
+    if(msg.id===1 && msg.result) post({method:'ui/notifications/initialized',params:{}});
+    if(msg.method==='ui/notifications/tool-result') show(msg.params.structuredContent?.result ?? msg.params.structuredContent);
+    if(msg.method==='ui/resource-teardown') post({id:msg.id,result:{}});
+  });
+  post({method:'ui/initialize',id:1,params:{appInfo:{name:'GPX trace comparison',version:'1.0.0'},appCapabilities:{},protocolVersion:'2026-01-26'}});
+  new ResizeObserver(()=>post({method:'ui/notifications/size-changed',params:{height:document.documentElement.scrollHeight}})).observe(document.querySelector('main'));
+}
+</script></html>

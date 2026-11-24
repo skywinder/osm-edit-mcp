@@ -40,6 +40,12 @@
       "uriTemplate": "ui://osm-edit/proposal/{proposal_id}",
       "description": "Current and proposed OSM geometry for human review",
       "mimeType": "text/html"
+    },
+    {
+      "name": "Interactive GPX trace viewer",
+      "uri": "ui://osm-edit/trace-view.html",
+      "description": "Interactive display for GPX comparison results",
+      "mimeType": "text/html;profile=mcp-app"
     }
   ],
   "tools": [
@@ -2105,6 +2111,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ui": {
+          "resourceUri": "ui://osm-edit/trace-view.html"
+        }
       }
     },
     {

@@ -64,6 +64,7 @@ ROAD_INSPECTION_TOOLS = {
     "suggest_track_road_candidates",
 }
 ROAD_INSPECTION_RESOURCES = {
+    "ui://osm-edit/trace-view.html",
     "ui://osm-edit/track-selection/{selection_id}",
     "ui://osm-edit/track-comparison/{comparison_id}",
 }
