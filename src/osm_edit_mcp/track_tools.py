@@ -45,6 +45,7 @@ from .proposal_store import (
     StoredProposal,
     canonical_digest,
 )
+from .road_verification import verify_road_upload, verify_stored_road_upload
 from .token_store import get_current_user_info, load_oauth_token
 from .track_comparison import SAMPLE_SPACING_M, pairwise_distances
 from .valhalla import match_track as valhalla_match_track
@@ -1627,9 +1628,15 @@ async def suggest_track_road_candidates(
         candidates = candidates[:limit]
         if inspection:
             points_returned = sum(len(c["geometry"]["coordinates"]) for c in candidates)
-            if points_returned > MAX_INSPECTION_RESULT_POINTS or len(
-                json.dumps(candidates, separators=(",", ":"), ensure_ascii=False).encode()
-            ) > MAX_INSPECTION_RESULT_BYTES:
+            if (
+                points_returned > MAX_INSPECTION_RESULT_POINTS
+                or len(
+                    json.dumps(
+                        candidates, separators=(",", ":"), ensure_ascii=False
+                    ).encode()
+                )
+                > MAX_INSPECTION_RESULT_BYTES
+            ):
                 raise ValueError(
                     "Candidate geometry exceeds the response limit. Reduce limit "
                     "or select a smaller GPX range and search_radius_m."
@@ -2777,13 +2784,28 @@ def _parse_diff_result(xml_text: str) -> List[Dict[str, Any]]:
         raise ValueError("Upload response must contain a diffResult root")
     results = []
     for element in root:
-        item = {
-            "type": _local_name(element.tag),
-            "old_id": int(element.get("old_id", "0")),
-            "new_id": int(element.get("new_id", element.get("old_id", "0"))),
-            "new_version": int(element.get("new_version", "0")),
-        }
-        results.append(item)
+        if element.tag not in {"node", "way", "relation"} or len(element):
+            raise ValueError("Unexpected element in the upload diffResult")
+        old_id = int(element.attrib["old_id"])
+        new_id, new_version = element.get("new_id"), element.get("new_version")
+        if new_id is None and new_version is None and old_id > 0:
+            # OSM acknowledges a deletion with old_id alone. Keep the stored
+            # receipt format shared with the polygon verifier.
+            identifier, version = old_id, 0
+        elif new_id is not None and new_version is not None:
+            identifier, version = int(new_id), int(new_version)
+            if old_id == 0 or identifier <= 0 or version <= 0:
+                raise ValueError("Invalid ID or version in the upload diffResult")
+        else:
+            raise ValueError("Incomplete ID or version in the upload diffResult")
+        results.append(
+            {
+                "type": element.tag,
+                "old_id": old_id,
+                "new_id": identifier,
+                "new_version": version,
+            }
+        )
     return results
 
 
@@ -2956,31 +2978,30 @@ async def _close_owned_changeset(client: Any, changeset_id: int) -> bool:
 async def _verify_diff_results(
     client: Any,
     diff_results: Sequence[Dict[str, Any]],
-    expected_nodes: Optional[Sequence[Dict[str, Any]]] = None,
+    expected_nodes: Sequence[Dict[str, Any]],
 ) -> Dict[str, Any]:
     verified: List[Dict[str, Any]] = []
     failures: List[Dict[str, Any]] = []
-    expected_by_id = {node["id"]: node for node in (expected_nodes or [])}
-    if expected_nodes is not None:
-        expected_diff = [
-            {
-                "type": "node",
-                "old_id": node["id"],
-                "new_id": node["id"],
-                "new_version": node["version"] + 1,
-            }
-            for node in expected_nodes
-        ]
-        if not expected_diff or list(diff_results) != expected_diff:
-            return {
-                "status": "verification_incomplete",
-                "verified": [],
-                "failures": [
-                    {
-                        "verification_error": "Upload diff does not match the approved node operation"
-                    }
-                ],
-            }
+    expected_by_id = {node["id"]: node for node in expected_nodes}
+    expected_diff = [
+        {
+            "type": "node",
+            "old_id": node["id"],
+            "new_id": node["id"],
+            "new_version": node["version"] + 1,
+        }
+        for node in expected_nodes
+    ]
+    if not expected_diff or list(diff_results) != expected_diff:
+        return {
+            "status": "verification_incomplete",
+            "verified": [],
+            "failures": [
+                {
+                    "verification_error": "Upload diff does not match the approved node operation"
+                }
+            ],
+        }
     for item in diff_results:
         element_type = item["type"]
         element_id = int(item["new_id"])
@@ -3115,10 +3136,34 @@ async def _apply_osm_edit_internal(
 
     owned_changeset = changeset_id is None
     active_changeset_id = changeset_id
+    owns_claim = False
     upload_started = False
     upload_confirmed = False
+    upload_server_error = False
     diff_results: List[Dict[str, Any]] = []
     verification: Optional[Dict[str, Any]] = None
+
+    def record_interrupted_road_upload() -> None:
+        # Cancellation can interrupt either the upload or the subsequent
+        # diagnostic GET. Persist the evidence before propagating cancellation.
+        if (
+            owns_claim
+            and upload_started
+            and payload.get("action") in {"create", "update"}
+        ):
+            _PROPOSAL_STORE.finish(
+                proposal_id,
+                "RECONCILE_REQUIRED",
+                receipt={
+                    "changeset_id": active_changeset_id,
+                    "changeset_url": f"{config.current_web_base_url}/changeset/{active_changeset_id}",
+                    "diff_results": diff_results,
+                    "verification": verification,
+                },
+                error="Road upload confirmation interrupted",
+            )
+            proposal.status = "RECONCILE_REQUIRED"
+
     try:
         async with get_authenticated_client() as client:
             identity = await verify_write_identity(client)
@@ -3129,12 +3174,28 @@ async def _apply_osm_edit_internal(
                 config.current_api_base_url,
                 osm_uid,
             )
-            if claimed.status == "APPLIED" and claimed.receipt:
+            if claimed.status == "APPLIED":
+                if not claimed.receipt:
+                    return _failure(
+                        "Missing receipt", "Cannot verify the earlier upload"
+                    )
+                receipt = claimed.receipt
+                if claimed.payload.get("action") in {"create", "update"}:
+                    # Older releases could save APPLIED for partial road uploads.
+                    verification = await verify_stored_road_upload(client, claimed)
+                    if verification["status"] != "verified":
+                        return _failure(
+                            "Unverified road receipt",
+                            "The earlier road upload requires reconciliation",
+                            verification=verification,
+                        )
+                    receipt = {**receipt, "verification": verification}
                 return {
                     "success": True,
-                    "data": claimed.receipt,
+                    "data": receipt,
                     "message": "Proposal was already applied; returning its receipt",
                 }
+            owns_claim = True
             payload = claimed.payload
             if payload.get("blocking_issues"):
                 raise ValueError("Persisted proposal contains blocking issues")
@@ -3155,6 +3216,7 @@ async def _apply_osm_edit_internal(
                 headers={"Content-Type": "text/xml"},
             )
             if response.status_code != 200:
+                upload_server_error = response.status_code >= 500
                 raise RuntimeError(
                     "OSM diff upload failed with HTTP "
                     f"{response.status_code}: {response.text}"
@@ -3165,20 +3227,18 @@ async def _apply_osm_edit_internal(
                 verification = await _verify_created_poi(
                     client, diff_results, payload, int(active_changeset_id)
                 )
-                if verification["status"] != "verified":
-                    raise RuntimeError(
-                        "Created POI geometry could not be verified; reconcile before any retry"
-                    )
-            elif payload.get("modify_nodes"):
+            elif payload.get("action") == "node_tag_update":
                 verification = await _verify_diff_results(
                     client, diff_results, expected_nodes=payload["modify_nodes"]
                 )
-                if verification["status"] != "verified":
-                    raise RuntimeError(
-                        "Uploaded node could not be verified against the approved operation; reconcile before any retry"
-                    )
             else:
-                verification = await _verify_diff_results(client, diff_results)
+                verification = await verify_road_upload(
+                    client, diff_results, payload, int(active_changeset_id)
+                )
+            if verification["status"] != "verified":
+                raise RuntimeError(
+                    "Upload could not be verified against the approved operations"
+                )
             changeset_closed = (
                 await _close_owned_changeset(client, int(active_changeset_id))
                 if owned_changeset
@@ -3207,6 +3267,9 @@ async def _apply_osm_edit_internal(
             "data": receipt,
             "message": "OSM edit uploaded successfully",
         }
+    except asyncio.CancelledError:
+        record_interrupted_road_upload()
+        raise
     except ProposalStoreError as exc:
         return _failure(
             type(exc).__name__,
@@ -3214,10 +3277,19 @@ async def _apply_osm_edit_internal(
             detail=str(exc),
         )
     except Exception as exc:
+        if not owns_claim:
+            # Another caller may own an APPLYING proposal. Only its uploader
+            # can finalize it or close its changeset.
+            return _failure(
+                type(exc).__name__,
+                "Could not access proposal for upload",
+                detail=describe_exception(exc),
+            )
         is_ambiguous_upload = upload_confirmed or (
             upload_started
             and (
-                isinstance(exc, httpx.TransportError)
+                isinstance(exc, httpx.RequestError)
+                or upload_server_error
                 or payload.get("action") in POI_CREATE_ACTIONS
             )
         )
@@ -3240,9 +3312,13 @@ async def _apply_osm_edit_internal(
                         "message": "Created node reconciled and verified; no upload was retried",
                     }
             else:
-                reconciliation = await _inspect_changeset_download(
-                    int(active_changeset_id)
-                )
+                try:
+                    reconciliation = await _inspect_changeset_download(
+                        int(active_changeset_id)
+                    )
+                except asyncio.CancelledError:
+                    record_interrupted_road_upload()
+                    raise
         pending_receipt: Dict[str, Any] = {
             "proposal_id": proposal_id,
             "proposal_digest": proposal_digest,
@@ -3254,10 +3330,11 @@ async def _apply_osm_edit_internal(
             ),
             "reconciliation": reconciliation,
         }
-        if payload.get("action") in POI_CREATE_ACTIONS and upload_confirmed:
+        if upload_confirmed:
             pending_receipt["diff_results"] = diff_results
             pending_receipt["verification"] = verification
-            pending_receipt.update(_poi_create_identity(payload, diff_results))
+            if payload.get("action") in POI_CREATE_ACTIONS:
+                pending_receipt.update(_poi_create_identity(payload, diff_results))
         try:
             _PROPOSAL_STORE.finish(
                 proposal_id,
@@ -3265,6 +3342,7 @@ async def _apply_osm_edit_internal(
                 receipt=pending_receipt if is_ambiguous_upload else None,
                 error=describe_exception(exc),
             )
+            proposal.status = status
         except Exception:
             pass
         if owned_changeset and active_changeset_id is not None:

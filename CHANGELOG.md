@@ -7,6 +7,12 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Road uploads reach `APPLIED` only after every approved operation has a
+  matching OSM diff entry and versioned element readback. An incomplete
+  response is recorded as `RECONCILE_REQUIRED` and cannot trigger another upload.
+
 ## [0.7.0] - 2026-11-23
 
 ### Added

@@ -6,7 +6,8 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from src.osm_edit_mcp import track_tools
+from src.osm_edit_mcp import edit_tools, track_tools, write_tools
+from src.osm_edit_mcp.proposal_store import ProposalStore
 
 SIMPLE_GPX = """<?xml version="1.0"?>
 <gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1">
@@ -1009,8 +1010,83 @@ async def test_owned_changeset_uses_structured_reserved_metadata():
     assert tags["created_by"].startswith("osm-edit-mcp/")
 
 
-@pytest.mark.asyncio
-async def test_apply_uploads_mocked_diff_and_closes_owned_changeset(monkeypatch):
+ROAD_NODE_ROW_1 = '<node old_id="-1" new_id="101" new_version="1"/>'
+ROAD_NODE_ROW_2 = '<node old_id="-2" new_id="102" new_version="1"/>'
+ROAD_WAY_ROW = '<way old_id="-100" new_id="201" new_version="1"/>'
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        '<way old_id="201" new_version="4"/>',
+        '<node old_id="101" new_id="101"/>',
+        '<node old_id="101" new_id="101" new_version="0"/>',
+    ],
+)
+def test_diff_parser_rejects_partial_rows_instead_of_inferring_ids_or_deletions(row):
+    with pytest.raises(ValueError):
+        track_tools._parse_diff_result(f"<diffResult>{row}</diffResult>")
+
+
+def test_diff_parser_accepts_osm_old_id_only_deletion():
+    rows = track_tools._parse_diff_result(
+        '<diffResult><node old_id="101"/></diffResult>'
+    )
+    assert rows == [{"type": "node", "old_id": 101, "new_id": 101, "new_version": 0}]
+
+
+def diff_xml(*rows):
+    return (
+        '<diffResult generator="test" version="0.6">' + "".join(rows) + "</diffResult>"
+    )
+
+
+class RoadUploadClient(FakeClient):
+    def __init__(self):
+        super().__init__(
+            get_responses={
+                "/node/101/1": FakeResponse(
+                    text='<osm><node id="101" version="1" changeset="77" visible="true" '
+                    'lat="1.0" lon="2.0"/></osm>'
+                ),
+                "/node/102/1": FakeResponse(
+                    text='<osm><node id="102" version="1" changeset="77" visible="true" '
+                    'lat="1.1" lon="2.1"/></osm>'
+                ),
+                "/way/201/1": FakeResponse(
+                    text='<osm><way id="201" version="1" changeset="77" visible="true">'
+                    '<nd ref="101"/><nd ref="102"/><tag k="highway" v="track"/>'
+                    "</way></osm>"
+                ),
+                "/changeset/77/download": FakeResponse(text="<osmChange/>"),
+            },
+            post_response=FakeResponse(
+                text=diff_xml(ROAD_NODE_ROW_1, ROAD_NODE_ROW_2, ROAD_WAY_ROW)
+            ),
+        )
+        self.puts = []
+        self.gets = []
+
+    async def get(self, url):
+        self.gets.append(url)
+        return await super().get(url)
+
+    async def put(self, url, **kwargs):
+        self.puts.append(url)
+        if url.endswith("/changeset/create"):
+            return FakeResponse(text="77")
+        if url.endswith("/changeset/77/close"):
+            return FakeResponse()
+        pytest.fail(f"Unexpected PUT {url}")
+
+    async def post(self, url, **kwargs):
+        # Let a second caller claim the proposal while the first upload is in flight.
+        await asyncio.sleep(0)
+        return await super().post(url, **kwargs)
+
+
+@pytest.fixture
+def road_upload(tmp_path, monkeypatch):
     payload = {
         "action": "create",
         "track_hash": "abc",
@@ -1032,129 +1108,248 @@ async def test_apply_uploads_mocked_diff_and_closes_owned_changeset(monkeypatch)
         "blocking_issues": [],
         "summary": {"new_nodes": 2, "new_ways": 1},
     }
-    proposal = track_tools._store_proposal(payload)
-    diff = """<diffResult generator="test" version="0.6">
-      <node old_id="-1" new_id="101" new_version="1"/>
-      <node old_id="-2" new_id="102" new_version="1"/>
-      <way old_id="-100" new_id="201" new_version="1"/>
-    </diffResult>"""
-    client = FakeClient(post_response=FakeResponse(text=diff))
+    store = ProposalStore(tmp_path / "proposals.sqlite3")
+    monkeypatch.setattr(track_tools, "_PROPOSAL_STORE", store)
+    monkeypatch.setattr(edit_tools, "_PROPOSAL_STORE", store)
+    monkeypatch.setattr(track_tools, "_PROPOSALS", {})
+    client = RoadUploadClient()
+    for module in (track_tools, write_tools):
+        monkeypatch.setattr(
+            module, "load_oauth_token", lambda: {"access_token": "test"}
+        )
+        monkeypatch.setattr(module, "get_authenticated_client", lambda: client)
+    monkeypatch.setattr(edit_tools, "get_public_client", lambda: client)
+    return track_tools._store_proposal(payload, verified_osm_uid=123), client
 
-    async def fake_create(client, payload):
-        return 77
 
-    async def fake_close(client, changeset_id):
-        return True
-
-    async def fake_identity(client):
-        return {"user_id": 123, "username": "test", "permissions": ["write_api"]}
-
-    async def fake_verify(client, diff_results):
-        return {"status": "verified", "verified": list(diff_results), "failures": []}
-
-    monkeypatch.setattr(track_tools, "load_oauth_token", lambda: {"access_token": "x"})
-    monkeypatch.setattr(track_tools, "get_authenticated_client", lambda: client)
-    monkeypatch.setattr(track_tools, "_create_owned_changeset", fake_create)
-    monkeypatch.setattr(track_tools, "_close_owned_changeset", fake_close)
-    monkeypatch.setattr(track_tools, "verify_write_identity", fake_identity)
-    monkeypatch.setattr(track_tools, "_verify_diff_results", fake_verify)
-
-    result = await track_tools.apply_track_road_edit(
-        proposal.proposal_id,
-        proposal.digest,
-        confirm=True,
-        context=AcceptingContext(proposal.digest),
+@pytest.mark.asyncio
+async def test_apply_uploads_mocked_diff_and_closes_owned_changeset(road_upload):
+    proposal, client = road_upload
+    result = await track_tools.apply_osm_edit(
+        proposal.proposal_id, proposal.digest, context=AcceptingContext(proposal.digest)
     )
 
     assert result["success"] is True
-    assert result["data"]["changeset_id"] == 77
-    assert result["data"]["changeset_closed"] is True
-    assert result["data"]["diff_results"][-1]["new_id"] == 201
+    receipt = result["data"]
+    assert receipt["changeset_id"] == 77
+    assert receipt["changeset_closed"] is True
+    assert receipt["verification"]["status"] == "verified"
+    assert len(receipt["verification"]["verified"]) == 3
+    assert receipt["diff_results"][-1]["new_id"] == 201
+    assert client.puts[0].endswith("/changeset/create")
+    assert client.puts[1].endswith("/changeset/77/close")
     assert client.posts[0][0].endswith("/changeset/77/upload")
+    osm_change = ET.fromstring(client.posts[0][1]["content"])
+    assert [n.get("id") for n in osm_change.findall("./create/node")] == ["-1", "-2"]
+    assert osm_change.find("./create/way").get("id") == "-100"
+    assert {url.split("/api/0.6/")[-1] for url in client.gets} == {
+        "node/101/1",
+        "node/102/1",
+        "way/201/1",
+    }
+    durable = ProposalStore(track_tools._PROPOSAL_STORE.path).get(proposal.proposal_id)
+    assert durable.status == "APPLIED"
+    assert durable.receipt == receipt
+    again = await track_tools.apply_osm_edit(
+        proposal.proposal_id, proposal.digest, context=AcceptingContext(proposal.digest)
+    )
+    assert again["success"] and again["data"] == receipt
+    assert len(client.posts) == 1
 
 
 @pytest.mark.asyncio
-async def test_concurrent_apply_never_uploads_the_same_proposal_twice(monkeypatch):
-    payload = {
-        "action": "create",
-        "track_hash": "abc",
-        "segment_id": "trk-0-seg-0",
-        "changeset_comment": "Add road",
-        "changeset_source": "survey",
-        "create_nodes": [
-            {"id": -1, "lat": 1.0, "lon": 2.0, "tags": {}},
-            {"id": -2, "lat": 1.1, "lon": 2.1, "tags": {}},
-        ],
-        "create_ways": [
-            {"id": -100, "node_ids": [-1, -2], "tags": {"highway": "track"}}
-        ],
-        "modify_ways": [],
-        "delete_nodes": [],
-        "snapshot_ways": {},
-        "snapshot_nodes": {},
-        "warnings": [],
-        "blocking_issues": [],
-        "summary": {"new_nodes": 2, "new_ways": 1},
-    }
-    proposal = track_tools._store_proposal(payload)
-    diff = """<diffResult generator="test" version="0.6">
-      <node old_id="-1" new_id="101" new_version="1"/>
-      <node old_id="-2" new_id="102" new_version="1"/>
-      <way old_id="-100" new_id="201" new_version="1"/>
-    </diffResult>"""
-
-    class YieldingClient(FakeClient):
-        async def post(self, url, **kwargs):
-            self.posts.append((url, kwargs))
-            await asyncio.sleep(0.01)
-            return FakeResponse(text=diff)
-
-    client = YieldingClient()
-    create_count = 0
-
-    async def fake_create(client, payload):
-        nonlocal create_count
-        create_count += 1
-        return 77
-
-    async def fake_close(client, changeset_id):
-        return True
-
-    async def fake_identity(client):
-        return {"user_id": 123, "username": "test", "permissions": ["write_api"]}
-
-    async def fake_verify(client, diff_results):
-        return {"status": "verified", "verified": list(diff_results), "failures": []}
-
-    monkeypatch.setattr(track_tools, "load_oauth_token", lambda: {"access_token": "x"})
-    monkeypatch.setattr(track_tools, "get_authenticated_client", lambda: client)
-    monkeypatch.setattr(track_tools, "_create_owned_changeset", fake_create)
-    monkeypatch.setattr(track_tools, "_close_owned_changeset", fake_close)
-    monkeypatch.setattr(track_tools, "verify_write_identity", fake_identity)
-    monkeypatch.setattr(track_tools, "_verify_diff_results", fake_verify)
-
+async def test_concurrent_apply_never_uploads_the_same_proposal_twice(road_upload):
+    proposal, client = road_upload
     results = await asyncio.gather(
-        track_tools.apply_track_road_edit(
-            proposal.proposal_id,
-            proposal.digest,
-            confirm=True,
-            context=AcceptingContext(proposal.digest),
-        ),
-        track_tools.apply_track_road_edit(
-            proposal.proposal_id,
-            proposal.digest,
-            confirm=True,
-            context=AcceptingContext(proposal.digest),
-        ),
+        *(
+            track_tools.apply_track_road_edit(
+                proposal.proposal_id,
+                proposal.digest,
+                confirm=True,
+                context=AcceptingContext(proposal.digest),
+            )
+            for _ in range(2)
+        )
     )
 
     assert len(client.posts) == 1
-    assert create_count == 1
+    assert sum(url.endswith("/changeset/create") for url in client.puts) == 1
     assert sum(result["success"] for result in results) == 1
 
 
 @pytest.mark.asyncio
-async def test_transport_timeout_after_upload_requires_reconciliation(monkeypatch):
+async def test_concurrent_identity_failure_cannot_finish_another_road_upload(
+    road_upload, monkeypatch
+):
+    proposal, client = road_upload
+    in_flight = asyncio.Event()
+    release = asyncio.Event()
+    post = client.post
+
+    async def hold_upload(*args, **kwargs):
+        in_flight.set()
+        await release.wait()
+        return await post(*args, **kwargs)
+
+    async def identity_unavailable(client):
+        raise httpx.ReadTimeout("identity not available")
+
+    # The optional development-only confirmation would reject the competing call
+    # before it reaches the identity lookup. Exercise that lookup while applying.
+    monkeypatch.setattr(track_tools.config, "osm_require_host_confirmation", False)
+    monkeypatch.setattr(client, "post", hold_upload)
+    first = asyncio.create_task(
+        track_tools.apply_osm_edit(
+            proposal.proposal_id,
+            proposal.digest,
+            context=AcceptingContext(proposal.digest),
+        )
+    )
+    try:
+        await asyncio.wait_for(in_flight.wait(), timeout=5)
+        monkeypatch.setattr(track_tools, "verify_write_identity", identity_unavailable)
+        second = await track_tools.apply_osm_edit(
+            proposal.proposal_id,
+            proposal.digest,
+            context=AcceptingContext(proposal.digest),
+        )
+        assert not second["success"]
+        assert (
+            track_tools._PROPOSAL_STORE.get(proposal.proposal_id).status == "APPLYING"
+        )
+    finally:
+        release.set()
+        result = await first
+    assert result["success"]
+    assert track_tools._PROPOSAL_STORE.get(proposal.proposal_id).status == "APPLIED"
+    assert len(client.posts) == 1
+
+
+@pytest.mark.parametrize(
+    "upload_response,failed_readback",
+    [
+        pytest.param(FakeResponse(502, "Bad Gateway"), False, id="upload-502"),
+        pytest.param(FakeResponse(text=""), False, id="empty-body"),
+        pytest.param(FakeResponse(text=diff_xml()), False, id="empty-mapping"),
+        pytest.param(
+            FakeResponse(text=diff_xml(ROAD_NODE_ROW_1, ROAD_WAY_ROW)),
+            False,
+            id="missing-node",
+        ),
+        pytest.param(FakeResponse(text="<diffResult"), False, id="malformed-xml"),
+        pytest.param(
+            FakeResponse(
+                text=diff_xml(
+                    ROAD_NODE_ROW_1, ROAD_NODE_ROW_2, ROAD_NODE_ROW_1, ROAD_WAY_ROW
+                )
+            ),
+            False,
+            id="duplicate-mapping",
+        ),
+        pytest.param(
+            FakeResponse(text=diff_xml(ROAD_NODE_ROW_1, ROAD_NODE_ROW_2, ROAD_WAY_ROW)),
+            True,
+            id="version-readback-unavailable",
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_road_upload_with_uncertain_evidence_is_not_repeated_after_restart(
+    road_upload, monkeypatch, upload_response, failed_readback
+):
+    proposal, client = road_upload
+    client.post_response = upload_response
+    if failed_readback:
+        client.get_responses["/way/201/1"] = FakeResponse(503)
+    result = await track_tools.apply_osm_edit(
+        proposal.proposal_id, proposal.digest, context=AcceptingContext(proposal.digest)
+    )
+    assert not result["success"]
+    assert result["proposal_status"] == "RECONCILE_REQUIRED"
+
+    reopened = ProposalStore(track_tools._PROPOSAL_STORE.path)
+    durable = reopened.get(proposal.proposal_id)
+    assert durable.status == "RECONCILE_REQUIRED"
+    assert durable.changeset_id == 77
+    if upload_response.text.endswith("</diffResult>"):
+        assert isinstance(durable.receipt["diff_results"], list)
+        assert durable.receipt["verification"]["status"] == "verification_incomplete"
+        assert durable.receipt["verification"]["failures"]
+
+    monkeypatch.setattr(track_tools, "_PROPOSAL_STORE", reopened)
+    monkeypatch.setattr(track_tools, "_PROPOSALS", {})
+    repeated = await track_tools.apply_osm_edit(
+        proposal.proposal_id, proposal.digest, context=AcceptingContext(proposal.digest)
+    )
+    assert not repeated["success"]
+    assert len(client.posts) == 1
+    assert sum(url.endswith("/changeset/create") for url in client.puts) == 1
+
+
+@pytest.mark.asyncio
+async def test_verify_historically_applied_road_with_partial_receipt_after_restart(
+    road_upload, monkeypatch
+):
+    proposal, client = road_upload
+    # The listed node still exists at the claimed version. Verifying just that
+    # subset used to report success for the entire road.
+    client.get_responses["/node/101"] = client.get_responses["/node/101/1"]
+    store = track_tools._PROPOSAL_STORE
+    store.claim(proposal.proposal_id, proposal.digest, proposal.api_target, 123)
+    store.set_changeset_id(proposal.proposal_id, 77)
+    store.finish(
+        proposal.proposal_id,
+        "APPLIED",
+        receipt={
+            "changeset_id": 77,
+            "proposal_digest": proposal.digest,
+            "diff_results": [
+                {"type": "node", "old_id": -1, "new_id": 101, "new_version": 1}
+            ],
+            "verification": {"status": "verified", "failures": []},
+        },
+    )
+    reopened = ProposalStore(store.path)
+    monkeypatch.setattr(track_tools, "_PROPOSALS", {})
+    monkeypatch.setattr(track_tools, "_PROPOSAL_STORE", reopened)
+    monkeypatch.setattr(edit_tools, "_PROPOSAL_STORE", reopened)
+
+    result = await edit_tools.verify_osm_edit(proposal.proposal_id)
+    assert not result["success"]
+    assert result["data"]["verification"]["status"] == "verification_incomplete"
+    assert result["data"]["verification"]["failures"]
+    await track_tools.apply_osm_edit(
+        proposal.proposal_id, proposal.digest, context=AcceptingContext(proposal.digest)
+    )
+    assert client.posts == []
+
+
+@pytest.mark.asyncio
+async def test_applied_road_without_a_receipt_never_reuploads_after_restart(
+    road_upload, monkeypatch
+):
+    proposal, client = road_upload
+    store = track_tools._PROPOSAL_STORE
+    store.claim(proposal.proposal_id, proposal.digest, proposal.api_target, 123)
+    store.set_changeset_id(proposal.proposal_id, 77)
+    store.finish(proposal.proposal_id, "APPLIED")
+
+    reopened = ProposalStore(store.path)
+    monkeypatch.setattr(track_tools, "_PROPOSALS", {})
+    monkeypatch.setattr(track_tools, "_PROPOSAL_STORE", reopened)
+    result = await track_tools.apply_osm_edit(
+        proposal.proposal_id, proposal.digest, context=AcceptingContext(proposal.digest)
+    )
+    assert not result["success"]
+    assert client.puts == []
+    assert client.posts == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("read_error", [httpx.ReadTimeout, httpx.DecodingError])
+async def test_interrupted_upload_response_requires_reconciliation(
+    monkeypatch, read_error
+):
     payload = {
         "action": "create",
         "track_hash": "abc",
@@ -1181,7 +1376,7 @@ async def test_transport_timeout_after_upload_requires_reconciliation(monkeypatc
     class TimeoutClient(FakeClient):
         async def post(self, url, **kwargs):
             self.posts.append((url, kwargs))
-            raise httpx.ReadTimeout("outcome unknown")
+            raise read_error("outcome unknown")
 
     client = TimeoutClient(
         get_responses={
@@ -1223,6 +1418,48 @@ async def test_transport_timeout_after_upload_requires_reconciliation(monkeypatc
     assert result["proposal_status"] == "RECONCILE_REQUIRED"
     assert result["reconciliation"]["status"] == "changeset_contains_elements"
     assert repeated["success"] is False
+    assert len(client.posts) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stage", ["upload", "diagnostic_read"])
+async def test_cancel_after_sending_road_upload_preserves_uncertain_status(
+    road_upload, monkeypatch, stage
+):
+    proposal, client = road_upload
+    reached = asyncio.Event()
+
+    async def pause(*args, **kwargs):
+        reached.set()
+        await asyncio.Future()
+
+    if stage == "upload":
+
+        async def post(url, **kwargs):
+            client.posts.append((url, kwargs))
+            await pause()
+
+        monkeypatch.setattr(client, "post", post)
+    else:
+        client.post_response = FakeResponse(text="<diffResult/>")
+        monkeypatch.setattr(track_tools, "_inspect_changeset_download", pause)
+
+    async def apply():
+        return await track_tools.apply_osm_edit(
+            proposal.proposal_id,
+            proposal.digest,
+            context=AcceptingContext(proposal.digest),
+        )
+
+    task = asyncio.create_task(apply())
+    await asyncio.wait_for(reached.wait(), timeout=5)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    stored = ProposalStore(track_tools._PROPOSAL_STORE.path).get(proposal.proposal_id)
+    assert stored.status == "RECONCILE_REQUIRED"
+    assert stored.changeset_id == 77
+    assert not (await apply())["success"]
     assert len(client.posts) == 1
 
 
