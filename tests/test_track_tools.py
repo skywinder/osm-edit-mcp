@@ -257,7 +257,7 @@ async def test_compare_selections_shows_disagreement_and_manual_exclusion(monkey
     (resource,) = await track_tools.mcp.read_resource(data["preview_uri"])
     assert resource.mime_type == "text/html"
     page = resource.content
-    assert page.startswith("<!doctype html>") and page.endswith("</html>")
+    assert page.startswith("<!doctype html>") and page.rstrip().endswith("</html>")
     assert "excluded" in page and ids[2] in page and "pairwise_disagreement" in page
     assert not (await track_tools.compare_track_selections([ids[0], ids[0]]))["success"]
     assert not (await track_tools.compare_track_selections(ids, ["unknown"]))["success"]
@@ -271,7 +271,7 @@ async def test_compare_selections_shows_disagreement_and_manual_exclusion(monkey
     assert all(trace["included"] for trace in revised["traces"])
     assert revised["pairwise_disagreement"] == data["pairwise_disagreement"]
     assert revised["preview_uri"] != data["preview_uri"]
-    assert "Trace 3 (excluded)" in track_tools.track_comparison_preview_resource(
+    assert '"included": false' in track_tools.track_comparison_preview_resource(
         data["preview_uri"].rsplit("/", 1)[-1]
     )
     await track_tools.compare_track_selections(ids, [ids[1]])

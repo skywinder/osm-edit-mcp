@@ -210,6 +210,16 @@ compare_track_selections(
 )
 ```
 
+MCP Apps hosts can display the comparison directly in the tool response. In
+other resource-capable clients, open the returned `preview_uri` for the same
+interactive view. Use **Visible traces** to hide or show individual lines.
+The labels show the inclusion decisions passed to the tool. To change a
+decision, call the comparison again with the revised `excluded_selection_ids`.
+
+![Three synthetic traces, with an excluded detour drawn as a dashed line](images/trace-overlay.png)
+
+[View the same comparison with the detour hidden](images/trace-overlay-hidden.png).
+
 The overlay shows every selected point. Excluded ranges stay visible as dashed
 lines. Each range retains its track ID, source, segment and original point indexes.
 For each pair, the tool measures distances to the other full line in both
